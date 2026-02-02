@@ -303,6 +303,13 @@ class Vehicle:
         self.lane_change_retries = 0
         self.last_retry_time = 0
         self.is_affected = False  # 标记是否受影响
+        
+        # 异常响应时间记录
+        self.anomaly_trigger_time = None       # 异常触发时间
+        self.first_detection_time = None       # 后车首次检测到该异常的时间
+        self.anomaly_response_times = []       # 响应时间列表（方案A）
+        self.detected_by_etc = False           # 是否被ETC门架检测到
+        self.etc_detection_time = None         # ETC门架检测时间（方案B）
     
     def _init_vehicle_type(self):
         types = list(VEHICLE_TYPE_CONFIG.keys())
@@ -558,6 +565,7 @@ class Vehicle:
         
         if trigger:
             self.anomaly_state = 'active'
+            self.anomaly_trigger_time = current_time  # 记录异常触发时间
             
             if self.anomaly_type == 1:
                 self.target_speed_override = 0
@@ -619,6 +627,11 @@ class Vehicle:
             if leader.anomaly_type == 1 and dist < 150:
                 target_speed = 0
                 max_decel = 7.0
+                # 记录响应时间（方案A）
+                if leader.anomaly_trigger_time and not self.first_detection_time:
+                    response_time = current_time - leader.anomaly_trigger_time
+                    self.anomaly_response_times.append(response_time)
+                    self.first_detection_time = current_time
             elif leader.anomaly_state == 'active' and dist < 250:
                 target_speed = min(target_speed, leader.speed * 0.8)
         
@@ -814,6 +827,17 @@ class TrafficSimulation:
                     self.anomaly_logs.append(log)
                 
                 v.update(SIMULATION_DT, active_vehicles, blocked_lanes, self.current_time)
+            
+            # ETC门架检测逻辑（方案B）：假设每2公里有一个ETC门架
+            for v in active_vehicles:
+                if v.anomaly_state == 'active' and not v.detected_by_etc:
+                    pos_km = v.pos / 1000
+                    # 检查是否经过ETC门架（门架位置：2km, 4km, 6km, ... 18km）
+                    for gate_km in range(2, int(ROAD_LENGTH_KM), 2):
+                        if gate_km <= pos_km < gate_km + 0.5:  # 在门架附近
+                            v.detected_by_etc = True
+                            v.etc_detection_time = self.current_time - v.anomaly_trigger_time
+                            break
             
             for v in active_vehicles:
                 self.trajectory_data.append({
@@ -1765,59 +1789,83 @@ class AnomalyTimelinePlotter(Visualizer):
 class ETCPerformancePlotter(Visualizer):
     def generate(self, finished_vehicles, anomaly_logs, segment_speed_history):
         print("  生成: ETC系统性能分析...")
-        if not anomaly_logs or not segment_speed_history:
-            print("    [跳过] 无数据")
+        if not anomaly_logs:
+            print("    [跳过] 无异常数据")
             return
         
-        fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
         
-        max_time = max([log['time'] for log in anomaly_logs]) if anomaly_logs else 1000
-        time_windows = list(range(0, int(max_time) + 200, 200))
+        # 子图1: 异常发生率
+        ax1 = axes[0, 0]
+        anomaly_vehicle_ids = set(log['id'] for log in anomaly_logs)
+        anomaly_rate = len(anomaly_vehicle_ids) / TOTAL_VEHICLES_TARGET * 100
+        ax1.bar(['异常发生率'], [anomaly_rate], color='coral', edgecolor='black')
+        ax1.set_ylabel('百分比 (%)')
+        ax1.set_title('异常发生率\n(发生异常的车辆/总车辆)', fontsize=12)
+        ax1.set_ylim(0, max(5, anomaly_rate * 2))
+        for i, v in enumerate([anomaly_rate]):
+            ax1.text(i, v + 0.2, f'{v:.2f}%', ha='center', fontsize=11)
+        ax1.grid(axis='y', alpha=0.3)
         
-        detection_rates = []
-        false_alarm_rates = []
-        response_times = []
+        # 子图2: 异常类型分布
+        ax2 = axes[0, 1]
+        type_counts = {1: 0, 2: 0, 3: 0}
+        for log in anomaly_logs:
+            type_counts[log['type']] += 1
+        if sum(type_counts.values()) > 0:
+            labels = ['完全静止\n(类型1)', '短暂波动\n(类型2)', '长时波动\n(类型3)']
+            colors = [COLOR_TYPE1, COLOR_TYPE2, COLOR_TYPE3]
+            wedges, texts, autotexts = ax2.pie(
+                type_counts.values(), 
+                labels=labels,
+                colors=colors,
+                autopct='%1.1f%%',
+                startangle=90
+            )
+            for autotext in autotexts:
+                autotext.set_fontsize(10)
+                autotext.set_color('white')
+        ax2.set_title('异常类型分布\n(各严重程度异常占比)', fontsize=12)
         
-        for i in range(len(time_windows) - 1):
-            t_start = time_windows[i]
-            t_end = time_windows[i + 1]
-            
-            window_anomalies = [log for log in anomaly_logs if t_start <= log['time'] < t_end]
-            
-            detected = len(window_anomalies)
-            total_vehicles = len([v for v in finished_vehicles if t_start <= v.entry_time < t_end])
-            
-            detection_rate = (detected / total_vehicles * 100) if total_vehicles > 0 else 0
-            detection_rates.append(detection_rate)
-            
-            false_alarms = sum(1 for log in window_anomalies if log['type'] in [2, 3])
-            false_rate = (false_alarms / detected * 100) if detected > 0 else 0
-            false_alarm_rates.append(false_rate)
-            
-            response_time = 5 + random.uniform(-2, 2)
-            response_times.append(response_time)
+        # 子图3: 异常传播响应时间（方案A）
+        ax3 = axes[1, 0]
+        all_response_times = []
+        for v in finished_vehicles:
+            if hasattr(v, 'anomaly_response_times') and v.anomaly_response_times:
+                all_response_times.extend(v.anomaly_response_times)
         
-        ax1 = axes[0]
-        ax1.plot(time_windows[1:], detection_rates, 'b-o', linewidth=2, markersize=6)
-        ax1.set_xlabel('时间 (秒)')
-        ax1.set_ylabel('检测率 (%)')
-        ax1.set_title('异常检测率随时间变化')
-        ax1.grid(True, alpha=0.3)
-        ax1.set_ylim(0, 100)
-        
-        ax2 = axes[1]
-        ax2.plot(time_windows[1:], false_alarm_rates, 'r-s', linewidth=2, markersize=6)
-        ax2.set_xlabel('时间 (秒)')
-        ax2.set_ylabel('误报率 (%)')
-        ax2.set_title('异常误报率随时间变化')
-        ax2.grid(True, alpha=0.3)
-        
-        ax3 = axes[2]
-        ax3.hist(response_times, bins=15, color='steelblue', edgecolor='black', alpha=0.7)
+        if all_response_times:
+            ax3.hist(all_response_times, bins=20, color='steelblue', edgecolor='black', alpha=0.7)
+            ax3.axvline(x=sum(all_response_times)/len(all_response_times), color='red', 
+                       linestyle='--', label=f'平均: {sum(all_response_times)/len(all_response_times):.1f}秒')
+            ax3.legend()
+        else:
+            ax3.text(0.5, 0.5, '无有效数据\n(后方车辆未检测到前方异常)', 
+                    ha='center', va='center', fontsize=11)
         ax3.set_xlabel('响应时间 (秒)')
         ax3.set_ylabel('频次')
-        ax3.set_title('系统响应时间分布')
+        ax3.set_title('异常传播响应时间分布\n(后方车辆首次减速时间 - 异常触发时间)', fontsize=12)
         ax3.grid(axis='y', alpha=0.3)
+        
+        # 子图4: ETC门架检测延迟（方案B）
+        ax4 = axes[1, 1]
+        all_etc_times = []
+        for v in finished_vehicles:
+            if hasattr(v, 'etc_detection_time') and v.etc_detection_time is not None:
+                all_etc_times.append(v.etc_detection_time)
+        
+        if all_etc_times:
+            ax4.hist(all_etc_times, bins=20, color='green', edgecolor='black', alpha=0.7)
+            ax4.axvline(x=sum(all_etc_times)/len(all_etc_times), color='red', 
+                       linestyle='--', label=f'平均: {sum(all_etc_times)/len(all_etc_times):.1f}秒')
+            ax4.legend()
+        else:
+            ax4.text(0.5, 0.5, '无ETC检测数据\n(模拟中已启用门架检测)', 
+                    ha='center', va='center', fontsize=11)
+        ax4.set_xlabel('检测延迟 (秒)')
+        ax4.set_ylabel('频次')
+        ax4.set_title('ETC门架检测延迟分布\n(异常车辆经过门架时间 - 异常触发时间)', fontsize=12)
+        ax4.grid(axis='y', alpha=0.3)
         
         plt.tight_layout()
         self.save(fig, "etc_performance.png")
