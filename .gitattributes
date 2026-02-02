@@ -1,0 +1,13 @@
+# 文本文件使用 CRLF 换行符
+*.py text eol=crlf
+*.md text eol=crlf
+*.ipynb text eol=crlf
+*.txt text eol=crlf
+*.csv text eol=crlf
+
+# 二进制文件不转换
+*.png binary
+*.gif binary
+*.jpg binary
+*.ico binary
+*.pdf binary
