@@ -121,6 +121,16 @@ LANE_CHANGE_DELAY = 2.0
 LANE_CHANGE_STEPS = 5
 SLOWDOWN_RATIO = 0.85
 
+# 换道参数修复
+FORCED_CHANGE_DIST = 400  # 强制换道检测距离（米）
+LANE_CHANGE_GAP = 25      # 换道所需间隙（米）
+LANE_CHANGE_MAX_RETRIES = 5  # 最大换道重试次数
+LANE_CHANGE_RETRY_INTERVAL = 2.0  # 重试间隔（秒）
+
+# 颜色标记阈值修复
+IMPACT_THRESHOLD = 0.90   # 受影响车辆阈值（原来是0.95）
+IMPACT_SPEED_RATIO = 0.70  # 速度低于期望速度70%标记为受影响
+
 ANOMALY_IMPACT_REFINE = {
     'type1': {'base_impact': 150, 'queue_factor': 2.0, 'max_impact': 800},
     'type2': {'downstream': 250, 'upstream': 150},
@@ -278,6 +288,11 @@ class Vehicle:
         self.lane_changes = 0
         self.total_lane_changes = 0
         self.lane_change_reasons = {'free': 0, 'forced': 0}
+        
+        # 换道重试机制（修复）
+        self.lane_change_retries = 0
+        self.last_retry_time = 0
+        self.is_affected = False  # 标记是否受影响
     
     def _init_vehicle_type(self):
         types = list(VEHICLE_TYPE_CONFIG.keys())
@@ -342,12 +357,13 @@ class Vehicle:
     
     # --- MOBIL换道模型 ---
     def mobil_decision(self, vehicles_nearby, blocked_lanes):
-        """MOBIL换道决策"""
+        """MOBIL换道决策（修复版：扩大强制换道距离）"""
         leader = self._find_leader(vehicles_nearby)
         
         if leader:
             safe_dist = self.speed * 1.5 + self.s0
-            if leader.anomaly_type == 1 and leader.pos - self.pos < 200:
+            # 修复：扩大强制换道检测距离（200米 → 400米）
+            if leader.anomaly_type == 1 and leader.pos - self.pos < FORCED_CHANGE_DIST:
                 return self._try_forced_lane_change(vehicles_nearby, blocked_lanes)
         
         current_gain = self._calc_lane_gain(self.lane, vehicles_nearby, leader)
@@ -416,7 +432,7 @@ class Vehicle:
         return follower
     
     def _can_change_to(self, target_lane, vehicles_nearby, blocked_lanes):
-        """检查是否能换道到目标车道"""
+        """检查是否能换道到目标车道（修复版：放宽间隙要求）"""
         if target_lane in blocked_lanes:
             for pos in blocked_lanes[target_lane]:
                 if abs(pos - self.pos) < 100:
@@ -425,7 +441,7 @@ class Vehicle:
         for v in vehicles_nearby:
             if v.lane == target_lane:
                 dist = abs(v.pos - self.pos)
-                if dist < 35:
+                if dist < LANE_CHANGE_GAP:  # 使用参数：25米
                     return False
         return True
     
@@ -619,16 +635,35 @@ class Vehicle:
                         target_lane, reason = self.mobil_decision(vehicles_nearby, blocked_lanes)
                         if target_lane is not None:
                             self.start_lane_change(target_lane, current_time)
+                            self.lane_change_retries = 0  # 重置重试计数
                             reason_key = reason if reason else 'free'
                             if reason_key in self.lane_change_reasons:
                                 self.lane_change_reasons[reason_key] += 1
+                        else:
+                            # 修复：换道失败，减速并设置重试
+                            self.lane_change_retries += 1
+                            self.last_retry_time = current_time
+                            if self.lane_change_retries < LANE_CHANGE_MAX_RETRIES:
+                                # 减速并保持尝试
+                                target_speed = max(kmh_to_ms(30), target_speed)
             elif want_change and self.lane_change_cooldown <= 0:
                 target_lane, reason = self.mobil_decision(vehicles_nearby, blocked_lanes)
                 if target_lane is not None:
                     self.start_lane_change(target_lane, current_time)
+                    self.lane_change_retries = 0
                     reason_key = reason if reason else 'free'
                     if reason_key in self.lane_change_reasons:
                         self.lane_change_reasons[reason_key] += 1
+                else:
+                    # 检查是否需要重试
+                    if leader and leader.anomaly_type == 1:
+                        self.lane_change_retries += 1
+                        if self.lane_change_retries < LANE_CHANGE_MAX_RETRIES:
+                            if current_time - self.last_retry_time >= LANE_CHANGE_RETRY_INTERVAL:
+                                # 尝试重置换道pending状态
+                                if self.lane_change_retries == 1:
+                                    self.lane_change_pending = True
+                                    self.lane_change_wait_start = current_time
         
         if self.lane_changing:
             self.update_lane_change(dt, vehicles_nearby, current_time)
@@ -649,10 +684,18 @@ class Vehicle:
             self.pos += self.speed * dt
         
         if self.anomaly_state != 'active':
-            if impact_multiplier < 0.95 or (leader and dist < 40 and self.speed < kmh_to_ms(20)):
+            # 修复：降低阈值（0.95 → 0.90），添加期望速度比例判断
+            speed_ratio = self.speed / self.desired_speed if self.desired_speed > 0 else 1.0
+            is_impacted = (impact_multiplier < IMPACT_THRESHOLD or 
+                          speed_ratio < IMPACT_SPEED_RATIO or  # 速度低于期望70%
+                          (leader and dist < 40 and self.speed < kmh_to_ms(20)))
+            
+            if is_impacted:
                 self.color = COLOR_IMPACTED
+                self.is_affected = True
             else:
                 self.color = COLOR_NORMAL
+                self.is_affected = False
     
     def record_time(self, time_now, seg_idx):
         """记录车辆在各区间的时间"""
@@ -772,7 +815,8 @@ class TrafficSimulation:
                     'anomaly_state': v.anomaly_state,
                     'anomaly_type': v.anomaly_type,
                     'vehicle_type': v.vehicle_type,
-                    'driver_style': v.driver_style
+                    'driver_style': v.driver_style,
+                    'is_affected': v.is_affected  # 修复：记录是否受影响
                 })
             
             lane_counts = {i: 0 for i in range(NUM_LANES)}
@@ -878,7 +922,7 @@ def save_snapshot(finished_vehicles, anomaly_logs, current_time):
                     c, z, w = COLOR_TYPE2, 8, 1.5
                 elif v.anomaly_type == 3:
                     c, z, w = COLOR_TYPE3, 8, 1.5
-                elif avg_speed_kmh < 60:
+                elif avg_speed_kmh < v.desired_speed * 3.6 * IMPACT_SPEED_RATIO:
                     c, z = COLOR_IMPACTED, 5
                 
                 ax.hlines(y=avg_speed_kmh, xmin=t_in, xmax=t_out,
@@ -897,7 +941,7 @@ def save_snapshot(finished_vehicles, anomaly_logs, current_time):
     fig.legend(handles=patches, loc='upper center', ncol=5, fontsize=12)
     plt.tight_layout(rect=(0, 0.03, 1, 0.95))
     
-    filename = os.path.join(OUTPUT_DIR, f"traffic_snapshot_{int(current_time)}s.png")
+    filename = os.path.join(OUTPUT_DIR + f"{ROAD_LENGTH_KM}公里-{int(SEGMENT_LENGTH_KM)}公里段", f"traffic_snapshot_{int(current_time)}s.png")
     plt.savefig(filename, dpi=100, bbox_inches='tight')
     print(f"已保存: {filename}")
     plt.close()
@@ -953,7 +997,7 @@ class SpeedProfilePlotter(Visualizer):
                         c, z, w = COLOR_TYPE2, 8, 1.5
                     elif v.anomaly_type == 3:
                         c, z, w = COLOR_TYPE3, 8, 1.5
-                    elif avg_speed_kmh < 60:
+                    elif avg_speed_kmh < v.desired_speed * 3.6 * IMPACT_SPEED_RATIO:
                         c, z = COLOR_IMPACTED, 5
                     
                     ax.hlines(y=avg_speed_kmh, xmin=t_in, xmax=t_out,
@@ -1370,6 +1414,7 @@ class TrajectoryAnimationPlotter(Visualizer):
                 anomaly_type = points[-1].get('anomaly_type', 0)
                 anomaly_state = points[-1].get('anomaly_state', 'normal')
                 
+                # 修复：添加受影响状态判断
                 if anomaly_state == 'active':
                     if anomaly_type == 1:
                         color = COLOR_TYPE1
@@ -1384,8 +1429,14 @@ class TrajectoryAnimationPlotter(Visualizer):
                         color = COLOR_IMPACTED
                         linewidth = 1.5
                 else:
-                    color = COLOR_NORMAL
-                    linewidth = 1
+                    # 使用轨迹数据中的is_affected标记
+                    is_affected = points[-1].get('is_affected', False)
+                    if is_affected:
+                        color = COLOR_IMPACTED  # 橙色：受影响车辆
+                        linewidth = 1.2
+                    else:
+                        color = COLOR_NORMAL  # 蓝色：正常车辆
+                        linewidth = 0.8
                 
                 ax.plot(times, positions, color=color, linewidth=linewidth, alpha=0.7)
             
