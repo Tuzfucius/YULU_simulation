@@ -23,6 +23,16 @@ LANE_WIDTH = 3.5
 TOTAL_VEHICLES_TARGET = 1200
 SIMULATION_DT = 1.0
 
+# --- 最大模拟时间计算 ---
+# 60km/h 跑完 ROAD_LENGTH_KM 所需时间（秒）
+RUN_TIME_60KMH = (ROAD_LENGTH_KM / 60) * 3600
+# 最后发车时间估计：每10秒投放一批，最后一批在约 (TOTAL_VEHICLES_TARGET/5)*10 秒时投放
+LAST_SPAWN_TIME = (TOTAL_VEHICLES_TARGET / 5) * 10
+# 最大模拟时间 = 最后发车时间 + 行驶时间 + 5分钟缓冲
+MAX_SIMULATION_TIME = int(LAST_SPAWN_TIME + RUN_TIME_60KMH + 300)
+
+print(f"最大模拟时间: {MAX_SIMULATION_TIME}秒 (最后发车 {LAST_SPAWN_TIME:.0f}秒 + 60km/h行驶 {RUN_TIME_60KMH:.0f}秒 + 缓冲300秒)")
+
 # 颜色定义
 COLOR_NORMAL = '#1f77b4'
 COLOR_IMPACTED = '#ff7f0e'
@@ -868,7 +878,8 @@ class TrafficSimulation:
             
             logger.periodic_report(self.current_time, len(self.vehicles), len(self.finished_vehicles))
             
-            if self.current_time > 10800:
+            if self.current_time > MAX_SIMULATION_TIME:
+                print(f"达到最大模拟时间 {MAX_SIMULATION_TIME}秒，仿真结束")
                 break
             
             if int(self.current_time) % 1000 == 0 and int(self.current_time) > 0:
@@ -884,6 +895,12 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def save_snapshot(finished_vehicles, anomaly_logs, current_time):
     if len(finished_vehicles) == 0:
+        return
+    
+    # 修复：检查是否有正常车辆（非异常静止车辆）完成
+    normal_vehicles = [v for v in finished_vehicles if v.anomaly_type != 1]
+    if len(normal_vehicles) == 0:
+        print(f"  [跳过保存 {int(current_time)}秒 快照] 所有完成车辆均为异常静止车辆")
         return
     
     print(f"正在保存 {int(current_time)}秒 时刻快照...")
@@ -941,7 +958,10 @@ def save_snapshot(finished_vehicles, anomaly_logs, current_time):
     fig.legend(handles=patches, loc='upper center', ncol=5, fontsize=12)
     plt.tight_layout(rect=(0, 0.03, 1, 0.95))
     
-    filename = os.path.join(OUTPUT_DIR + f"{ROAD_LENGTH_KM}公里-{int(SEGMENT_LENGTH_KM)}公里段", f"traffic_snapshot_{int(current_time)}s.png")
+    folder_name = f"{ROAD_LENGTH_KM}公里-{int(SEGMENT_LENGTH_KM)}公里段"
+    snapshot_dir = os.path.join(OUTPUT_DIR, folder_name)
+    os.makedirs(snapshot_dir, exist_ok=True)
+    filename = os.path.join(snapshot_dir, f"traffic_snapshot_{int(current_time)}s.png")
     plt.savefig(filename, dpi=100, bbox_inches='tight')
     print(f"已保存: {filename}")
     plt.close()
@@ -963,6 +983,17 @@ class Visualizer:
 class SpeedProfilePlotter(Visualizer):
     def generate(self, finished_vehicles, anomaly_logs):
         print("  生成: 车流画像...")
+        
+        # 修复：检查是否有正常车辆（非异常静止车辆）完成
+        if len(finished_vehicles) == 0:
+            print("    [跳过] 无完成车辆数据")
+            return
+        
+        normal_vehicles = [v for v in finished_vehicles if v.anomaly_type != 1]
+        if len(normal_vehicles) == 0:
+            print(f"    [跳过] 所有{len(finished_vehicles)}辆完成车辆均为异常静止车辆，无正常车流轨迹")
+            return
+        
         fig, axes = plt.subplots(SUBPLOT_ROWS, SUBPLOT_COLS, figsize=(18, 4 * SUBPLOT_ROWS), sharex=True)
         axes = axes.flatten()
         
@@ -1384,6 +1415,12 @@ class TrajectoryAnimationPlotter(Visualizer):
         print("  生成: 轨迹动画...")
         if not trajectory_data:
             print("    [跳过] 无轨迹数据")
+            return
+        
+        # 修复：检查是否有正常车辆（非异常静止车辆）的轨迹
+        normal_trajectories = [p for p in trajectory_data if p.get('anomaly_type', 0) != 1]
+        if len(normal_trajectories) == 0:
+            print("    [跳过] 所有轨迹均为异常静止车辆，无正常车流轨迹")
             return
         
         max_time = max([p['time'] for p in trajectory_data])
