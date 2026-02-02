@@ -1,0 +1,70 @@
+{
+  "version": "1.0",
+  "simulation": {
+    "road_length_km": 20,
+    "segment_length_km": 2,
+    "num_lanes": 4,
+    "lane_width": 3.5,
+    "total_vehicles": 1200,
+    "simulation_dt": 1.0,
+    "max_simulation_time": 3900
+  },
+  "anomaly": {
+    "ratio": 0.01,
+    "global_start_time": 200,
+    "safe_run_time": 200
+  },
+  "lane_change": {
+    "forced_dist": 400,
+    "gap": 25,
+    "max_retries": 5,
+    "retry_interval": 1.0
+  },
+  "thresholds": {
+    "impact_threshold": 0.90,
+    "impact_speed_ratio": 0.70
+  },
+  "multi_lane": {
+    "coupling_dist": 50,
+    "coupling_factor": 0.01
+  },
+  "queue": {
+    "speed_threshold": 15,
+    "min_vehicles": 3,
+    "dissipation_rate": 0.8
+  },
+  "phantom_jam": {
+    "speed_threshold": 30,
+    "detect_dist": 200
+  },
+  "phase": {
+    "critical_density": 35,
+    "transition_threshold": 5
+  },
+  "road_network": {
+    "main_segments": ["main"],
+    "forks": [],
+    "merges": [],
+    "etc_gates": [
+      {"segment": "main", "position_km": 2},
+      {"segment": "main", "position_km": 4},
+      {"segment": "main", "position_km": 6},
+      {"segment": "main", "position_km": 8},
+      {"segment": "main", "position_km": 10},
+      {"segment": "main", "position_km": 12},
+      {"segment": "main", "position_km": 14},
+      {"segment": "main", "position_km": 16},
+      {"segment": "main", "position_km": 18}
+    ]
+  },
+  "output": {
+    "database": {
+      "enabled": true,
+      "path": "./output/simulation.db"
+    },
+    "csv": {
+      "enabled": true,
+      "directory": "./output/csv"
+    }
+  }
+}
