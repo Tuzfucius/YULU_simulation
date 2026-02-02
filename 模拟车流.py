@@ -15,8 +15,8 @@ plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro
 plt.rcParams['axes.unicode_minus'] = False
 
 # --- 配置参数 (Configuration) ---
-ROAD_LENGTH_KM = 40
-SEGMENT_LENGTH_KM = 4
+ROAD_LENGTH_KM = 10
+SEGMENT_LENGTH_KM = 1
 NUM_SEGMENTS = int(ROAD_LENGTH_KM / SEGMENT_LENGTH_KM)
 NUM_LANES = 4
 LANE_WIDTH = 3.5
