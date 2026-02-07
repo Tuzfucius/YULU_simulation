@@ -69,6 +69,37 @@ class SimulationConfig:
     def run_time_60kmh(self) -> float:
         """60km/h跑完全程时间"""
         return (self.road_length_km / 60) * 3600
+    
+    def to_dict(self) -> dict:
+        """转换为字典"""
+        return {
+            'road_length_km': self.road_length_km,
+            'segment_length_km': self.segment_length_km,
+            'num_lanes': self.num_lanes,
+            'lane_width': self.lane_width,
+            'total_vehicles': self.total_vehicles,
+            'simulation_dt': self.simulation_dt,
+            'max_simulation_time': self.max_simulation_time,
+            'anomaly_ratio': self.anomaly_ratio,
+            'global_anomaly_start': self.global_anomaly_start,
+            'vehicle_safe_run_time': self.vehicle_safe_run_time,
+            'forced_change_dist': self.forced_change_dist,
+            'lane_change_gap': self.lane_change_gap,
+            'lane_change_max_retries': self.lane_change_max_retries,
+            'lane_change_retry_interval': self.lane_change_retry_interval,
+            'impact_threshold': self.impact_threshold,
+            'impact_speed_ratio': self.impact_speed_ratio,
+            'lane_coupling_dist': self.lane_coupling_dist,
+            'lane_coupling_factor': self.lane_coupling_factor,
+            'queue_speed_threshold': self.queue_speed_threshold,
+            'queue_min_vehicles': self.queue_min_vehicles,
+            'queue_dissipation_rate': self.queue_dissipation_rate,
+            'phantom_jam_speed': self.phantom_jam_speed,
+            'phantom_jam_dist': self.phantom_jam_dist,
+            'phase_critical_density': self.phase_critical_density,
+            'phase_transition_threshold': self.phase_transition_threshold,
+            'impact_discover_dist': self.impact_discover_dist,
+        }
 
 
 DEFAULT_CONFIG = SimulationConfig()

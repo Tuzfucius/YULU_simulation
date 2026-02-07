@@ -66,6 +66,118 @@ class SimulationEngine:
         """添加输出处理器"""
         pass  # 可扩展
     
+    def step(self):
+        """执行一步仿真"""
+        dt = self.config.simulation_dt if self.config else 1.0
+        max_time = self.config.max_simulation_time if self.config else 3900
+        
+        if self.current_time >= max_time:
+            return
+        
+        # 使用类成员变量维护生成进度
+        while self.spawn_idx < len(self.spawn_schedule) and self.spawn_schedule[self.spawn_idx] <= self.current_time:
+            lane_choice = list(range(self.config.num_lanes if self.config else 4))
+            random.shuffle(lane_choice)
+            placed = False
+            
+            for lane in lane_choice:
+                clear = True
+                for v in self.vehicles:
+                    if v.lane == lane and v.pos < 50:
+                        clear = False
+                        break
+                if clear:
+                    new_v = Vehicle(self.vehicle_id_counter, self.current_time, lane, self.config)
+                    self.vehicles.append(new_v)
+                    self.vehicle_id_counter += 1
+                    placed = True
+                    break
+            
+            if placed:
+                self.spawn_idx += 1
+            else:
+                self.spawn_schedule[self.spawn_idx] += 1.0
+        
+        active_vehicles = [v for v in self.vehicles if not v.finished]
+        active_vehicles.sort(key=lambda x: x.pos)
+        
+        blocked_lanes = defaultdict(list)
+        for v in active_vehicles:
+            if v.anomaly_type == 1 and v.anomaly_state == 'active':
+                blocked_lanes[v.lane].append(v.pos)
+        
+        for v in active_vehicles:
+            seg = int(v.pos / (self.config.segment_length_km * 1000 if self.config else 2000))
+            v.record_time(self.current_time, seg, self.config.segment_length_km if self.config else 2.0)
+            
+            log = v.trigger_anomaly(self.current_time, seg)
+            if log:
+                self.anomaly_logs.append(log)
+            
+            v.update(dt, active_vehicles, dict(blocked_lanes), self.current_time)
+        
+        for v in active_vehicles:
+            if v.anomaly_state == 'active' and not v.detected_by_etc:
+                pos_km = v.pos / 1000
+                for gate in self.road_network.etc_gates:
+                    if gate.segment in self.road_network.segments:
+                        if gate.position_km <= pos_km < gate.position_km + 0.5:
+                            v.detected_by_etc = True
+                            v.etc_detection_time = self.current_time - v.anomaly_trigger_time
+                            break
+        
+        for v in active_vehicles:
+            self.trajectory_data.append({
+                'id': v.id, 'pos': v.pos, 'time': self.current_time,
+                'lane': v.lane, 'speed': v.speed,
+                'anomaly_state': v.anomaly_state, 'anomaly_type': v.anomaly_type,
+                'vehicle_type': v.vehicle_type, 'driver_style': v.driver_style,
+                'is_affected': v.is_affected
+            })
+        
+        segment_speeds = defaultdict(list)
+        segment_densities = defaultdict(int)
+        
+        for v in active_vehicles:
+            seg = int(v.pos / (self.config.segment_length_km * 1000 if self.config else 2000))
+            if 0 <= seg < (self.config.num_segments if self.config else 10):
+                segment_speeds[seg].append(v.speed)
+                segment_densities[seg] += 1
+        
+        for seg_idx, speeds in segment_speeds.items():
+            if speeds:
+                avg_speed = sum(speeds) / len(speeds)
+                density = segment_densities[seg_idx] / (self.config.segment_length_km if self.config else 2.0)
+                
+                self.segment_speed_history.append({
+                    'time': self.current_time, 'segment': seg_idx,
+                    'avg_speed': avg_speed, 'density': density,
+                    'flow': avg_speed * density
+                })
+        
+        queue_state = self._detect_queue_state(active_vehicles)
+        if queue_state['in_queue']:
+            self.queue_events.append({'time': self.current_time, **queue_state})
+        
+        from ..models.phantom_jam import PhantomJamDetector
+        jams = PhantomJamDetector.detect_phantom_jam(active_vehicles, self.current_time)
+        self.phantom_jam_events.extend(jams)
+        
+        for v in active_vehicles:
+            self.safety_data.append({
+                'time': self.current_time, 'vehicle_id': v.id,
+                'vehicle_type': v.vehicle_type, 'driver_style': v.driver_style,
+                'speed': v.speed * 3.6, 'pos': v.pos,
+                'min_ttc': v.min_ttc, 'max_decel': v.max_decel,
+                'brake_count': v.brake_count, 'emergency_brake_count': v.emergency_brake_count
+            })
+        
+        completed = [v for v in self.vehicles if v.finished]
+        self.finished_vehicles.extend(completed)
+        self.vehicles = [v for v in self.vehicles if not v.finished]
+        
+        self.current_time += dt
+    
     def run(self):
         """运行仿真主循环"""
         spawn_idx = 0

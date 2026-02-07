@@ -1,0 +1,826 @@
+/**
+ * 仿真引擎
+ * 完整移植自 模拟车流.py
+ */
+
+import { Vehicle } from './Vehicle';
+import {
+    SEGMENT_LENGTH_KM,
+    NUM_SEGMENTS,
+    SIMULATION_DT,
+    VEHICLE_TYPE_CONFIG,
+    DRIVER_STYLE_CONFIG,
+    COLORS,
+    type VehicleType,
+    type DriverStyle,
+    type AnomalyType,
+} from './config';
+import { useSimStore } from '../stores/simStore';
+
+// 异常日志
+interface AnomalyLog {
+    id: number;
+    type: AnomalyType;
+    time: number;
+    posKm: number;
+    segment: number;
+}
+
+// 轨迹点
+export interface TrajectoryPoint {
+    id: number;
+    time: number;
+    pos: number;
+    lane: number;
+    speed: number;
+    anomalyType: AnomalyType;
+    anomalyState: string;
+    isAffected: boolean;
+}
+
+
+// 区间速度记录
+interface SegmentSpeedRecord {
+    time: number;
+    segment: number;
+    avgSpeed: number;
+    density: number;
+    vehicleCount: number;
+    flow: number; // 流量 = 密度 * 速度
+}
+
+// 车道历史记录
+interface LaneHistoryRecord {
+    time: number;
+    counts: Record<string, number>; // lane index -> count
+}
+
+// 图表数据
+export interface ChartData {
+    // 速度分布
+    speedDistribution: { range: string; count: number }[];
+    // 车辆类型
+    vehicleTypeData: { name: string; value: number; color: string }[];
+    // 进度曲线
+    progressData: { time: number; completed: number; active: number }[];
+    // 换道分析
+    laneChangeData: {
+        byReason: { reason: string; count: number }[];
+        byStyle: { style: string; count: number; color: string }[];
+    };
+    // 异常分布
+    anomalyDistribution: { segment: string; type1: number; type2: number; type3: number }[];
+    // 区间速度热力图数据
+    speedHeatmap: { time: number; segment: number; speed: number }[];
+    // 车辆类型速度对比
+    typeSpeedComparison: { type: string; avgSpeed: number; color: string }[];
+    // 驾驶风格分析
+    driverStyleAnalysis: {
+        counts: { style: string; count: number; color: string }[];
+        avgSpeeds: { style: string; speed: number; color: string }[];
+    };
+    // 轨迹数据 (采样)
+    trajectoryData: TrajectoryPoint[];
+    speedProfile: { timeSegment: number; avgSpeed: number; label: string }[];
+    simulationTime: number;
+}
+
+export class SimulationEngine {
+    private vehicles: Vehicle[] = [];
+    private finishedVehicles: Vehicle[] = [];
+    private vehicleIdCounter: number = 0;
+    private currentTime: number = 0;
+    private spawnSchedule: number[] = [];
+    private spawnIndex: number = 0;
+
+    // 记录数据
+    private anomalyLogs: AnomalyLog[] = [];
+    private trajectoryData: TrajectoryPoint[] = [];
+    private segmentSpeedHistory: SegmentSpeedRecord[] = [];
+    private laneHistory: LaneHistoryRecord[] = [];
+    private progressHistory: { time: number; completed: number; active: number }[] = [];
+
+
+    // 统计
+    private typeCount: Record<VehicleType, number> = { CAR: 0, TRUCK: 0, BUS: 0 };
+    private styleCount: Record<DriverStyle, number> = { aggressive: 0, normal: 0, conservative: 0 };
+    private totalLaneChanges: number = 0;
+    private laneChangeByReason: { free: number; forced: number } = { free: 0, forced: 0 };
+    private laneChangeByStyle: Record<DriverStyle, number> = { aggressive: 0, normal: 0, conservative: 0 };
+    private speedHistory: number[] = [];
+
+    constructor() {
+    }
+
+    // --- 生成投放计划 ---
+    private planSpawns(totalVehicles: number) {
+        this.spawnSchedule = [];
+        let tCycle = 0;
+
+        // 精确生成目标数量的投放时间戳
+        while (this.spawnSchedule.length < totalVehicles) {
+            const remaining = totalVehicles - this.spawnSchedule.length;
+            const n = Math.min(2 + Math.floor(Math.random() * 5), remaining);
+            const timestamps = Array.from({ length: n }, () => tCycle + Math.random() * 10);
+            this.spawnSchedule.push(...timestamps);
+            tCycle += 10;
+        }
+
+        // 确保精确为目标数量
+        this.spawnSchedule = this.spawnSchedule.slice(0, totalVehicles).sort((a, b) => a - b);
+    }
+
+
+    // 循环控制
+    private timeoutId: any = null;
+
+    // --- 启动仿真 ---
+    start() {
+        const store = useSimStore.getState();
+        const config = store.config;
+
+        // 重置
+        this.vehicles = [];
+        this.finishedVehicles = [];
+        this.vehicleIdCounter = 0;
+        this.currentTime = 0;
+        this.spawnIndex = 0;
+        this.anomalyLogs = [];
+        this.trajectoryData = [];
+        this.segmentSpeedHistory = [];
+        this.progressHistory = [];
+        this.typeCount = { CAR: 0, TRUCK: 0, BUS: 0 };
+        this.styleCount = { aggressive: 0, normal: 0, conservative: 0 };
+        this.totalLaneChanges = 0;
+        this.laneChangeByReason = { free: 0, forced: 0 };
+        this.laneChangeByStyle = { aggressive: 0, normal: 0, conservative: 0 };
+        this.speedHistory = [];
+
+        this.planSpawns(config.totalVehicles);
+
+        store.setRunning(true);
+        store.setPaused(false);
+        store.setComplete(false);
+        store.setStatistics(null);
+        store.setChartData(null);
+
+        store.addLog({
+            timestamp: 0,
+            level: 'INFO',
+            category: 'SYSTEM',
+            message: `Simulation started: ${config.roadLengthKm}km × ${config.numLanes} lanes, target ${config.totalVehicles} vehicles`,
+        });
+
+        // 启动循环
+        this.runLoop();
+    }
+
+    private runLoop() {
+        const store = useSimStore.getState();
+        if (!store.isRunning || store.isPaused || store.isComplete) {
+            return;
+        }
+
+        const isTurbo = store.turboMode;
+
+        if (isTurbo) {
+            // 极速模式：批量执行
+            // 每次执行 20 次 step (即 100个时间步)，然后让出主线程
+            const batchSize = 20;
+            for (let i = 0; i < batchSize; i++) {
+                // 如果中途停止或完成，立即退出
+                const currentStore = useSimStore.getState();
+                if (!currentStore.isRunning || currentStore.isPaused || currentStore.isComplete) return;
+
+                this.step(true); // suppress UI updates
+            }
+            // 批量执行完后更新一次 UI
+            this.updateUI();
+
+            // 立即调度下一次
+            this.timeoutId = setTimeout(() => this.runLoop(), 0);
+        } else {
+            // 普通模式：执行一次，等待 100ms
+            this.step(false);
+            this.timeoutId = setTimeout(() => this.runLoop(), 100);
+        }
+    }
+
+    // --- 单步仿真 ---
+    private step(suppressUI: boolean = false) {
+        const store = useSimStore.getState();
+        const config = store.config;
+
+        // 每次 step 模拟 5 个时间步 (5 * simulationDt)
+        for (let i = 0; i < 5; i++) {
+            this.currentTime += SIMULATION_DT;
+
+            // 生成车辆
+            this.spawnVehicles(config);
+
+            // 更新车辆
+            this.updateVehicles();
+
+            // 记录轨迹（每10秒采样）
+            if (Math.floor(this.currentTime) % 10 === 0) {
+                this.recordTrajectory();
+            }
+
+            // 记录区间速度（每30秒）
+            if (Math.floor(this.currentTime) % 30 === 0) {
+                this.recordSegmentSpeed();
+            }
+        }
+
+        // 更新 UI (仅在不抑制时更新)
+        if (!suppressUI) {
+            this.updateUI();
+        }
+
+        // 检查完成条件
+        if (this.currentTime >= config.maxSimulationTime ||
+            (this.spawnIndex >= this.spawnSchedule.length && this.vehicles.length === 0)) {
+            this.complete('Simulation completed normally');
+        }
+    }
+
+    // --- 生成车辆 ---
+    private spawnVehicles(config: any) {
+        // 检查是否还有需要投放的车辆且当前时间已到
+        while (this.spawnIndex < this.spawnSchedule.length && this.spawnSchedule[this.spawnIndex] <= this.currentTime) {
+            // 检查是否已达到目标数量
+            if (this.vehicleIdCounter >= config.totalVehicles) {
+                this.spawnIndex = this.spawnSchedule.length; // 跳过剩余
+                break;
+            }
+
+            const laneChoices = Array.from({ length: config.numLanes }, (_, i) => i).sort(() => Math.random() - 0.5);
+
+            for (const lane of laneChoices) {
+                let clear = true;
+                for (const v of this.vehicles) {
+                    if (v.lane === lane && v.pos < 50) {
+                        clear = false;
+                        break;
+                    }
+                }
+
+                if (clear) {
+                    const isPotentialAnomaly = Math.random() < config.anomalyRatio;
+
+                    // 确定车辆类型
+                    const typeRand = Math.random();
+                    let type: VehicleType = 'CAR';
+                    if (typeRand < config.carRatio) type = 'CAR';
+                    else if (typeRand < config.carRatio + config.truckRatio) type = 'TRUCK';
+                    else type = 'BUS';
+
+                    // 确定驾驶风格
+                    const styleRand = Math.random();
+                    let style: DriverStyle = 'normal';
+                    if (styleRand < config.aggressiveRatio) style = 'aggressive';
+                    else if (styleRand < config.aggressiveRatio + config.conservativeRatio) style = 'conservative';
+                    else style = 'normal';
+
+                    const vehicle = new Vehicle(
+                        this.vehicleIdCounter++,
+                        lane,
+                        this.currentTime,
+                        isPotentialAnomaly,
+                        type,
+                        style
+                    );
+                    this.vehicles.push(vehicle);
+
+                    // 统计
+                    this.typeCount[vehicle.type]++;
+                    this.styleCount[vehicle.driverStyle]++;
+                    this.speedHistory.push(vehicle.speed * 3.6);
+
+                    break;
+                }
+            }
+
+            // 无论是否放置成功，都移动到下一个投放时间（避免无限循环）
+            this.spawnIndex++;
+        }
+    }
+
+    // --- 更新车辆 ---
+    private updateVehicles() {
+        const store = useSimStore.getState();
+        const roadLengthM = store.config.roadLengthKm * 1000;
+        const blockedLanes = new Set<number>();
+        const completedIds: number[] = [];
+
+        // 更新每辆车
+        for (const v of this.vehicles) {
+            // 尝试触发异常
+            const anomalyResult = v.triggerAnomaly(this.currentTime);
+            if (anomalyResult) {
+                const segmentIdx = Math.floor(v.pos / (SEGMENT_LENGTH_KM * 1000));
+                this.anomalyLogs.push({
+                    id: v.id,
+                    type: anomalyResult.type,
+                    time: anomalyResult.time,
+                    posKm: anomalyResult.posKm,
+                    segment: segmentIdx,
+                });
+
+                store.addLog({
+                    timestamp: this.currentTime,
+                    level: 'WARNING',
+                    category: `ANOMALY_T${anomalyResult.type}`,
+                    message: `Vehicle #${v.id} triggered Type${anomalyResult.type} at ${anomalyResult.posKm.toFixed(2)}km`,
+                });
+            }
+
+            // 更新物理状态
+            v.update(SIMULATION_DT, this.vehicles, blockedLanes, this.currentTime);
+
+            // 检查完成
+            if (v.pos >= roadLengthM) {
+                completedIds.push(v.id);
+                this.finishedVehicles.push(v);
+                this.speedHistory.push(v.speed * 3.6);
+
+                // 统计换道
+                this.totalLaneChanges += v.laneChangeCount;
+                this.laneChangeByReason.free += v.laneChangeReasons.free;
+                this.laneChangeByReason.forced += v.laneChangeReasons.forced;
+                this.laneChangeByStyle[v.driverStyle] += v.laneChangeCount;
+            }
+        }
+
+        // 移除完成车辆
+        this.vehicles = this.vehicles.filter(v => !completedIds.includes(v.id));
+    }
+
+    // --- 记录轨迹 ---
+    private recordTrajectory() {
+        for (const v of this.vehicles) {
+            this.trajectoryData.push({
+                id: v.id,
+                time: this.currentTime,
+                pos: v.pos,
+                lane: v.lane,
+                speed: v.speed,
+                anomalyType: v.anomalyType,
+                anomalyState: v.anomalyState,
+                isAffected: v.isAffected,
+            });
+        }
+    }
+
+    // --- 记录区间速度 ---
+    private recordSegmentSpeed() {
+        const store = useSimStore.getState();
+        const numSegments = Math.floor(store.config.roadLengthKm / SEGMENT_LENGTH_KM);
+        const config = store.config;
+
+        for (let seg = 0; seg < numSegments; seg++) {
+            const segStart = seg * SEGMENT_LENGTH_KM * 1000;
+            const segEnd = (seg + 1) * SEGMENT_LENGTH_KM * 1000;
+            const vehiclesInSeg = this.vehicles.filter(v => v.pos >= segStart && v.pos < segEnd);
+
+            if (vehiclesInSeg.length > 0) {
+                const avgSpeed = vehiclesInSeg.reduce((sum, v) => sum + v.speed, 0) / vehiclesInSeg.length;
+                const density = (vehiclesInSeg.length / (SEGMENT_LENGTH_KM * 1000)) * 1000 * config.numLanes;
+                const flow = density * avgSpeed; // 流量公式: q = k * v
+
+                this.segmentSpeedHistory.push({
+                    time: this.currentTime,
+                    segment: seg,
+                    avgSpeed,
+                    density,
+                    vehicleCount: vehiclesInSeg.length,
+                    flow,
+                });
+            }
+        }
+
+        // 记录车道分布
+        const laneCounts: Record<string, number> = {};
+        for (let lane = 0; lane < config.numLanes; lane++) {
+            laneCounts[String(lane)] = this.vehicles.filter(v => v.lane === lane).length;
+        }
+        this.laneHistory.push({ time: this.currentTime, counts: laneCounts });
+
+        // 记录进度历史
+        if (this.progressHistory.length < 200) {
+            this.progressHistory.push({
+                time: this.currentTime,
+                completed: this.finishedVehicles.length,
+                active: this.vehicles.length,
+            });
+        }
+    }
+
+    // --- 更新 UI ---
+    private updateUI() {
+        const store = useSimStore.getState();
+        const config = store.config;
+        const progress = Math.min((this.currentTime / config.maxSimulationTime) * 100, 100);
+
+        const avgSpeed = this.speedHistory.length > 0
+            ? this.speedHistory.reduce((a, b) => a + b, 0) / this.speedHistory.length
+            : 0;
+
+        store.setProgress({
+            currentTime: this.currentTime,
+            totalTime: config.maxSimulationTime,
+            progress,
+            activeVehicles: this.vehicles.length,
+            completedVehicles: this.finishedVehicles.length,
+            activeAnomalies: this.vehicles.filter(v => v.anomalyState === 'active').length,
+        });
+
+        // 实时更新统计
+        store.setStatistics({
+            totalVehicles: this.vehicleIdCounter,
+            completedVehicles: this.finishedVehicles.length,
+            avgSpeed,
+            avgTravelTime: this.finishedVehicles.length > 0
+                ? (config.roadLengthKm * 1000) / ((avgSpeed / 3.6) || 1)
+                : 0,
+            totalAnomalies: this.anomalyLogs.length,
+            // 修复：仅统计当前活跃受影响车辆（实时量）
+            affectedByAnomaly: this.vehicles.filter(v => v.isAffected).length,
+            totalLaneChanges: this.totalLaneChanges,
+            maxCongestionLength: 0, // TODO
+            simulationTime: this.currentTime,
+        });
+    }
+
+    // --- 生成图表数据 ---
+    private generateChartData(): ChartData {
+        // 速度分布
+        const speedBins = [0, 20, 40, 60, 80, 100, 120, 140];
+        const speedDistribution = speedBins.slice(0, -1).map((min, i) => {
+            const max = speedBins[i + 1];
+            const count = this.speedHistory.filter(s => s >= min && s < max).length;
+            return { range: `${min}-${max}`, count };
+        });
+
+        // 车辆类型
+        const vehicleTypeData = [
+            { name: 'Car', value: this.typeCount.CAR, color: COLORS.CAR },
+            { name: 'Truck', value: this.typeCount.TRUCK, color: COLORS.TRUCK },
+            { name: 'Bus', value: this.typeCount.BUS, color: COLORS.BUS },
+        ];
+
+        // 进度曲线
+        const progressData = this.progressHistory.map(p => ({
+            time: Math.floor(p.time),
+            completed: p.completed,
+            active: p.active,
+        }));
+
+        // 换道分析
+        const laneChangeData = {
+            byReason: [
+                { reason: 'Free Flow', count: this.laneChangeByReason.free },
+                { reason: 'Forced', count: this.laneChangeByReason.forced },
+            ],
+            byStyle: [
+                { style: 'Aggressive', count: this.laneChangeByStyle.aggressive, color: COLORS.AGGRESSIVE },
+                { style: 'Normal', count: this.laneChangeByStyle.normal, color: COLORS.NORMAL_DRIVER },
+                { style: 'Conservative', count: this.laneChangeByStyle.conservative, color: COLORS.CONSERVATIVE },
+            ],
+            distribution: this.calcLaneChangeDistribution(),
+        };
+
+        // 异常分布
+        const anomalyDistribution = Array.from({ length: NUM_SEGMENTS }, (_, i) => ({
+            segment: `${i * SEGMENT_LENGTH_KM}-${(i + 1) * SEGMENT_LENGTH_KM}km`,
+            type1: this.anomalyLogs.filter(a => a.segment === i && a.type === 1).length,
+            type2: this.anomalyLogs.filter(a => a.segment === i && a.type === 2).length,
+            type3: this.anomalyLogs.filter(a => a.segment === i && a.type === 3).length,
+        }));
+
+        // 速度热力图数据
+        const speedHeatmap = this.segmentSpeedHistory.map(r => ({
+            time: Math.floor(r.time / 60), // 分钟
+            segment: r.segment,
+            speed: r.avgSpeed * 3.6,
+        }));
+
+        // 车辆类型速度对比
+        const typeSpeedComparison = (['CAR', 'TRUCK', 'BUS'] as VehicleType[]).map(type => {
+            const speeds = this.finishedVehicles.filter(v => v.type === type).map(v => v.speed * 3.6);
+            const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
+            return {
+                type: VEHICLE_TYPE_CONFIG[type].name,
+                avgSpeed,
+                color: VEHICLE_TYPE_CONFIG[type].color,
+            };
+        });
+
+        // 驾驶风格分析
+        const driverStyleAnalysis = {
+            counts: (['aggressive', 'normal', 'conservative'] as DriverStyle[]).map(style => ({
+                style: DRIVER_STYLE_CONFIG[style].name,
+                count: this.styleCount[style],
+                color: DRIVER_STYLE_CONFIG[style].color,
+            })),
+            avgSpeeds: (['aggressive', 'normal', 'conservative'] as DriverStyle[]).map(style => {
+                const vehicles = this.finishedVehicles.filter(v => v.driverStyle === style);
+                const avgSpeed = vehicles.length > 0
+                    ? vehicles.reduce((sum, v) => sum + v.speed * 3.6, 0) / vehicles.length
+                    : 0;
+                return {
+                    style: DRIVER_STYLE_CONFIG[style].name,
+                    speed: avgSpeed,
+                    color: DRIVER_STYLE_CONFIG[style].color,
+                };
+            }),
+        };
+
+        // 轨迹数据 (下采样以提高性能，限制最大点数)
+        // 假设最大显示 5000 个点，随机采样或均匀采样
+        const maxPoints = 5000;
+        const samplingRate = Math.max(1, Math.floor(this.trajectoryData.length / maxPoints));
+        const trajectoryData = this.trajectoryData.filter((_, i) => i % samplingRate === 0);
+
+        // 车流速度画像 - 按时间段统计平均速度
+        const SEGMENT_DURATION = 30; // 30秒一段
+        const speedProfile: { timeSegment: number; avgSpeed: number; label: string }[] = [];
+        const maxTime = this.currentTime;
+
+        for (let t = 0; t < maxTime; t += SEGMENT_DURATION) {
+            const speedsInSegment: number[] = [];
+
+            // 从轨迹数据中提取该时间段的速度
+            for (const point of this.trajectoryData) {
+                if (point.time >= t && point.time < t + SEGMENT_DURATION) {
+                    speedsInSegment.push(point.speed);
+                }
+            }
+
+            if (speedsInSegment.length > 0) {
+                const avgSpeed = speedsInSegment.reduce((a, b) => a + b, 0) / speedsInSegment.length;
+                speedProfile.push({
+                    timeSegment: Math.floor(t / SEGMENT_DURATION),
+                    avgSpeed,
+                    label: `${t}s-${t + SEGMENT_DURATION}s`,
+                });
+            }
+        }
+
+        return {
+            speedDistribution,
+            vehicleTypeData,
+            progressData,
+            laneChangeData,
+            anomalyDistribution,
+            speedHeatmap,
+            typeSpeedComparison,
+            driverStyleAnalysis,
+            trajectoryData,
+            speedProfile,
+            simulationTime: this.currentTime,
+        };
+    }
+
+    private calcLaneChangeDistribution(): { changes: number; count: number }[] {
+        const counts: Map<number, number> = new Map();
+        for (const v of this.finishedVehicles) {
+            const c = v.laneChangeCount;
+            counts.set(c, (counts.get(c) || 0) + 1);
+        }
+        return Array.from(counts.entries())
+            .sort((a, b) => a[0] - b[0])
+            .map(([changes, count]) => ({ changes, count }));
+    }
+
+    // --- 上传数据到后端生成图表 ---
+    private async uploadData() {
+        const store = useSimStore.getState();
+        const config = store.config;
+
+        console.log("Uploading simulation data to backend...");
+        store.addLog({
+            timestamp: this.currentTime,
+            level: 'INFO',
+            category: 'SYSTEM',
+            message: 'Uploading data for chart generation...',
+        });
+
+        // 1. 准备车辆信息映射 (用于补全轨迹数据)
+        const vehicleInfoMap = new Map<number, { type: string; style: string }>();
+        this.finishedVehicles.forEach(v => vehicleInfoMap.set(v.id, { type: v.type, style: v.driverStyle }));
+        this.vehicles.forEach(v => vehicleInfoMap.set(v.id, { type: v.type, style: v.driverStyle }));
+
+        // 2. 转换 finishedValues (camelCase -> snake_case)
+        const snakeVehicles = this.finishedVehicles.map(v => {
+            const logsObj: Record<string, any> = {};
+            v.logs.forEach((val, key) => { logsObj[key.toString()] = val; });
+
+            return {
+                id: v.id,
+                pos: v.pos,
+                lane: v.lane,
+                speed: v.speed,
+                vehicle_type: v.type,       // camel -> snake
+                driver_style: v.driverStyle,// camel -> snake
+                anomaly_type: v.anomalyType,// camel -> snake
+                anomaly_state: v.anomalyState,// camel -> snake
+                is_affected: v.isAffected,  // camel -> snake (当前状态)
+                was_affected: v.wasAffected, // 永久记录：是否曾经受影响
+                lane_changes: v.laneChangeCount,
+                lane_change_reasons: v.laneChangeReasons,
+                logs: logsObj,
+                entry_time: v.entryTime,
+                v0: v.v0,
+                desired_speed: v.desiredSpeed, // 用于计算延误
+                // 这里假设 Vehicle 类里可能有这些字段但 VehicleData 接口没暴露，或者就留空
+                etc_detection_time: (v as any).etcDetectionTime,
+                anomaly_response_times: (v as any).anomalyResponseTimes,
+            };
+        });
+
+
+        // 3. 采样并转换轨迹数据
+        const totalPoints = this.trajectoryData.length;
+        const targetPoints = 100000;
+        const step = Math.max(1, Math.ceil(totalPoints / targetPoints));
+
+        const sampledTrajectory = (step > 1
+            ? this.trajectoryData.filter((_, i) => i % step === 0)
+            : this.trajectoryData).map(p => ({
+                id: p.id,
+                time: p.time,
+                pos: p.pos,
+                lane: p.lane,
+                speed: p.speed,
+                anomaly_type: p.anomalyType,   // camel -> snake
+                anomaly_state: p.anomalyState, // camel -> snake
+                is_affected: p.isAffected,     // camel -> snake
+                // 补全车辆类型和风格
+                vehicle_type: vehicleInfoMap.get(p.id)?.type || 'CAR',
+                driver_style: vehicleInfoMap.get(p.id)?.style || 'normal',
+            }));
+
+        console.log(`Trajectory points: ${totalPoints} -> ${sampledTrajectory.length}`);
+
+        // 4. 转换其他数据
+        const snakeAnomalyLogs = this.anomalyLogs.map(l => ({
+            id: l.id,
+            type: l.type,
+            time: l.time,
+            pos_km: l.posKm, // camel -> snake
+            segment: l.segment
+        }));
+
+        const snakeSpeedHistory = this.segmentSpeedHistory.map(r => ({
+            time: r.time,
+            segment: r.segment,
+            avg_speed: r.avgSpeed, // camel -> snake
+            density: r.density,
+            vehicle_count: r.vehicleCount, // camel -> snake
+            flow: r.flow // 流量
+        }));
+
+
+        const snakeConfig = {
+            road_length_km: config.roadLengthKm,
+            num_lanes: config.numLanes,
+            // 假设从 config import 了常量，或者直接用 store config 如果有
+            segment_length_km: SEGMENT_LENGTH_KM,
+            num_segments: NUM_SEGMENTS,
+            total_vehicles: config.totalVehicles
+        };
+
+        // 采样 lane_history (每10秒一条，加快载入速度)
+        const laneHistoryStep = Math.max(1, Math.floor(10 / (store.config.simulationDt || 1)));
+        const snakeLaneHistory = this.laneHistory
+            .filter((_, i) => i % laneHistoryStep === 0)
+            .map(r => ({ time: r.time, counts: r.counts }));
+
+        const payload = {
+            config: snakeConfig,
+            finished_vehicles: snakeVehicles,
+            anomaly_logs: snakeAnomalyLogs,
+            trajectory_data: sampledTrajectory,
+            segment_speed_history: snakeSpeedHistory,
+            lane_history: snakeLaneHistory,
+        };
+
+
+        try {
+            const response = await fetch('http://localhost:8000/api/charts/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.ok) {
+                console.log("Chart generation started.");
+                store.addLog({
+                    timestamp: this.currentTime,
+                    level: 'INFO',
+                    category: 'SYSTEM',
+                    message: 'Chart generation started.',
+                });
+            } else {
+                const errText = await response.text();
+                console.error("Chart generation failed:", errText);
+                store.addLog({
+                    timestamp: this.currentTime,
+                    level: 'ERROR',
+                    category: 'SYSTEM',
+                    message: `Chart generation failed: ${errText.slice(0, 50)}...`,
+                });
+            }
+        } catch (error) {
+            console.error("Upload error:", error);
+            store.addLog({
+                timestamp: this.currentTime,
+                level: 'ERROR',
+                category: 'SYSTEM',
+                message: 'Failed to upload data to backend.',
+            });
+        }
+    }
+
+    // --- 完成仿真 ---
+    private complete(reason: string) {
+        if (this.timeoutId) {
+            clearTimeout(this.timeoutId);
+            this.timeoutId = null;
+        }
+
+        const store = useSimStore.getState();
+
+        const avgSpeed = this.speedHistory.length > 0
+            ? this.speedHistory.reduce((a, b) => a + b, 0) / this.speedHistory.length
+            : 0;
+
+        store.setRunning(false);
+        store.setComplete(true);
+        store.setStatistics({
+            totalVehicles: this.vehicleIdCounter,
+            completedVehicles: this.finishedVehicles.length,
+            avgSpeed,
+            avgTravelTime: this.finishedVehicles.length > 0
+                ? (store.config.roadLengthKm * 1000) / ((avgSpeed / 3.6) || 1)
+                : 0,
+            totalAnomalies: this.anomalyLogs.length,
+            affectedByAnomaly: this.finishedVehicles.filter(v => v.isAffected).length,
+            totalLaneChanges: this.totalLaneChanges,
+            maxCongestionLength: 0,
+            simulationTime: this.currentTime,
+        });
+        store.setChartData(this.generateChartData());
+
+        store.addLog({
+            timestamp: this.currentTime,
+            level: 'INFO',
+            category: 'COMPLETE',
+            message: `${reason} | Completed: ${this.finishedVehicles.length} | Anomalies: ${this.anomalyLogs.length} | Lane Changes: ${this.totalLaneChanges}`,
+        });
+
+        // 触发后端图表生成
+        this.uploadData();
+    }
+
+    pause() {
+        const store = useSimStore.getState();
+        store.setPaused(true);
+        store.addLog({
+            timestamp: this.currentTime,
+            level: 'INFO',
+            category: 'SYSTEM',
+            message: 'Simulation paused',
+        });
+    }
+
+    resume() {
+        const store = useSimStore.getState();
+        store.setPaused(false);
+        store.addLog({
+            timestamp: this.currentTime,
+            level: 'INFO',
+            category: 'SYSTEM',
+            message: 'Simulation resumed',
+        });
+        this.runLoop();
+    }
+
+    stop() {
+        this.complete('Simulation stopped by user');
+    }
+
+    reset() {
+        if (this.timeoutId) {
+            clearTimeout(this.timeoutId);
+            this.timeoutId = null;
+        }
+        useSimStore.getState().resetAll();
+    }
+}
+
+// 导出单例
+export const engine = new SimulationEngine();

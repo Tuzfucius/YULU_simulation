@@ -1,442 +1,303 @@
-# ETC系统车流仿真 - 模拟车流项目文档
+[English] | [简体中文](#简体中文)
 
-## 一、项目概述
+# ETC Traffic Simulation System
 
-本项目是一个用于模拟车流进行现象分析的微观交通流仿真系统，通过引入多种物理模型和机制，实现对ETC系统在面对车辆异常时的数据表现分析。
+A highway traffic simulation system based on IDM (Intelligent Driver Model) and MOBIL lane-changing models.
 
----
+## Features
 
-## 二、核心功能特性
+| Module | Description |
+|--------|-------------|
+| IDM Car Following | Intelligent driver model with multiple vehicle types |
+| MOBIL Lane Change | Benefit-based lane change decisions |
+| Anomaly Simulation | Vehicle anomaly events (stationary, fluctuation) |
+| ETC Detection | ETC gantry detection effects |
+| Visualization | 11 interactive charts with export |
 
-| 功能模块 | 描述 |
-|---------|------|
-| 车辆异质性建模 | 三种车型（轿车/卡车/客车）× 三种驾驶风格（激进/普通/保守） |
-| IDM跟驰模型 | 智能驾驶员模型，考虑速度差和车间距 |
-| MOBIL换道模型 | 基于收益的换道决策，考虑礼貌系数 |
-| 轨迹平滑 | 5步完成换道，模拟真实换道轨迹 |
-| 异常状态机 | 三种异常类型（完全静止/短暂波动/长时波动） |
-| 精细化影响范围 | 上下游差异化影响，多异常源叠加 |
+## Quick Start
 
----
-
-## 三、配置参数
-
-### 3.1 道路参数
-
-| 参数 | 值 | 说明 |
-|------|-----|------|
-| ROAD_LENGTH_KM | 20 | 道路总长度（公里） |
-| SEGMENT_LENGTH_KM | 2 | 区间长度（公里） |
-| NUM_SEGMENTS | 10 | 区间数量 |
-| NUM_LANES | 4 | 车道数量 |
-| LANE_WIDTH | 3.5 | 车道宽度（米） |
-
-### 3.2 仿真参数
-
-| 参数 | 值 | 说明 |
-|------|-----|------|
-| TOTAL_VEHICLES_TARGET | 1200 | 目标车辆数 |
-| SIMULATION_DT | 1.0 | 模拟步长（秒） |
-| ANOMALY_RATIO | 0.01 | 潜在异常车辆比例（1%） |
-
-### 3.3 车辆类型配置
-
-| 参数 | 轿车 | 卡车 | 客车 |
-|------|------|------|------|
-| 比例 | 60% | 25% | 15% |
-| 最高速度 (km/h) | 120 | 100 | 90 |
-| 最大加速度 (m/s²) | 3.0 | 2.0 | 1.8 |
-| 期望减速度 (m/s²) | 3.5 | 2.5 | 2.2 |
-| 最小间距 s0 (m) | 2.0 | 2.5 | 2.2 |
-| 安全跟驰时间 T (s) | 1.5 | 1.8 | 1.6 |
-| 车身长度 (m) | 4.5 | 12.0 | 10.0 |
-
-### 3.4 驾驶风格配置
-
-| 风格 | 比例 | 礼貌系数 | 激进程度 |
-|------|------|----------|----------|
-| 激进型 | 20% | 0.15-0.30 | +10%~+20% |
-| 普通型 | 60% | 0.40-0.60 | ±5% |
-| 保守型 | 20% | 0.70-0.90 | -10%~-20% |
-
----
-
-## 四、物理模型
-
-### 4.1 IDM跟驰模型（智能驾驶员模型）
-
-**核心公式**：
-$$a = a_{max} \times \left[1 - \left(\frac{v}{v_0}\right)^\delta - \left(\frac{s^*}{s}\right)^2\right]$$
-
-**其中期望间距**：
-$$s^* = s_0 + v \times T + \frac{v \times \Delta v}{2 \times \sqrt{a \times b}}$$
-
-**参数说明**：
-- $v$: 当前速度 (m/s)
-- $v_0$: 期望速度 (m/s)
-- $s$: 当前车间距 (m)
-- $s_0$: 最小间距 (m)
-- $T$: 安全跟驰时间 (s)
-- $\Delta v = v - v_{leader}$: 前后车速度差
-- $a_{max}$: 最大加速度 (m/s²)
-- $b$: 期望减速度 (m/s²)
-- $\delta$: 加速度指数（通常取4.0）
-
-**特点**：
-- 自由流时逐渐加速至期望速度
-- 接近前车时自动减速
-- 速度差越大，减速越强烈
-
-### 4.2 MOBIL换道模型
-
-**决策公式**：
-$$\Delta a_{total} = \Delta a_{self} + p \times (\Delta a_{follower\_new} - \Delta a_{follower\_old}) - \Delta a_{threshold}$$
-
-**换道条件**：$\Delta a_{total} > 0$
-
-**参数说明**：
-- $\Delta a_{self}$: 换道后自身加速度增益
-- $p$: 礼貌系数（0.2~0.8）
-- $\Delta a_{follower}$: 目标车道后车的加速度变化
-- $\Delta a_{threshold}$: 换道阈值（通常取0.1 m/s²）
-
-**礼貌系数动态调整**：
-$$p_{effective} = p_{base} \times (1 + \Delta v \times 0.1) \times \left(1 - \frac{50}{d}\right)$$
-
-其中：
-- $\Delta v$: 与后车速度差
-- $d$: 与后车间距（米）
-
-### 4.3 换道轨迹平滑
-
-**横向位移（正弦曲线）**：
-$$y(t) = \frac{L \times W}{2} \times \left(1 - \cos\left(\frac{\pi \times t}{T}\right)\right)$$
-
-**纵向调整**：
-$$x(t) = x_0 + v \times t - \alpha \times t^2$$
-
-**参数**：
-- $L$: 换道车道数（±1）
-- $W$: 车道宽度（3.5米）
-- $T$: 换道持续时间（5步）
-- $\alpha$: 减速系数
-
----
-
-## 五、异常状态机设计
-
-### 5.1 三种异常类型
-
-| 异常状态 | 减速度 (m/s²) | 目标速度 (km/h) | 持续时间 | 影响范围 | 颜色 |
-|----------|---------------|-----------------|----------|----------|------|
-| **1. 完全静止** | 7.0 | 0 | 永久 | ±150m强排他 | 深红色 |
-| **2. 短暂波动** | 4.0 | Rand(0, 40) | 10s | ±150m降速20% | 紫色 |
-| **3. 长时波动** | 4.0 | Rand(0, 40) | 20s | ±150m降速20% | 褐色 |
-
-### 5.2 触发条件
-
-- 全局仿真时间 > 200秒
-- 车辆自身正常行驶 > 200秒
-- 首次触发概率：0.5%/秒
-- 复发概率（Type 2/3）：30%/秒（冷却1000秒后）
-
-### 5.3 复发机制
-
-Type 2 和 Type 3 车辆在恢复正常后，进入1000秒冷却期。冷却期满后，每秒有30%的概率再次触发。
-
----
-
-## 六、异常影响精细化
-
-### 6.1 上下游差异化影响
-
-| 影响方向 | Type 1 | Type 2 | Type 3 |
-|----------|--------|--------|--------|
-| 下游影响 | 150m + 排队×2 | 250m | 300m |
-| 上游影响 | 150m | 150m | 200m |
-
-### 6.2 多异常源减速叠加
-
-$$multiplier = 0.85^{n_{downstream}} \times 0.92^{n_{upstream}}$$
-
-- $n_{downstream}$: 下游（前方）异常源数量
-- $n_{upstream}$: 上游（后方）异常源数量
-- 下游影响更强（0.85），上游影响较弱（0.92）
-
----
-
-## 七、交通流控制
-
-### 7.1 动态投放
-
-- 周期：10秒
-- 投放数量：随机2-8辆
-- 每周期内随机分配释放时间戳
-
-### 7.2 空间冲突校验
-
-- 入口50米范围内如有车辆，尝试其他车道
-- 4车道全满时顺延至下一秒
-
-### 7.3 换道冷却
-
-- 成功换道后冷却5秒
-- 发现异常后延迟2秒执行换道
-
----
-
-## 八、可视化图表说明
-
-本项目提供16种可视化图表，用于分析仿真结果。
-
-### 8.1 车流画像图（Speed Profile）
-
-- **说明**：展示各区间车辆平均速度随时间变化
-- **横轴**：时间（秒）
-- **纵轴**：速度（km/h）
-- **颜色**：
-  - 蓝色：正常车辆
-  - 橙色：受影响/慢行
-  - 深红色：类型1（完全静止）
-  - 紫色：类型2（短暂波动）
-  - 褐色：类型3（长时波动）
-
-### 8.2 异常分布图（Anomaly Distribution）
-
-- **说明**：各路段异常事件数量堆叠柱状图
-- **横轴**：路段区间
-- **纵轴**：异常事件数
-
-### 8.3 时空图（Trajectory Plot）
-
-- **说明**：车辆轨迹随时间的空间演化
-- **横轴**：时间（秒）
-- **纵轴**：位置（公里）
-- **用途**：观察交通波传播、拥堵形成与消散
-
-### 8.4 车速热力图（Speed Heatmap）
-
-- **说明**：车速在时间-空间上的分布
-- **横轴**：时间
-- **纵轴**：路段区间
-- **颜色**：绿色（高速）→ 红色（低速）
-
-### 8.5 累计延误图（Cumulative Delay）
-
-- **说明**：各路段车辆累计延误时间
-- **横轴**：路段区间
-- **纵轴**：总延误（分钟）
-
-### 8.6 异常恢复曲线（Recovery Curve）
-
-- **说明**：异常事件触发前后的速度恢复过程
-- **横轴**：相对于异常触发的时间（秒）
-- **纵轴**：平均速度（km/h）
-
-### 8.7 车道分布图（Lane Distribution）
-
-- **说明**：各车道车辆数随时间的变化
-- **横轴**：时间（秒）
-- **纵轴**：车辆数
-
-### 8.8 车辆类型分布图（Vehicle Type Distribution）
-
-- **说明**：三种车型的数量、速度、换道次数对比
-- **包含**：
-  - 车型数量柱状图
-  - 速度分布箱线图
-  - 换道次数柱状图
-
-### 8.9 轨迹动画（Trajectory Animation）
-
-- **说明**：车辆轨迹的动态演化过程
-- **格式**：GIF动画
-- **帧率**：5帧/秒
-- **每帧**：代表100秒仿真时间
-
-### 8.10 交通流基本图（Fundamental Diagram）
-
-- **说明**：交通流三参数关系
-- **包含**：
-  - 流量-密度图（q-k）
-  - 速度-密度图（v-k）
-  - 流量-速度图（q-v）
-
-### 8.11 换道行为分析（Lane Change Analysis）
-
-- **说明**：换道行为的详细分析
-- **包含**：
-  - 换道原因分类（自由换道 vs 强制换道）
-  - 各驾驶风格换道次数
-  - 换道次数分布直方图
-
-### 8.12 拥堵传播分析（Congestion Propagation）
-
-- **说明**：交通状态的时空演化
-- **颜色编码**：
-  - 绿色：自由流（密度<15）
-  - 黄色：稳定流（15≤密度<35）
-  - 橙色：拥堵流（35≤密度<60）
-  - 红色：阻塞流（密度≥60）
-
-### 8.13 驾驶风格影响分析（Driver Style Impact）
-
-- **说明**：三种驾驶风格对交通流的影响
-- **包含**：
-  - 速度分布箱线图
-  - 平均速度对比
-  - 采样数量统计
-
-### 8.14 异常事件时间线（Anomaly Timeline）
-
-- **说明**：所有异常事件的时间-空间分布
-- **横轴**：时间（秒）
-- **纵轴**：位置（公里）
-- **标记**：不同形状表示不同异常类型
-
-### 8.15 ETC系统性能分析（ETC Performance）
-
-- **说明**：ETC系统的检测性能
-- **包含**：
-  - 检测率随时间变化
-  - 误报率随时间变化
-  - 系统响应时间分布
-
-### 8.16 空间排他性影响（Spatial Exclusivity）
-
-- **说明**：Type 1车辆的空间影响分析
-- **包含**：
-  - 影响范围分布
-  - 排队长度分布
-  - 异常发生位置分布
-
----
-
-## 九、输出目录结构
-
-```
-output/
-├── 20公里-2公里段/
-│   ├── speed_profile.png              # 车流画像
-│   ├── anomaly_distribution.png       # 异常分布
-│   ├── trajectory.png                 # 时空图
-│   ├── speed_heatmap.png              # 车速热力图
-│   ├── cumulative_delay.png           # 累计延误
-│   ├── recovery_curve.png             # 恢复曲线
-│   ├── lane_distribution.png          # 车道分布
-│   ├── vehicle_type_distribution.png  # 车辆类型
-│   ├── trajectory_animation.gif       # 轨迹动画
-│   ├── fundamental_diagram.png        # 交通流基本图
-│   ├── lane_change_analysis.png       # 换道分析
-│   ├── congestion_propagation.png     # 拥堵传播
-│   ├── driver_style_impact.png        # 驾驶风格
-│   ├── anomaly_timeline.png           # 异常时间线
-│   ├── etc_performance.png            # ETC性能
-│   └── spatial_exclusivity.png        # 空间排他性
-└── traffic_snapshot_*.png             # 中间快照
-```
-
----
-
-## 十、使用方法
-
-### 10.1 运行仿真
+### Option 1: Use One-Click Launcher (Recommended)
 
 ```bash
-python 模拟车流.py
+# Windows
+cd etc_sim
+start.bat
+
+# Linux/Mac
+cd etc_sim
+chmod +x start.sh
+./start.sh
 ```
 
-### 10.2 控制台输出示例
+Select option [1] to start the frontend, then open http://localhost:3000
 
-```
-仿真初始化... 目标车辆: 1200
-车辆类型: 轿车60% | 卡车25% | 客车15%
-驾驶风格: 激进20% | 普通60% | 保守20%
-跟驰模型: IDM智能驾驶员模型
-换道模型: MOBIL + 轨迹平滑(5步)
-============================================================
+### Option 2: Frontend + CLI Simulation
 
-============================================================
-时间: 200秒 | 活跃: 45 | 完成: 12
-事件统计: 异常:0 | 换道:5 | 拥堵:0
+```bash
+# Terminal 1: Start frontend
+cd etc_sim/frontend
+npm install
+npm run dev
 
-============================================================
-...
-仿真完成。
+# Terminal 2: Run simulation
+cd etc_sim
+python main.py
 ```
 
-### 10.3 日志级别
+### Option 3: Docker
 
-| 级别 | 说明 |
+```bash
+cd etc_sim
+docker-compose up -d
+```
+
+Open http://localhost:3000
+
+## Project Structure
+
+```
+etc_sim/
+├── data/                      # Persistent data storage
+│   ├── config/               # User configurations
+│   ├── results/              # Simulation results (JSON)
+│   ├── charts/               # Chart favorites
+│   └── layouts/              # Layout presets
+│
+├── frontend/                 # React + Vite frontend
+│   ├── src/
+│   │   ├── components/       # Reusable components
+│   │   ├── pages/          # Page components
+│   │   │   ├── ConfigPage.tsx    # Configuration
+│   │   │   ├── RunPage.tsx       # Simulation control
+│   │   │   ├── AnalysisPage.tsx  # 11 charts
+│   │   │   ├── ComparePage.tsx   # Result comparison
+│   │   │   ├── FavoritesPage.tsx # Chart favorites
+│   │   │   └── SettingsPage.tsx  # Settings
+│   │   ├── stores/         # Zustand state management
+│   │   ├── types/          # TypeScript definitions
+│   │   └── utils/          # Utility functions
+│   ├── Dockerfile
+│   └── package.json
+│
+├── config/                  # Configuration modules
+├── core/                   # Core simulation engine
+├── models/                 # IDM, MOBIL, anomaly models
+├── road/                   # Road network
+├── simulation/             # Simulation engine
+├── utils/                  # Utility functions
+├── main.py                 # Python CLI entry point
+├── start.bat              # Windows launcher
+├── start.sh               # Linux/Mac launcher
+├── docker-compose.yml
+└── requirements.txt
+```
+
+## Pages
+
+| Page | Function |
+|------|----------|
+| **Config** | Set parameters, save/load JSON, presets |
+| **Run** | Start/pause/stop, progress bar, terminal |
+| **Analysis** | 11 charts, export PNG/CSV, favorites |
+| **Compare** | Overlay two results, diff stats |
+| **Favorites** | Save/manage chart configs |
+| **Settings** | Layout, theme, language |
+
+## Charts
+
+1. Speed Heatmap
+2. Trajectory Space-Time
+3. Anomaly Distribution
+4. Congestion Recovery
+5. Lane Change Analysis
+6. Vehicle Type Distribution
+7. Lane Distribution
+8. Safety Analysis (TTC)
+9. Cumulative Delay
+10. Fundamental Diagram
+11. ETC Performance
+
+## Python CLI Usage
+
+```bash
+# Default config
+python main.py
+
+# With config file
+python main.py config.json
+
+# Export config
+python main.py --json config.json
+```
+
+Results are saved to `data/results/sim_YYYYMMDD_HHMMSS.json`
+
+## Tech Stack
+
+- **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + ECharts
+- **Backend**: Python 3.13 + NumPy + Pandas
+- **State**: Zustand (persistent)
+- **Deployment**: Docker, static build
+
+## Requirements
+
+- Python 3.13+
+- Node.js 18+ (for frontend)
+- Docker (optional)
+
+## License
+
+MIT
+
+---
+
+## 简体中文
+
+# ETC 交通仿真系统
+
+一个基于 IDM（智能驾驶员模型）和 MOBIL 换道模型的高速公路交通仿真系统。
+
+## 特性
+
+| 模块 | 描述 |
 |------|------|
-| [信息] | 常规事件 |
-| [警告] | 异常/拥堵事件 |
+| IDM 跟驰 | 包含多种车型支持的智能驾驶员模型 |
+| MOBIL 换道 | 基于收益的换道策略决策 |
+| 异常模拟 | 模拟车辆异常事件（静止、波动） |
+| ETC 检测 | ETC 门架检测效果模拟 |
+| 可视化 | 11 种交互式图表及数据导出 |
 
----
+## 快速开始
 
-## 十一、扩展配置
+### 方式 1: 使用一键启动脚本 (推荐)
 
-### 11.1 修改道路参数
+```bash
+# Windows
+cd etc_sim
+start.bat
 
-```python
-ROAD_LENGTH_KM = 30       # 改为30公里
-SEGMENT_LENGTH_KM = 3     # 区间改为3公里
+# Linux/Mac
+cd etc_sim
+chmod +x start.sh
+./start.sh
 ```
 
-### 11.2 修改车辆比例
+选择选项 [1] 启动前端，然后访问 http://localhost:3000
 
-```python
-VEHICLE_TYPE_CONFIG = {
-    'CAR': {'weight': 0.70, ...},    # 提高轿车比例
-    'TRUCK': {'weight': 0.15, ...},  # 降低卡车比例
-    'BUS': {'weight': 0.15, ...},
-}
+### 方式 2: 前端 + 命令行仿真
+
+```bash
+# 终端 1: 启动前端
+cd etc_sim/frontend
+npm install
+npm run dev
+
+# 终端 2: 运行仿真
+cd etc_sim
+python main.py
 ```
 
-### 11.3 修改异常参数
+### 方式 3: Docker
 
-```python
-ANOMALY_RATIO = 0.02          # 异常比例改为2%
-GLOBAL_ANOMALY_START = 300    # 异常触发时间改为300秒
+```bash
+cd etc_sim
+docker-compose up -d
 ```
 
----
+访问 http://localhost:3000
 
-## 十二、验证与校准
+## 项目结构
 
-### 12.1 激波传播验证
+```
+etc_sim/
+├── data/                      # 持久化数据存储
+│   ├── config/               # 用户配置
+│   ├── results/              # 仿真结果 (JSON)
+│   ├── charts/               # 图表收藏
+│   └── layouts/              # 布局预设
+│
+├── frontend/                 # React + Vite 前端
+│   ├── src/
+│   │   ├── components/       # 可复用组件
+│   │   ├── pages/          # 页面组件
+│   │   │   ├── ConfigPage.tsx    # 参数配置
+│   │   │   ├── RunPage.tsx       # 仿真运行
+│   │   │   ├── AnalysisPage.tsx  # 11 种图表
+│   │   │   ├── ComparePage.tsx   # 结果对比
+│   │   │   ├── FavoritesPage.tsx # 图表收藏
+│   │   │   └── SettingsPage.tsx  # 设置页面
+│   │   ├── stores/         # Zustand 状态管理
+│   │   ├── types/          # TypeScript 类型定义
+│   │   └── utils/          # 工具函数
+│   ├── Dockerfile
+│   └── package.json
+│
+├── config/                  # 配置模块
+├── core/                   # 核心仿真引擎
+├── models/                 # IDM, MOBIL, 异常模型
+├── road/                   # 道路网络
+├── simulation/             # 仿真控制
+├── utils/                  # 工具函数
+├── main.py                 # Python 命令行接口入口
+├── start.bat              # Windows 启动脚本
+├── start.sh               # Linux/Mac 启动脚本
+├── docker-compose.yml
+└── requirements.txt
+```
 
-拥堵向上游传播的速度应约为15-20km/h，可通过时空图验证。
+## 页面功能
 
-### 12.2 拥堵消散验证
+| 页面 | 功能 |
+|------|----------|
+| **配置** | 参数设置、保存/加载 JSON、预设管理 |
+| **运行** | 启动/暂停/停止、进度展示、终端输出 |
+| **分析** | 11 种图表、导出 PNG/CSV、收藏夹 |
+| **对比** | 叠加两组结果进行对比、差异统计 |
+| **收藏** | 管理保存的图表配置 |
+| **设置** | 布局调整、主题色、语言设置 |
 
-异常清除后，交通流应在300秒内恢复正常。
+## 仿真图表
 
-### 12.3 流量-密度关系验证
+1. 速度热力图
+2. 轨迹时空图
+3. 异常分布图
+4. 拥堵恢复过程
+5. 换道分析
+6. 车辆类型分布
+7. 车道分布
+8. 安全性分析 (TTC)
+9. 累积延误
+10. 基本图 (Fundamental Diagram)
+11. ETC 性能表现
 
-基本图应呈现倒U型曲线，存在明显的临界密度（约35-40 veh/km）。
+## Python 命令行用法
 
----
+```bash
+# 使用默认配置
+python main.py
 
-## 十三、版本历史
+# 使用特定配置文件
+python main.py config.json
 
-| 版本 | 日期 | 更新内容 |
-|------|------|----------|
-| v1.0 | - | 初始版本，基础仿真框架 |
-| v2.0 | - | 引入IDM跟驰模型、MOBIL换道模型 |
-| v2.1 | - | 车辆异质性建模、驾驶风格分类 |
-| v2.2 | - | 中文化界面、16种可视化图表 |
-| v2.3 | - | 轨迹动画、精细化物理模型 |
+# 导出默认配置
+python main.py --json config.json
+```
 
----
+仿真结果将保存至 `data/results/sim_YYYYMMDD_HHMMSS.json`
 
-## 十四、参考文献
+## 技术栈
 
-1. Treiber, M., & Helbing, D. (2002). Realistische Mikrosimulation von Straßenverkehr mit einem einfachen Modell.
-2. Kesting, A., Treiber, M., & Helbing, D. (2007). General lane-changing model MOBIL for car-following models.
-3. Helbing, D., & Tilch, B. (1998). Generalized force model of traffic dynamics.
+- **前端**: React 18 + TypeScript + Vite + Tailwind CSS + ECharts
+- **后端**: Python 3.13 + NumPy + Pandas
+- **状态**: Zustand (持久化存储)
+- **部署**: Docker, 静态构建
 
----
+## 系统要求
 
-**文档版本**: v2.3
-**最后更新**: 2026.2.2年
+- Python 3.13+
+- Node.js 18+ (用于前端开发)
+- Docker (可选)
+
+## 开源协议
+
+MIT
