@@ -6,6 +6,9 @@
 import React, { useState } from 'react';
 import { useSimStore } from '../stores/simStore';
 import { useI18nStore } from '../stores/i18nStore';
+import { EnvironmentConfig } from './EnvironmentConfig';
+import { RoadNetworkConfig } from './RoadNetworkConfig';
+import { ETCMonitorPanel } from './ETCMonitorPanel';
 
 interface ParamInputProps {
     label: string;
@@ -285,6 +288,21 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) =>
                         unit="m"
                         disabled={disabled}
                     />
+                </Section>
+
+                {/* 新增：路网配置 */}
+                <Section title="Road Network" icon="🛣️" defaultOpen={false}>
+                    <RoadNetworkConfig disabled={disabled} />
+                </Section>
+
+                {/* 新增：环境配置 */}
+                <Section title="Environment" icon="🌤️" defaultOpen={false}>
+                    <EnvironmentConfig disabled={disabled} />
+                </Section>
+
+                {/* 新增：ETC 监控 */}
+                <Section title="ETC Monitor" icon="📡" defaultOpen={false}>
+                    <ETCMonitorPanel />
                 </Section>
             </div>
 

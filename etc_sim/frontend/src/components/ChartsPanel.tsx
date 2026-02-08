@@ -37,66 +37,81 @@ export const ChartsPanel: React.FC = () => {
 
     const prevRunningRef = useRef(isRunning);
 
+    // 使用 ref 追踪重试次数，避免闭包问题
+    const retryCountRef = useRef(0);
+
     // 获取图表列表
-    const fetchCharts = useCallback(async (retry = false) => {
+    const fetchCharts = useCallback(async (isRetry = false) => {
         try {
-            setLoading(true);
+            if (!isRetry) setLoading(true);
+
             const res = await fetch(`${API_BASE}/charts`);
             if (!res.ok) throw new Error('Failed to fetch charts');
             const data = await res.json();
 
-            const fetchedCharts = data.charts || [];
+            const fetchedCharts: ChartInfo[] = data.charts || [];
             setCharts(fetchedCharts);
-            setFavorites(fetchedCharts.filter((c: ChartInfo) => c.favorited).map((c: ChartInfo) => c.id) || []);
+
+            // 更新收藏状态
+            const backendFavorites = fetchedCharts.filter(c => c.favorited).map(c => c.id);
+            setFavorites(backendFavorites);
             setError(null);
 
-            // 如果请求重试，并且没有可用图表（可能正在生成），则继续重试
-            const anyAvailable = fetchedCharts.some((c: ChartInfo) => c.available);
-            if (retry && !anyAvailable && retryCount < 10) { // Increase retries to 10 * 2s = 20s
-                setTimeout(() => {
-                    setRetryCount(c => c + 1);
-                    fetchCharts(true);
-                }, 2000);
-            } else if (anyAvailable) {
-                // 如果是从重试状态恢复，说明刚生成完毕
-                if (retry) {
+            // 检查是否有生成的图表
+            const anyAvailable = fetchedCharts.some(c => c.available);
+
+            if (anyAvailable) {
+                // 成功获取到图表
+                if (retryCountRef.current > 0) {
                     useSimStore.getState().addLog({
-                        timestamp: Date.now() / 1000, // 近似时间
+                        timestamp: Date.now() / 1000,
                         level: 'INFO',
                         category: 'SYSTEM',
                         message: 'Charts generated successfully.',
                     });
                 }
-                setRetryCount(0); // Found charts, stop retrying
-            } else if (retry && retryCount >= 10) {
-                setError('Charts generation timed out or failed.');
+                retryCountRef.current = 0;
+                setRetryCount(0);
+                setLoading(false);
+            } else if (isRetry && retryCountRef.current < 20) {
+                // 继续重试
+                retryCountRef.current += 1;
+                setRetryCount(retryCountRef.current);
+
+                // 安排下一次重试
+                setTimeout(() => {
+                    fetchCharts(true);
+                }, 3000);
+            } else if (retryCountRef.current >= 20) {
+                setError('Charts generation timed out. Please check backend logs.');
+                setLoading(false);
             }
 
         } catch (e: any) {
-            // ... existing error handling
             console.error('Fetch charts error:', e);
-            if (retry && retryCount < 10) {
-                setTimeout(() => {
-                    setRetryCount(c => c + 1);
-                    fetchCharts(true); // Ensure recursion
-                }, 2000);
+            if (isRetry && retryCountRef.current < 20) {
+                retryCountRef.current += 1;
+                setRetryCount(retryCountRef.current);
+                setTimeout(() => fetchCharts(true), 3000);
             } else {
                 setError('Waiting for network or charts generation...');
+                setLoading(false);
             }
-        } finally {
-            setLoading(false);
         }
-    }, [retryCount]);
+    }, []); // 无依赖，避免重建
 
-    // ... useEffects ...
+    // 监听仿真状态，仿真结束时触发第一次获取
     useEffect(() => {
         if (prevRunningRef.current && !isRunning) {
+            // 仿真刚结束，开始轮询
+            retryCountRef.current = 0;
             setRetryCount(0);
             fetchCharts(true);
         }
         prevRunningRef.current = isRunning;
     }, [isRunning, fetchCharts]);
 
+    // 组件挂载时获取一次
     useEffect(() => {
         if (!isRunning) {
             fetchCharts(false);
@@ -163,7 +178,7 @@ export const ChartsPanel: React.FC = () => {
                         Refresh
                     </button>
                     {retryCount > 0 && (
-                        <span className="self-center text-sm text-[var(--text-tertiary)]">Retrying... ({retryCount}/5)</span>
+                        <span className="self-center text-sm text-[var(--text-tertiary)]">Retrying... ({retryCount}/20)</span>
                     )}
                 </div>
             </div>
@@ -218,7 +233,7 @@ export const ChartsPanel: React.FC = () => {
             {retryCount > 0 && (
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 mb-4 flex items-center justify-center gap-3 animate-pulse">
                     <span className="text-xl">⏳</span>
-                    <span className="text-blue-200 font-medium">Please wait for image generation... ({retryCount}/10)</span>
+                    <span className="text-blue-200 font-medium">Please wait for image generation... ({retryCount}/20)</span>
                 </div>
             )}
 

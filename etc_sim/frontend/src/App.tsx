@@ -12,10 +12,12 @@ import { RoadViewer } from './components/RoadViewer';
 import { useI18nStore } from './stores/i18nStore';
 import { useSimStore } from './stores/simStore';
 import { engine } from './engine/SimulationEngine';
+import { useTheme } from './utils/useTheme';
 
 function App() {
   const { isRunning, isComplete, turboMode, setTurboMode } = useSimStore();
   const { lang, setLang } = useI18nStore();
+  const { theme, toggleTheme } = useTheme();
   const chartsRef = React.useRef<HTMLDivElement>(null);
   const prevRunningRef = React.useRef(isRunning);
 
@@ -33,7 +35,7 @@ function App() {
 
       {/* 左侧侧边栏 - 配置与信息 */}
       <aside className="w-80 flex flex-col glass-panel z-20 shrink-0 border-r border-[var(--glass-border)]">
-        {/* Title & Language Switcher */}
+        {/* Title & Switchers */}
         <div className="h-16 flex items-center justify-between px-6 border-b border-[var(--glass-border)]">
           <div className="flex items-center">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--accent-blue)] to-[var(--accent-purple)] flex items-center justify-center text-black font-bold mr-3 shadow-[0_0_15px_rgba(168,199,250,0.3)]">
@@ -42,13 +44,24 @@ function App() {
             <span className="text-lg font-medium tracking-tight text-white">ETC Traffic</span>
           </div>
 
-          {/* Language Toggle */}
-          <button
-            onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
-            className="px-2 py-1 text-xs font-medium rounded border border-[var(--glass-border)] bg-[rgba(255,255,255,0.05)] hover:bg-[rgba(255,255,255,0.1)] transition-colors text-[var(--text-secondary)]"
-          >
-            {lang === 'zh' ? 'EN' : '中'}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Theme Toggle */}
+            <button
+              onClick={toggleTheme}
+              className="p-1.5 text-lg rounded border border-[var(--glass-border)] bg-[rgba(255,255,255,0.05)] hover:bg-[rgba(255,255,255,0.1)] transition-colors"
+              title={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+            >
+              {theme === 'dark' ? '🌙' : '☀️'}
+            </button>
+
+            {/* Language Toggle */}
+            <button
+              onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
+              className="px-2 py-1 text-xs font-medium rounded border border-[var(--glass-border)] bg-[rgba(255,255,255,0.05)] hover:bg-[rgba(255,255,255,0.1)] transition-colors text-[var(--text-secondary)]"
+            >
+              {lang === 'zh' ? 'EN' : '中'}
+            </button>
+          </div>
         </div>
 
         {/* Config Scroll Area */}

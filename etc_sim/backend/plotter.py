@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 图表生成服务
 从仿真数据生成 matplotlib 图表

@@ -5,7 +5,7 @@
 @tailwind utilities;
 
 :root {
-  /* Google AI Studio Inspired Palette */
+  /* Google AI Studio Inspired Palette - Dark Theme */
   --bg-base: #131314;
   --bg-surface: #1E1F20;
 
@@ -22,6 +22,26 @@
   --text-primary: #E3E3E3;
   --text-secondary: #C4C7C5;
   --text-muted: #8E918F;
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --bg-base: #F8F9FA;
+  --bg-surface: #FFFFFF;
+
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --glass-bg-hover: rgba(245, 245, 245, 0.9);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.05);
+
+  --accent-blue: #1A73E8;
+  --accent-purple: #7C4DFF;
+  --accent-green: #0F9D58;
+  --accent-red: #D93025;
+
+  --text-primary: #202124;
+  --text-secondary: #5F6368;
+  --text-muted: #9AA0A6;
 }
 
 body {
