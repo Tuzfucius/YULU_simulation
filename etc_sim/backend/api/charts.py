@@ -140,7 +140,10 @@ async def generate_charts(
             print(f"Found specific python env: {target_python}")
             break
         
-    cmd = [target_python, str(script_path), str(data_file), str(batch_dir)]
+    # 获取主题参数 (默认为 dark)
+    theme = data.get("theme", "dark")
+    
+    cmd = [target_python, str(script_path), str(data_file), str(batch_dir), "--theme", theme]
     
     # Redirect output to file for debugging
     log_path = batch_dir / "launcher.log"
@@ -152,7 +155,8 @@ async def generate_charts(
     return {
         "status": "processing", 
         "message": "Chart generation started in background process",
-        "batch_id": f"run_{timestamp}"
+        "batch_id": f"run_{timestamp}",
+        "output_path": str(batch_dir)
     }
 
 

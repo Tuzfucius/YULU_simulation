@@ -35,7 +35,7 @@ const ParamInput: React.FC<ParamInputProps> = ({
         <label className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-2 font-medium">
             <span>{label}</span>
             <span className="text-[var(--accent-blue)] font-mono">
-                {typeof value === 'number' ? value.toFixed(step < 1 ? 2 : 0) : value}
+                {typeof value === 'number' ? value.toFixed(step < 0.01 ? 3 : step < 1 ? 2 : 0) : value}
                 {unit && <span className="text-[var(--text-muted)] ml-1">{unit}</span>}
             </span>
         </label>
@@ -70,7 +70,7 @@ interface SectionProps {
     children: React.ReactNode;
 }
 
-const Section: React.FC<SectionProps> = ({ title, icon, defaultOpen = true, children }) => {
+const Section: React.FC<SectionProps> = ({ title, icon, defaultOpen = false, children }) => {
     const [isOpen, setIsOpen] = useState(defaultOpen);
 
     return (
@@ -232,10 +232,58 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) =>
                         value={config.anomalyRatio}
                         onChange={(v) => setConfig({ anomalyRatio: v })}
                         min={0}
-                        max={0.2}
-                        step={0.005}
+                        max={0.1}
+                        step={0.001}
+                        unit="prob"
                         disabled={disabled}
                     />
+
+                    {/* Anomaly Type Ratios */}
+                    <div className="mb-4 p-3 bg-[rgba(255,255,255,0.05)] rounded-lg">
+                        <div className="text-xs text-[var(--accent-blue)] mb-2 font-medium">{t('config.anomalyTypeRatios')}</div>
+                        <ParamInput
+                            label={t('config.type1Ratio')}
+                            value={config.anomalyProbType1}
+                            onChange={(v) => setConfig({ anomalyProbType1: v })}
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            unit="prob"
+                            disabled={disabled}
+                        />
+                        <ParamInput
+                            label={t('config.type2Ratio')}
+                            value={config.anomalyProbType2}
+                            onChange={(v) => setConfig({ anomalyProbType2: v })}
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            unit="prob"
+                            disabled={disabled}
+                        />
+                        <ParamInput
+                            label={t('config.type3Ratio')}
+                            value={config.anomalyProbType3}
+                            onChange={(v) => setConfig({ anomalyProbType3: v })}
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            unit="prob"
+                            disabled={disabled}
+                        />
+                    </div>
+
+                    <ParamInput
+                        label={t('config.type1Duration')}
+                        value={config.anomalyDurationType1}
+                        onChange={(v) => setConfig({ anomalyDurationType1: v })}
+                        min={30}
+                        max={600}
+                        step={10}
+                        unit="s"
+                        disabled={disabled}
+                    />
+
                     <ParamInput
                         label={t('config.startTime')}
                         value={config.globalAnomalyStart}
@@ -291,17 +339,17 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) =>
                 </Section>
 
                 {/* 新增：路网配置 */}
-                <Section title="Road Network" icon="🛣️" defaultOpen={false}>
+                <Section title={t('config.roadNetwork.title')} icon="🛣️" defaultOpen={false}>
                     <RoadNetworkConfig disabled={disabled} />
                 </Section>
 
                 {/* 新增：环境配置 */}
-                <Section title="Environment" icon="🌤️" defaultOpen={false}>
+                <Section title={t('config.environment.title')} icon="🌤️" defaultOpen={false}>
                     <EnvironmentConfig disabled={disabled} />
                 </Section>
 
                 {/* 新增：ETC 监控 */}
-                <Section title="ETC Monitor" icon="📡" defaultOpen={false}>
+                <Section title={t('config.etc.title')} icon="📡" defaultOpen={false}>
                     <ETCMonitorPanel />
                 </Section>
             </div>
@@ -312,10 +360,10 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) =>
                     onClick={handleExportConfig}
                     className="w-full glass-btn justify-center hover:bg-[rgba(255,255,255,0.08)]"
                 >
-                    Config Export
+                    {t('config.exportConfig')}
                 </button>
                 <label className="w-full glass-btn justify-center cursor-pointer hover:bg-[rgba(255,255,255,0.08)]">
-                    Config Import
+                    {t('config.importConfig')}
                     <input type="file" accept=".json" onChange={handleImportConfig} className="hidden" />
                 </label>
                 <button
@@ -323,7 +371,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) =>
                     disabled={disabled}
                     className="w-full glass-btn justify-center text-[var(--accent-red)] hover:bg-[rgba(242,184,181,0.1)]"
                 >
-                    Reset Defaults
+                    {t('config.resetDefaults')}
                 </button>
             </div>
         </div>

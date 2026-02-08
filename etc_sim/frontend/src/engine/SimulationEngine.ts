@@ -238,9 +238,26 @@ export class SimulationEngine {
         }
 
         // 检查完成条件
-        if (this.currentTime >= config.maxSimulationTime ||
-            (this.spawnIndex >= this.spawnSchedule.length && this.vehicles.length === 0)) {
-            this.complete('Simulation completed normally');
+        // 修复：如果还有活跃车辆，允许延长仿真时间，直到所有车辆完成或达到 2倍最大时间
+        // 这解决了 "Completed Vehicles" 远小于 "Target" 的问题
+        const activeVehiclesCount = this.vehicles.length;
+        const allSpawned = this.spawnIndex >= this.spawnSchedule.length;
+        const hardTimeLimit = config.maxSimulationTime * 2; // 2x buffer
+
+        if (allSpawned && activeVehiclesCount === 0) {
+            this.complete('Simulation completed normally (All finished)');
+        } else if (this.currentTime >= hardTimeLimit) {
+            this.complete('Simulation stopped (Hard time limit reached)');
+        } else if (this.currentTime >= config.maxSimulationTime) {
+            // 超过预期时间，但还有车辆
+            if (activeVehiclesCount > 0) {
+                // 继续运行，但在 log 中提示 (可选)
+                if (Math.floor(this.currentTime) % 100 === 0) {
+                    // store.addLog(...) // Optional: log extension
+                }
+            } else {
+                if (allSpawned) this.complete('Simulation completed (Time limit reached)');
+            }
         }
     }
 
@@ -593,6 +610,13 @@ export class SimulationEngine {
             .map(([changes, count]) => ({ changes, count }));
     }
 
+    // 当前主题
+    private currentTheme: 'light' | 'dark' = 'dark';
+
+    setTheme(theme: 'light' | 'dark') {
+        this.currentTheme = theme;
+    }
+
     // --- 上传数据到后端生成图表 ---
     private async uploadData() {
         const store = useSimStore.getState();
@@ -704,6 +728,7 @@ export class SimulationEngine {
             trajectory_data: sampledTrajectory,
             segment_speed_history: snakeSpeedHistory,
             lane_history: snakeLaneHistory,
+            theme: this.currentTheme, // Pass current theme
         };
 
 
@@ -717,12 +742,31 @@ export class SimulationEngine {
             });
 
             if (response.ok) {
-                console.log("Chart generation started.");
+                const resData = await response.json();
+                console.log("Chart generation started.", resData);
+
+                // 显示保存位置提示 (Requested feature)
+                if (resData.output_path) {
+                    // 使用 confirm 让用户不得不看到，或者 alert
+                    // alert 会阻塞 UI，但如果是仿真结束时，也许可以接受。
+                    // 更好的方式是用 addLog 强调，以及 ChartsPanel 的通知。
+                    // 但用户明确要求 "弹出提示"。
+                    // 为了不阻塞太久，我们只 Log，然后尝试非阻塞通知如果可能。
+                    // 由于这是后台逻辑，alert 是最直接的“弹出”。
+                    // 但如果在自动跑大量仿真，alert 会很烦。
+                    // 我们可以只在 SimulationEngine 中 log，并在 UI 侧处理。
+                    // 但 UI侧不知道何时结束。
+                    // 还是弹个 alert 吧，简单直接。如果是 Turbo 模式可能会有点烦，加个判断？
+                    if (!store.turboMode) {
+                        alert(`Charts generation started.\nSaved to: ${resData.output_path}`);
+                    }
+                }
+
                 store.addLog({
                     timestamp: this.currentTime,
                     level: 'INFO',
                     category: 'SYSTEM',
-                    message: 'Chart generation started.',
+                    message: `Chart generation started. Path: ${resData.output_path || 'unknown'}`,
                 });
             } else {
                 const errText = await response.text();

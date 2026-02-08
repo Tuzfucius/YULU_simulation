@@ -16,12 +16,17 @@ import { useTheme } from './utils/useTheme';
 
 function App() {
   const { isRunning, isComplete, turboMode, setTurboMode } = useSimStore();
-  const { lang, setLang } = useI18nStore();
+  const { lang, setLang, t } = useI18nStore();
   const { theme, toggleTheme } = useTheme();
   const chartsRef = React.useRef<HTMLDivElement>(null);
   const prevRunningRef = React.useRef(isRunning);
 
   // ... (useEffect remains same)
+
+  // Sync theme to engine
+  useEffect(() => {
+    engine.setTheme(theme);
+  }, [theme]);
 
   // 引擎控制回调
   const handleStart = useCallback(() => engine.start(), []);
@@ -41,7 +46,7 @@ function App() {
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--accent-blue)] to-[var(--accent-purple)] flex items-center justify-center text-black font-bold mr-3 shadow-[0_0_15px_rgba(168,199,250,0.3)]">
               E
             </div>
-            <span className="text-lg font-medium tracking-tight text-white">ETC Traffic</span>
+            <span className="text-lg font-medium tracking-tight text-white">{t('app.title')}</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -49,7 +54,7 @@ function App() {
             <button
               onClick={toggleTheme}
               className="p-1.5 text-lg rounded border border-[var(--glass-border)] bg-[rgba(255,255,255,0.05)] hover:bg-[rgba(255,255,255,0.1)] transition-colors"
-              title={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+              title={theme === 'dark' ? t('app.themeToggle.toLight') : t('app.themeToggle.toDark')}
             >
               {theme === 'dark' ? '🌙' : '☀️'}
             </button>
@@ -71,7 +76,7 @@ function App() {
 
         {/* Bottom Info or Credits */}
         <div className="p-4 border-t border-[var(--glass-border)] text-xs text-[var(--text-muted)]">
-          v2.1 Turbo Edition
+          {t('app.footer')}
         </div>
       </aside>
 
@@ -89,8 +94,8 @@ function App() {
               onReset={handleReset}
             />
 
-            {/* Turbo Switch */}
-            <div className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--glass-border)] bg-[rgba(255,255,255,0.03)]">
+            {/* Turbo Switch (Hidden as it is default now) */}
+            {/* <div className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--glass-border)] bg-[rgba(255,255,255,0.03)]">
               <span className={`text-sm font-medium ${turboMode ? 'text-[var(--accent-green)]' : 'text-[var(--text-secondary)]'}`}>
                 ⚡ Turbo
               </span>
@@ -101,12 +106,11 @@ function App() {
               >
                 <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${turboMode ? 'left-6' : 'left-1'}`} />
               </button>
-            </div>
+            </div> */}
           </div>
 
           <div className="flex items-center gap-4">
-            <ResultsPanel /> {/* Mini Stats in Header? No, ResultsPanel is detailed. */}
-            {/* Maybe put StatsPanel here if I had one. ResultsPanel is large. */}
+            <ResultsPanel />
           </div>
         </div>
 
@@ -114,40 +118,23 @@ function App() {
         <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
           <div className="max-w-[1600px] mx-auto p-8 space-y-8">
 
-            {/* 仿真视窗 */}
-            <div className="glass-card p-1 relative overflow-hidden min-h-[400px]">
-              <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-black/50 rounded-full text-xs text-white/70 backdrop-blur">
-                Real-time View
-              </div>
-              {/* 如果是 Turbo 模式且正在运行，遮罩住 Viewer 以示区别，或者通过 RoadViewer 内部处理 */}
-              <div className={`transition-opacity duration-500 ${turboMode && isRunning ? 'opacity-30 blur-sm' : 'opacity-100'}`}>
-                <RoadViewer />
-              </div>
+            {/* 仿真视窗 (已移除 Real-time View) */}
 
-              {turboMode && isRunning && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center z-20">
-                  <div className="text-4xl animate-bounce">⚡</div>
-                  <div className="text-xl font-medium mt-4 text-[var(--accent-green)]">Turbo Mode Active</div>
-                  <div className="text-sm text-[var(--text-secondary)] mt-2">Simulating at max speed...</div>
-                </div>
-              )}
-            </div>
-
-            {/* 统计面板 (Replacing ResultsPanel with something nicer later, but keeping for functionality) */}
+            {/* 统计面板 */}
             <div className="glass-card p-6">
-              <h3 className="text-lg font-medium mb-4 text-[var(--text-primary)]">Simulation Stats</h3>
+              <h3 className="text-lg font-medium mb-4 text-[var(--text-primary)]">{t('app.simulationStats')}</h3>
               <ResultsPanel />
             </div>
 
             {/* 图表 Grid */}
             <div ref={chartsRef} className="space-y-4">
-              <h3 className="text-lg font-medium text-[var(--text-primary)] px-2">Analysis Charts</h3>
+              <h3 className="text-lg font-medium text-[var(--text-primary)] px-2">{t('app.analysisCharts')}</h3>
               <ChartsPanel />
             </div>
 
             {/* Log Console Floating or Embedded? Embedded for now. */}
             <div className="glass-card p-4 h-64 overflow-hidden flex flex-col">
-              <h3 className="text-sm font-medium mb-2 text-[var(--text-secondary)]">System Logs</h3>
+              <h3 className="text-sm font-medium mb-2 text-[var(--text-secondary)]">{t('app.systemLogs')}</h3>
               <div className="flex-1 overflow-hidden relative">
                 <LogConsole />
               </div>

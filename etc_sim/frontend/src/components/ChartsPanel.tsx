@@ -159,8 +159,8 @@ export const ChartsPanel: React.FC = () => {
         return (
             <div className="backdrop-blur-2xl bg-[var(--surface)]/60 rounded-3xl p-12 text-center border border-[var(--border)]/10">
                 <div className="text-4xl mb-4 animate-pulse">⏳</div>
-                <h3 className="text-lg font-medium text-[var(--text-primary)] mb-2">Simulating...</h3>
-                <p className="text-[var(--text-tertiary)]">Charts will be generated automatically after simulation finishes.</p>
+                <h3 className="text-lg font-medium text-[var(--text-primary)] mb-2">{t('charts.simulating')}</h3>
+                <p className="text-[var(--text-tertiary)]">{t('charts.willGenerate')}</p>
             </div>
         );
     }
@@ -169,16 +169,16 @@ export const ChartsPanel: React.FC = () => {
         return (
             <div className="backdrop-blur-2xl bg-[var(--surface)]/60 rounded-3xl p-8 text-center border border-[var(--border)]/10">
                 <div className="text-4xl mb-4 opacity-50">📊</div>
-                <p className="text-[var(--text-tertiary)] mb-4">{error}</p>
+                <p className="text-[var(--text-tertiary)] mb-4">{t('charts.generationTimeout')}</p>
                 <div className="flex gap-2 justify-center">
                     <button
                         onClick={() => fetchCharts(true)}
                         className="px-4 py-2 rounded-xl bg-[var(--accent)] text-white hover:opacity-90 transition-opacity"
                     >
-                        Refresh
+                        {t('common.refresh')}
                     </button>
                     {retryCount > 0 && (
-                        <span className="self-center text-sm text-[var(--text-tertiary)]">Retrying... ({retryCount}/20)</span>
+                        <span className="self-center text-sm text-[var(--text-tertiary)]">{t('common.retrying')} ({retryCount}/20)</span>
                     )}
                 </div>
             </div>
@@ -195,9 +195,6 @@ export const ChartsPanel: React.FC = () => {
                     </div>
                     <div>
                         <h2 className="text-xl font-medium text-[var(--text-primary)]">{t('charts.title')}</h2>
-                        <p className="text-sm text-[var(--text-secondary)]">
-                            {charts.filter(c => c.available).length} / {charts.length} Charts Available
-                        </p>
                     </div>
                 </div>
 
@@ -211,7 +208,7 @@ export const ChartsPanel: React.FC = () => {
                             }`}
                     >
                         <span>{showFavoritesOnly ? '★' : '☆'}</span>
-                        <span>{showFavoritesOnly ? 'Favorites' : 'All'}</span>
+                        <span>{showFavoritesOnly ? t('common.favorites') : t('common.all')}</span>
                         {favorites.length > 0 && (
                             <span className="px-2 py-0.5 rounded-full bg-yellow-500/30 text-xs">
                                 {favorites.length}
@@ -221,7 +218,7 @@ export const ChartsPanel: React.FC = () => {
                     <button
                         onClick={() => fetchCharts(true)}
                         className={`w-10 h-10 flex items-center justify-center rounded-xl bg-[var(--surface-variant)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors ${loading ? 'animate-spin' : ''}`}
-                        title="Refresh"
+                        title={t('common.refresh')}
                     >
                         ↻
                     </button>
@@ -233,14 +230,14 @@ export const ChartsPanel: React.FC = () => {
             {retryCount > 0 && (
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 mb-4 flex items-center justify-center gap-3 animate-pulse">
                     <span className="text-xl">⏳</span>
-                    <span className="text-blue-200 font-medium">Please wait for image generation... ({retryCount}/20)</span>
+                    <span className="text-blue-200 font-medium">{t('charts.pleaseWait')} ({retryCount}/20)</span>
                 </div>
             )}
 
             {/* 图表网格 */}
             {displayedCharts.length === 0 ? (
                 <div className="backdrop-blur-2xl bg-[var(--surface)]/60 rounded-3xl p-12 text-center text-[var(--text-tertiary)]">
-                    No charts available. Run simulation to generate.
+                    {t('charts.noCharts')}
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -279,7 +276,7 @@ export const ChartsPanel: React.FC = () => {
                                     <div className="w-full h-full flex items-center justify-center text-[var(--text-tertiary)]">
                                         <div className="text-center">
                                             <div className="text-4xl mb-2 opacity-30">📊</div>
-                                            <span className="text-sm">Not Generated</span>
+                                            <span className="text-sm">{t('charts.notGenerated')}</span>
                                         </div>
                                     </div>
                                 )}
@@ -316,7 +313,7 @@ export const ChartsPanel: React.FC = () => {
                                                     ? 'text-yellow-400 hover:bg-yellow-500/10'
                                                     : 'text-[var(--text-tertiary)] hover:text-yellow-400 hover:bg-[var(--surface-variant)]'
                                                     }`}
-                                                title={favorites.includes(chart.id) ? 'Remove Favorite' : 'Favorite'}
+                                                title={favorites.includes(chart.id) ? t('common.removeFavorite') : t('common.addFavorite')}
                                             >
                                                 {favorites.includes(chart.id) ? '★' : '☆'}
                                             </button>
@@ -326,7 +323,7 @@ export const ChartsPanel: React.FC = () => {
                                                     downloadChart(chart.id);
                                                 }}
                                                 className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--text-tertiary)] hover:text-[var(--accent)] hover:bg-[var(--surface-variant)] transition-colors"
-                                                title="Download"
+                                                title={t('common.download')}
                                             >
                                                 ↓
                                             </button>

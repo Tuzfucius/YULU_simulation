@@ -331,11 +331,21 @@ export class Vehicle {
         let trigger = false;
 
         if (this.anomalyType === 0) {
-            if (Math.random() < 0.005) {
+            if (Math.random() < 0.005) { // 每次检查0.5%概率触发
                 trigger = true;
                 const r = Math.random();
-                if (r < 0.33) this.anomalyType = 1;
-                else if (r < 0.66) this.anomalyType = 2;
+
+                // Normalizing probabilities
+                const p1 = config.anomalyProbType1;
+                const p2 = config.anomalyProbType2;
+                const p3 = config.anomalyProbType3;
+                const total = p1 + p2 + p3;
+
+                const threshold1 = p1 / total;
+                const threshold2 = (p1 + p2) / total;
+
+                if (r < threshold1) this.anomalyType = 1;
+                else if (r < threshold2) this.anomalyType = 2;
                 else this.anomalyType = 3;
             }
         } else if (this.anomalyType === 2 || this.anomalyType === 3) {
@@ -351,7 +361,8 @@ export class Vehicle {
             if (this.anomalyType === 1) {
                 this.targetSpeedOverride = 0;
                 this.color = COLORS.TYPE1;
-                this.anomalyTimer = 999999;
+                // 修复：使用配置的持续时间，不再是 999999
+                this.anomalyTimer = config.anomalyDurationType1;
             } else if (this.anomalyType === 2) {
                 this.targetSpeedOverride = kmhToMs(Math.random() * 40);
                 this.anomalyTimer = 10;

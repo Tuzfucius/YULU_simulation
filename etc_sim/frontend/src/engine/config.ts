@@ -25,11 +25,24 @@ export const MAX_SIMULATION_TIME = Math.floor(LAST_SPAWN_TIME + RUN_TIME_60KMH +
 // --- 异常配置 ---
 export const GLOBAL_ANOMALY_START = 200; // 秒
 export const VEHICLE_SAFE_RUN_TIME = 60; // 安全运行时间
-export const IMPACT_DISCOVER_DIST = 200; // 异常影响发现距离（米）
+export const IMPACT_DISCOVER_DIST = 200; // 异常影响发现距离（米）- Default, can be overridden
 export const IMPACT_THRESHOLD = 0.90; // 受影响阈值
 export const IMPACT_SPEED_RATIO = 0.70; // 速度低于期望的70%视为受影响
 export const SLOWDOWN_RATIO = 0.85; // 每个下游异常减速系数
 export const FORCED_CHANGE_DIST = 400; // 强制换道距离（米）
+
+// New Anomaly Defaults
+export const ANOMALY_PROBABILITIES = {
+    TYPE1: 0.10, // 事故/停车 (Low prob)
+    TYPE2: 0.45, // 减速
+    TYPE3: 0.45  // 波动
+};
+
+export const ANOMALY_DURATIONS = {
+    TYPE1: 120, // 事故持续时间 (s) - Auto clear
+    TYPE2: 10,
+    TYPE3: 20
+};
 
 // --- 换道配置 ---
 export const LANE_CHANGE_STEPS = 5; // 换道平滑步数

@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useI18nStore } from '../stores/i18nStore';
 
 interface NetworkTemplate {
     id: string;
@@ -49,6 +50,8 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
     });
     const [preview, setPreview] = useState<NetworkGraph | null>(null);
 
+    const { t } = useI18nStore();
+
     useEffect(() => {
         fetch('/api/road-network/templates')
             .then(res => res.json())
@@ -82,13 +85,22 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
 
     const showRampConfig = selectedTemplate !== 'simple_mainline';
 
+    // Helper to translate template names dynamically if needed, 
+    // or map IDs to translation keys.
+    const getTemplateName = (id: string) => {
+        if (id === 'simple_mainline') return t('config.roadNetwork.simpleMainline');
+        if (id === 'on_ramp') return t('config.roadNetwork.onRamp');
+        if (id === 'off_ramp') return t('config.roadNetwork.offRamp');
+        return id;
+    }
+
     return (
         <div className="space-y-4">
             {/* 标题 */}
-            <h3 className="text-sm font-medium text-[var(--text-secondary)]">🛣️ 路网配置</h3>
+            {/* <h3 className="text-sm font-medium text-[var(--text-secondary)]">{t('config.roadNetwork.title')}</h3> */}
 
             {/* 模板选择 */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 gap-2">
                 {templates.map(t => (
                     <button
                         key={t.id}
@@ -103,7 +115,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
             `}
                     >
                         <span className="text-xl">{t.icon}</span>
-                        <p className="text-xs mt-1">{t.name}</p>
+                        <p className="text-xs mt-1">{getTemplateName(t.id)}</p>
                     </button>
                 ))}
             </div>
@@ -111,7 +123,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
             {/* 基础参数 */}
             <div className="space-y-3">
                 <div>
-                    <label className="text-xs text-[var(--text-muted)]">道路长度: {config.main_length_km} km</label>
+                    <label className="text-xs text-[var(--text-muted)]">{t('config.roadLength')}: {config.main_length_km} km</label>
                     <input
                         type="range"
                         min={10}
@@ -124,7 +136,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
                 </div>
 
                 <div>
-                    <label className="text-xs text-[var(--text-muted)]">车道数: {config.num_lanes}</label>
+                    <label className="text-xs text-[var(--text-muted)]">{t('config.numLanes')}: {config.num_lanes}</label>
                     <input
                         type="range"
                         min={2}
@@ -142,9 +154,9 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
                         {selectedTemplate === 'on_ramp' && (
                             <div>
                                 <label className="text-xs text-[var(--text-muted)]">
-                                    匝道流量: {(config.ramp_traffic_ratio || 20)}%
+                                    {t('config.roadNetwork.rampTraffic')}: {(config.ramp_traffic_ratio || 20)}%
                                     <span className="text-[var(--accent-green)] ml-2">
-                                        ~{Math.round((config.ramp_traffic_ratio || 20) / 100 * 1000)} 车辆驶入
+                                        ~{Math.round((config.ramp_traffic_ratio || 20) / 100 * 1000)} {t('config.roadNetwork.vehiclesEntering')}
                                     </span>
                                 </label>
                                 <input
@@ -160,7 +172,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
                         )}
 
                         <div>
-                            <label className="text-xs text-[var(--text-muted)]">匝道位置: {config.ramp_position_km} km</label>
+                            <label className="text-xs text-[var(--text-muted)]">{t('config.roadNetwork.rampPosition')}: {config.ramp_position_km} km</label>
                             <input
                                 type="range"
                                 min={2}
@@ -174,7 +186,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
 
                         {selectedTemplate === 'off_ramp' && (
                             <div>
-                                <label className="text-xs text-[var(--text-muted)]">驶出概率: {(config.exit_probability * 100).toFixed(0)}%</label>
+                                <label className="text-xs text-[var(--text-muted)]">{t('config.roadNetwork.exitProbability')}: {(config.exit_probability * 100).toFixed(0)}%</label>
                                 <input
                                     type="range"
                                     min={0}
@@ -193,7 +205,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
             {/* SVG 预览 */}
             {preview && (
                 <div className="p-4 rounded-lg border border-[var(--glass-border)] bg-black/30">
-                    <p className="text-xs text-[var(--text-muted)] mb-2">预览</p>
+                    <p className="text-xs text-[var(--text-muted)] mb-2">{t('common.preview')}</p>
                     <svg viewBox="-1 -2 24 4" className="w-full h-16">
                         {/* 边 */}
                         {preview.edges.map(edge => {
@@ -230,7 +242,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
                                     fill="#888"
                                     textAnchor="middle"
                                 >
-                                    {node.node_type === 'merge' ? '合流' : node.node_type === 'diverge' ? '分流' : ''}
+                                    {node.node_type === 'merge' ? t('config.roadNetwork.merge') : node.node_type === 'diverge' ? t('config.roadNetwork.diverge') : ''}
                                 </text>
                             </g>
                         ))}

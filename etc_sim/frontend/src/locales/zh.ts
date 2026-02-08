@@ -15,6 +15,29 @@ export const zh = {
         theme: '主题',
         light: '明亮',
         dark: '深色',
+        enable: '启用',
+        preview: '预览',
+        add: '添加',
+        loading: '加载中...',
+        refresh: '刷新',
+        retrying: '重试中...',
+        favorites: '收藏',
+        all: '全部',
+        download: '下载',
+        removeFavorite: '取消收藏',
+        addFavorite: '添加收藏',
+    },
+    app: {
+        title: 'ETC 交通仿真',
+        subtitle: 'ETC 交通仿真系统',
+        themeToggle: {
+            toLight: '切换到浅色模式',
+            toDark: '切换到深色模式',
+        },
+        simulationStats: '仿真统计',
+        analysisCharts: '分析图表',
+        systemLogs: '系统日志',
+        footer: 'ETC 交通仿真系统',
     },
     simulation: {
         title: 'ETC 车流仿真',
@@ -27,6 +50,7 @@ export const zh = {
         total: '总数',
         active: '活跃',
         completed: '完成',
+        waitingForCompletion: '仿真完成后显示结果',
     },
     config: {
         title: '参数配置',
@@ -34,6 +58,9 @@ export const zh = {
         numLanes: '车道数',
         targetVehicles: '目标车辆数',
         reset: '重置为默认',
+        exportConfig: '导出配置',
+        importConfig: '导入配置',
+        resetDefaults: '重置默认',
 
         // 车辆比例
         carRatio: '轿车比例',
@@ -51,12 +78,71 @@ export const zh = {
         anomalyRate: '异常概率',
         startTime: '开始时间',
         safeRunTime: '安全行驶时间',
+        anomalyTypeRatios: '异常类型比例 (总和约 1.0)',
+        type1Ratio: '类型 1 (停车) 比例',
+        type2Ratio: '类型 2 (龟速) 比例',
+        type3Ratio: '类型 3 (波动) 比例',
+        type1Duration: '类型 1 清除时间',
 
         // 交通逻辑
         trafficLogic: '交通逻辑',
         laneChangeDelay: '换道延迟',
         impactThreshold: '影响阈值',
         impactDist: '影响距离',
+
+        // 路网配置
+        roadNetwork: {
+            title: '路网配置',
+            templates: '模板选择',
+            simpleMainline: '简单主线',
+            onRamp: '入口匝道',
+            offRamp: '出口匝道',
+            rampTraffic: '匝道流量',
+            vehiclesEntering: '车辆驶入',
+            rampPosition: '匝道位置',
+            exitProbability: '驶出概率',
+            merge: '合流',
+            diverge: '分流',
+        },
+
+        // 环境配置
+        environment: {
+            title: '环境设置',
+            weatherConditions: '天气条件',
+            weatherTypes: {
+                clear: '晴朗',
+                rain: '下雨',
+                snow: '下雪',
+                fog: '大雾',
+                heavy_rain: '暴雨',
+            },
+            speed: '速度',
+            headway: '间隔',
+            roadGradient: '道路坡度',
+            startKm: '起点 km',
+            endKm: '终点 km',
+            gradePercent: '坡度 %',
+        },
+
+        // ETC 监控
+        etc: {
+            title: 'ETC监控',
+            tabs: {
+                stats: '统计数据',
+                code: '代码编辑器',
+            },
+            stats: {
+                totalTransactions: '交易总数',
+                alerts: '异常警报',
+                noiseStats: '噪声注入统计',
+                missedRead: '漏读',
+                duplicateRead: '重复读',
+                delayedUpload: '延迟上传',
+                clockDrift: '时钟偏移',
+                recentAlerts: '最近警报',
+                gateTraffic: '门架流量',
+            }
+        }
     },
     charts: {
         title: '仿真分析',
@@ -79,6 +165,20 @@ export const zh = {
         active: '活跃',
         totalTime: '总时间',
         noData: '无数据',
+        available: '个图表可用',
+        favorites: '收藏',
+        all: '全部',
+        download: '下载',
+        refresh: '刷新',
+        generating: '图表生成中...',
+        waiting: '等待生成...',
+        simulating: '仿真运行中...',
+        willGenerate: '仿真结束后自动生成图表',
+        generationTimeout: '图表生成超时，请检查后端日志',
+        waitingNetwork: '等待网络或图表生成...',
+        pleaseWait: '请等待图片生成...',
+        notGenerated: '未生成',
+        noCharts: '无可用图表，请运行仿真以生成。',
     },
     logs: {
         title: '运行日志',

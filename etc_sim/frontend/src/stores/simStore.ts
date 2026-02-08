@@ -30,73 +30,15 @@ interface SimulationConfig {
     laneChangeDelay: number;
     impactThreshold: number;
     impactDiscoverDist: number;
+
+    // Anomaly Configuration
+    anomalyProbType1: number;
+    anomalyProbType2: number;
+    anomalyProbType3: number;
+    anomalyDurationType1: number;
 }
 
-interface SimulationProgress {
-    currentTime: number;
-    totalTime: number;
-    progress: number;
-    activeVehicles: number;
-    completedVehicles: number;
-    activeAnomalies: number;
-}
-
-interface SimulationStatistics {
-    totalVehicles: number;
-    completedVehicles: number;
-    avgSpeed: number;
-    avgTravelTime: number;
-    totalAnomalies: number;
-    affectedByAnomaly: number;
-    totalLaneChanges: number;
-    maxCongestionLength: number;
-    simulationTime: number;
-}
-
-interface LogEntry {
-    id?: string;
-    timestamp: number;
-    level: 'INFO' | 'WARNING' | 'ERROR';
-    category: string;
-    message: string;
-}
-
-interface SimState {
-    // 配置
-    config: SimulationConfig;
-    setConfig: (partial: Partial<SimulationConfig>) => void;
-    resetConfig: () => void;
-
-    // 仿真状态
-    isRunning: boolean;
-    isPaused: boolean;
-    isComplete: boolean;
-    turboMode: boolean; // 极速模式：不渲染，全速计算
-    setRunning: (v: boolean) => void;
-    setPaused: (v: boolean) => void;
-    setComplete: (v: boolean) => void;
-    setTurboMode: (v: boolean) => void;
-
-    // 进度
-    progress: SimulationProgress;
-    setProgress: (p: SimulationProgress) => void;
-
-    // 统计
-    statistics: SimulationStatistics | null;
-    setStatistics: (s: SimulationStatistics | null) => void;
-
-    // 图表数据
-    chartData: ChartData | null;
-    setChartData: (d: ChartData | null) => void;
-
-    // 日志
-    logs: LogEntry[];
-    addLog: (log: Omit<LogEntry, 'id'>) => void;
-    clearLogs: () => void;
-
-    // 重置
-    resetAll: () => void;
-}
+// ... (existing interfaces)
 
 const defaultConfig: SimulationConfig = {
     roadLengthKm: 10,
@@ -107,7 +49,7 @@ const defaultConfig: SimulationConfig = {
     carRatio: 0.60,
     truckRatio: 0.25,
     busRatio: 0.15,
-    anomalyRatio: 0.10,
+    anomalyRatio: 0.01, // Default lowered to 1% as requested
     anomalyStartTime: 200,
     simulationDt: 1.0,
     maxSimulationTime: 3000,
@@ -119,7 +61,13 @@ const defaultConfig: SimulationConfig = {
     vehicleSafeRunTime: 200,
     laneChangeDelay: 2.0,
     impactThreshold: 0.90,
-    impactDiscoverDist: 150,
+    impactDiscoverDist: 200,
+
+    // Anomaly Ratios & Durations
+    anomalyProbType1: 0.10,
+    anomalyProbType2: 0.45,
+    anomalyProbType3: 0.45,
+    anomalyDurationType1: 120, // 2 mins default
 };
 
 const defaultProgress: SimulationProgress = {
@@ -142,7 +90,7 @@ export const useSimStore = create<SimState>()(
             isRunning: false,
             isPaused: false,
             isComplete: false,
-            turboMode: false,
+            turboMode: true,
             setRunning: (v) => set({ isRunning: v }),
             setPaused: (v) => set({ isPaused: v }),
             setComplete: (v) => set({ isComplete: v }),
@@ -178,6 +126,21 @@ export const useSimStore = create<SimState>()(
         {
             name: 'sim-config',
             partialize: (state) => ({ config: state.config }),
+            version: 1,
+            merge: (persistedState: any, currentState) => {
+                // Deep merge persisted config with default config to ensure new fields are present
+                if (!persistedState || !persistedState.config) {
+                    return currentState;
+                }
+                return {
+                    ...currentState,
+                    ...persistedState,
+                    config: {
+                        ...currentState.config,
+                        ...persistedState.config,
+                    },
+                };
+            },
         }
     )
 );

@@ -30,6 +30,8 @@ try:
     from collections import defaultdict
     
     import numpy as np
+    import matplotlib
+    matplotlib.use('Agg') # Set non-interactive backend
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
     import matplotlib.animation as animation
@@ -65,19 +67,64 @@ COLOR_CONSERVATIVE = '#2ca02c'
 class ChartGenerator:
     """图表生成器"""
     
-    def __init__(self, output_dir: str):
+
+    def __init__(self, output_dir: str, theme: str = 'dark'):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.theme = theme
+        self._setup_style()
+        
+    def _setup_style(self):
+        """根据主题配置样式"""
+        # 强制重置字体设置
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro Hei', 'DejaVu Sans']
+        plt.rcParams['axes.unicode_minus'] = False
+        
+        if self.theme == 'light':
+            self.bg_color = '#FFFFFF'
+            self.text_color = '#000000'
+            self.grid_color = '#E0E0E0'
+            plt.style.use('default')
+            # 强制白色背景
+            plt.rcParams['figure.facecolor'] = 'white'
+            plt.rcParams['axes.facecolor'] = 'white'
+            plt.rcParams['savefig.facecolor'] = 'white'
+        else:
+            self.bg_color = '#1C1B1F'
+            self.text_color = '#E3E3E3'
+            self.grid_color = '#333333'
+            plt.style.use('dark_background')
+            plt.rcParams['figure.facecolor'] = self.bg_color
+            plt.rcParams['axes.facecolor'] = self.bg_color
+            plt.rcParams['savefig.facecolor'] = self.bg_color
+
+        # 强制重置字体设置 (Must be after plt.style.use)
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro Hei', 'DejaVu Sans']
+        plt.rcParams['axes.unicode_minus'] = False
+        plt.rcParams['axes.edgecolor'] = self.text_color
+        plt.rcParams['axes.labelcolor'] = self.text_color
+        plt.rcParams['xtick.color'] = self.text_color
+        plt.rcParams['ytick.color'] = self.text_color
+        plt.rcParams['text.color'] = self.text_color
+        plt.rcParams['grid.color'] = self.grid_color
+            
+        plt.rcParams['axes.edgecolor'] = self.text_color
+        plt.rcParams['axes.labelcolor'] = self.text_color
+        plt.rcParams['xtick.color'] = self.text_color
+        plt.rcParams['ytick.color'] = self.text_color
+        plt.rcParams['text.color'] = self.text_color
+        plt.rcParams['grid.color'] = self.grid_color
         
     def save(self, fig, filename: str):
         """保存图表"""
         path = self.output_dir / filename
-        fig.savefig(path, dpi=150, bbox_inches='tight', facecolor='#1C1B1F', edgecolor='none')
+        fig.savefig(path, dpi=150, bbox_inches='tight', facecolor=self.bg_color, edgecolor='none')
         plt.close(fig)
         return str(path)
     
     def generate_all(self, sim_data: Dict[str, Any]) -> List[str]:
         """生成所有图表"""
+        generated_files = []
         generated = []
         
         methods = [
@@ -96,6 +143,7 @@ class ChartGenerator:
             ('anomaly_timeline', self.generate_anomaly_timeline),
             ('etc_performance', self.generate_etc_performance),
             ('spatial_exclusivity', self.generate_spatial_exclusivity),
+            ('trajectory_animation', self.generate_trajectory_animation),
         ]
         
         for name, method in methods:
@@ -109,25 +157,40 @@ class ChartGenerator:
         return generated
     
     def _setup_dark_style(self, fig, axes):
-        """设置深色主题样式"""
-        fig.patch.set_facecolor('#1C1B1F')
+        """设置图表主题样式 (支持 Light/Dark)"""
+        # Note: Method name kept as _setup_dark_style to avoid changing all call sites,
+        # but it now handles both themes based on self.theme.
+        
+        if self.theme == 'light':
+            # Light Mode Styling
+            fig.patch.set_facecolor('#FFFFFF')
+            bg_color = '#FFFFFF'
+            text_color = '#000000'
+            spine_color = '#CCCCCC'
+        else:
+            # Dark Mode Styling
+            fig.patch.set_facecolor('#1C1B1F')
+            bg_color = '#2B2930'
+            text_color = '#E6E1E5'
+            spine_color = '#49454F'
+
         if isinstance(axes, np.ndarray):
             for ax in axes.flatten():
-                ax.set_facecolor('#2B2930')
-                ax.tick_params(colors='#E6E1E5')
-                ax.xaxis.label.set_color('#E6E1E5')
-                ax.yaxis.label.set_color('#E6E1E5')
-                ax.title.set_color('#E6E1E5')
+                ax.set_facecolor(bg_color)
+                ax.tick_params(colors=text_color)
+                ax.xaxis.label.set_color(text_color)
+                ax.yaxis.label.set_color(text_color)
+                ax.title.set_color(text_color)
                 for spine in ax.spines.values():
-                    spine.set_color('#49454F')
+                    spine.set_color(spine_color)
         else:
-            axes.set_facecolor('#2B2930')
-            axes.tick_params(colors='#E6E1E5')
-            axes.xaxis.label.set_color('#E6E1E5')
-            axes.yaxis.label.set_color('#E6E1E5')
-            axes.title.set_color('#E6E1E5')
+            axes.set_facecolor(bg_color)
+            axes.tick_params(colors=text_color)
+            axes.xaxis.label.set_color(text_color)
+            axes.yaxis.label.set_color(text_color)
+            axes.title.set_color(text_color)
             for spine in axes.spines.values():
-                spine.set_color('#49454F')
+                spine.set_color(spine_color)
 
     def generate_speed_profile(self, data: Dict) -> str:
         """生成车流画像图"""
@@ -842,6 +905,134 @@ class ChartGenerator:
         plt.tight_layout()
         return self.save(fig, "spatial_exclusivity.png")
 
+    def generate_trajectory_animation(self, data: Dict) -> str:
+        """生成轨迹动画 (GIF) - 时空图样式"""
+        trajectory_data = data.get('trajectory_data', [])
+        config = data.get('config', {})
+        road_length_km = config.get('road_length_km', 10)
+        
+        if not trajectory_data:
+            return None
+            
+        # 移除完全静止的异常Type1车辆的轨迹（可选，参考模拟车流.py逻辑）
+        # normal_trajectories = [p for p in trajectory_data if p.get('anomaly_type', 0) != 1]
+        # if not normal_trajectories:
+        #    return None
+            
+        max_time = max([p['time'] for p in trajectory_data])
+        # 每100秒一帧，生成的帧数
+        frame_interval = 100
+        frame_times = list(range(0, int(max_time) + frame_interval, frame_interval))
+        if frame_times[-1] < max_time:
+            frame_times.append(int(max_time))
+            
+        fig, ax = plt.subplots(figsize=(16, 10))
+        self._setup_style() # 应用当前主题
+        # 对于light模式，确保背景是白色的
+        if self.theme == 'light':
+            fig.patch.set_facecolor('white')
+            ax.set_facecolor('white')
+
+        # 预处理数据：按时间索引
+        # 为了提高效率，不每次遍历全量数据。
+        # 这里模拟车流.py是每次遍历，我们优化一下：按ID分组
+        trajectories_by_id = defaultdict(list)
+        for point in trajectory_data:
+            trajectories_by_id[point['id']].append(point)
+            
+        def update_frame(frame_idx):
+            ax.clear()
+            # 重新应用样式因为ax.clear()清除了设置
+            if self.theme == 'dark':
+                ax.set_facecolor('#2B2930')
+                ax.tick_params(colors='#E6E1E5')
+                ax.xaxis.label.set_color('#E6E1E5')
+                ax.yaxis.label.set_color('#E6E1E5')
+                ax.title.set_color('#E6E1E5')
+                for spine in ax.spines.values():
+                    spine.set_color('#49454F')
+                ax.grid(True, alpha=0.3, color='#49454F')
+            else:
+                ax.set_facecolor('white')
+                ax.grid(True, alpha=0.3, color='#E0E0E0')
+
+            time_limit = frame_times[frame_idx]
+            
+            # 绘制截至 time_limit 的轨迹
+            for vid, points in trajectories_by_id.items():
+                # 筛选时间点
+                valid_points = [p for p in points if p['time'] <= time_limit]
+                if len(valid_points) < 2:
+                    continue
+                    
+                times = [p['time'] for p in valid_points]
+                positions = [p['pos'] / 1000 for p in valid_points]
+                
+                last_point = valid_points[-1]
+                anomaly_type = last_point.get('anomaly_type', 0)
+                anomaly_state = last_point.get('anomaly_state', 'normal')
+                
+                # 颜色逻辑
+                if anomaly_state == 'active':
+                    if anomaly_type == 1:
+                        color = COLOR_TYPE1
+                        linewidth = 2.5
+                    elif anomaly_type == 2:
+                        color = COLOR_TYPE2
+                        linewidth = 2
+                    elif anomaly_type == 3:
+                        color = COLOR_TYPE3
+                        linewidth = 2
+                    else:
+                        color = COLOR_IMPACTED
+                        linewidth = 1.5
+                else:
+                    is_affected = last_point.get('is_affected', False)
+                    if is_affected:
+                        color = COLOR_IMPACTED
+                        linewidth = 1.2
+                    else:
+                        color = COLOR_NORMAL
+                        linewidth = 0.8
+                
+                ax.plot(times, positions, color=color, linewidth=linewidth, alpha=0.7)
+            
+            ax.set_xlim(0, max_time)
+            ax.set_ylim(0, road_length_km)
+            ax.set_xlabel('时间 (秒)', fontsize=12)
+            ax.set_ylabel('位置 (公里)', fontsize=12)
+            title_color = '#E6E1E5' if self.theme == 'dark' else 'black'
+            ax.set_title(f'ETC车流仿真 - 轨迹动画 (时间: {time_limit}秒 / {int(max_time)}秒)', fontsize=14, color=title_color)
+            
+            # Legend
+            patches = [
+                mpatches.Patch(color=COLOR_NORMAL, label='正常车辆'),
+                mpatches.Patch(color=COLOR_IMPACTED, label='受影响车辆'),
+                mpatches.Patch(color=COLOR_TYPE1, label='类型1 (完全静止)'),
+                mpatches.Patch(color=COLOR_TYPE2, label='类型2 (短暂波动)'),
+                mpatches.Patch(color=COLOR_TYPE3, label='类型3 (长时波动)'),
+            ]
+            legend_face = '#2B2930' if self.theme == 'dark' else 'white'
+            legend_edge = '#49454F' if self.theme == 'dark' else '#E0E0E0'
+            legend_text = '#E6E1E5' if self.theme == 'dark' else 'black'
+            ax.legend(handles=patches, loc='lower right', fontsize=10, 
+                     facecolor=legend_face, edgecolor=legend_edge, labelcolor=legend_text)
+            
+        ani = animation.FuncAnimation(fig, update_frame, frames=len(frame_times), interval=200)
+        
+        filename = "trajectory_animation.gif"
+        path = self.output_dir / filename
+        
+        try:
+            ani.save(path, writer='pillow', fps=5)
+            plt.close(fig)
+            return str(path)
+        except Exception as e:
+            print(f"Animation save failed (pillow): {e}")
+            plt.close(fig)
+            return None
+
+
 import sys
 import json
 import argparse
@@ -851,12 +1042,13 @@ if __name__ == "__main__":
         parser = argparse.ArgumentParser(description='ETC Traffic Simulation Plotter')
         parser.add_argument('data_file', help='Path to simulation data JSON file')
         parser.add_argument('output_dir', help='Directory to save generated charts')
+        parser.add_argument('--theme', default='dark', choices=['light', 'dark'], help='Chart theme (light/dark)')
         args = parser.parse_args()
         
         output_dir = args.output_dir
         
         # Log startup
-        log_debug(f"Starting plotter. File: {args.data_file}, Output: {output_dir}", output_dir)
+        log_debug(f"Starting plotter. File: {args.data_file}, Output: {output_dir}, Theme: {args.theme}", output_dir)
         log_debug(f"Python: {sys.version}", output_dir)
         
         try:
@@ -870,8 +1062,8 @@ if __name__ == "__main__":
         with open(args.data_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             
-        log_debug("Initializing generator...", output_dir)
-        generator = ChartGenerator(args.output_dir)
+        log_debug(f"Initializing generator with theme: {args.theme}...", output_dir)
+        generator = ChartGenerator(args.output_dir, theme=args.theme)
         
         log_debug("Generating charts...", output_dir)
         generated_files = generator.generate_all(data)
