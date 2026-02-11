@@ -42,6 +42,9 @@ npm run dev
 | 🚗 **实时仿真可视化** | Canvas 渲染道路、车辆和 ETC 门架，支持极速模式 |
 | ⚙️ **参数自定义** | 道路长度、车道数、车辆比例、异常率等 |
 | 📊 **16种图表分析** | 车流画像、时空图、延误分析、交通流基本图等 |
+| 🔔 **智能预警规则引擎** | 可配置条件-动作规则，支持 9 种条件原子和 4 种动作 ⭐ |
+| 🎨 **可视化工作流编辑器** | React Flow 拖拽式规则设计，20 种节点类型 ⭐ |
+| 📈 **自动化评估系统** | F1/Precision/Recall 指标、检测延迟分析、阈值优化 ⭐ |
 | 📤 **数据导出** | 配置导出 (JSON) + 结果导出 (CSV) |
 | 🎨 **现代化界面** | 玻璃态设计、渐变配色、动画效果 |
 | ⚡ **极速模式** | 跳过渲染，快速完成仿真 |
@@ -121,6 +124,83 @@ etc_sim/
 
 ---
 
+## 预警规则引擎 ⭐
+
+### 架构设计
+
+规则引擎采用三层架构：**条件原子 → 规则组合 → 动作执行**
+
+```
+AlertContext (数据聚合) → AlertRuleEngine (规则评估) → AlertEvent (预警输出)
+```
+
+### 条件原子（9 种）
+
+| 条件类型 | 说明 | 关键参数 |
+|---------|------|---------|
+| `speed_below_threshold` | 平均速度低于阈值 | `threshold_kmh`, `min_samples` |
+| `speed_std_high` | 速度标准差过高 | `std_threshold_kmh` |
+| `travel_time_outlier` | 行程时间显著偏高 | `z_score_threshold`, `ratio_threshold` |
+| `flow_imbalance` | 上下游流量不平衡 | `ratio_threshold`, `time_window_s` |
+| `consecutive_alerts` | 连续异常次数超限 | `count_threshold` |
+| `queue_length_exceeds` | 排队长度超限 | `length_threshold_m` |
+| `segment_speed_drop` | 区间平均速度骤降 | `threshold_kmh` |
+| `weather_condition` | 天气条件匹配 | `weather_types` |
+| `high_missed_read_rate` | ETC 漏读率过高 | `rate_threshold` |
+
+### 动作（4 种）
+
+- `log` — 记录到日志
+- `notify` — 推送通知到前端
+- `speed_limit` — 建议限速
+- `lane_control` — 车道管控建议
+
+### 默认预设规则（7 条）
+
+1. **拥堵检测** — 速度低 + 时间离群 → Log + Notify
+2. **疑似事故** — 极低速 + 连续异常 → Log + 限速
+3. **缓行预警** — 中等速度离群 → Log
+4. **交通震荡** — 速度标准差高 → Log + Notify
+5. **严重排队** — 排队长度超限 → Log + 限速
+6. **恶劣天气低速** — 雨雪 + 速度低 → Log + 限速
+7. **ETC 设备异常** — 高漏读率 → Log + Notify
+
+### 可视化工作流编辑器
+
+访问 **/workflow** 页面进行拖拽式规则设计：
+
+- 📡 3 种数据源节点（门架统计、车辆状态、环境数据）
+- ⚙️ 9 种条件节点（对应条件原子）
+- 🔀 2 种逻辑节点（AND / OR）
+- 🎯 4 种动作节点
+
+支持功能：
+- 实时参数编辑
+- 节点连线自动验证
+- 后端保存/加载
+- JSON 导入导出
+
+### 评估系统
+
+访问 **/evaluation** 页面查看预警效果：
+
+**核心指标：**
+- **Precision**（精确率）— 预警准确性
+- **Recall**（召回率）— 异常覆盖度
+- **F1 Score** — 综合指标
+- **检测延迟** — 预警及时性
+
+**可视化组件：**
+- F1 仪表盘圆弧
+- 混淆矩阵（TP/FP/FN）
+- 检测延迟柱状图
+- 按异常类型细分统计
+
+**阈值优化：**
+通过网格搜索自动寻找最优参数，最大化 F1 Score。
+
+---
+
 ## 图表输出
 
 仿真完成后自动生成 16 种分析图表：
@@ -140,6 +220,53 @@ etc_sim/
 13. **异常时间线** - 异常事件时序图
 14. **ETC性能** - ETC检测时间分析
 15. **空间排他性** - 车道阻塞影响
+
+---
+
+## API 接口
+
+### 基础 URL
+```
+http://localhost:8000/api
+```
+
+### 主要端点
+
+#### 工作流管理 `/workflows`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/conditions/types` | 获取所有条件类型 |
+| GET | `/actions/types` | 获取所有动作类型 |
+| GET | `/rules` | 列出所有规则 |
+| POST | `/rules` | 创建新规则 |
+| PUT | `/rules/{name}` | 更新规则 |
+| DELETE | `/rules/{name}` | 删除规则 |
+| POST | `/workflows/import` | 导入工作流 JSON |
+| GET | `/workflows/export` | 导出工作流 JSON |
+| POST | `/workflows/reset` | 重置为默认规则 |
+
+#### 评估系统 `/evaluation`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/metrics` | 获取最近评估指标 |
+| POST | `/evaluate` | 重新评估（自定义参数） |
+| GET | `/summary` | 获取评估摘要 |
+| POST | `/optimize` | 优化规则阈值 |
+
+#### WebSocket `/ws`
+
+实时仿真推送：
+```
+ws://localhost:8000/ws/simulation/{session_id}
+```
+
+**消息类型：**
+- `SNAPSHOT` — 车辆状态快照（每帧）
+- `LOG` — 日志消息
+- `PROGRESS` — 进度更新
+- `COMPLETE` — 仿真完成（包含评估结果）
 
 ---
 

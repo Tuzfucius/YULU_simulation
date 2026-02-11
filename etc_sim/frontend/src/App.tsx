@@ -106,7 +106,7 @@ function App() {
   }, [theme]);
 
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <div className="flex h-screen w-screen bg-[var(--bg-base)] text-[var(--text-primary)] font-sans overflow-hidden">
 
         {/* 全局导航侧边栏 */}
