@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from .api import configs, simulations, analysis, websocket, charts, environment, road_network
+from .api import configs, simulations, analysis, websocket, charts, environment, road_network, files
 from .core.websocket_manager import WebSocketManager
 from .services.storage import StorageService
 import logging
@@ -76,6 +76,7 @@ app.include_router(websocket.router, prefix="/api/ws", tags=["WebSocket"])
 app.include_router(charts.router, prefix="/api/charts", tags=["图表管理"])
 app.include_router(environment.router, prefix="/api/environment", tags=["环境配置"])
 app.include_router(road_network.router, prefix="/api/road-network", tags=["路网配置"])
+app.include_router(files.router, prefix="/api/files", tags=["文件管理"])
 
 
 @app.get("/")
