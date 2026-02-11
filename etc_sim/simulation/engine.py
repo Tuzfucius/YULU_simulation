@@ -15,6 +15,8 @@ from ..utils.spatial_index import SpatialIndex
 from ..models.etc_anomaly_detector import ETCAnomalyDetector, ETCTransaction
 from ..models.etc_noise_simulator import ETCNoiseSimulator, NoiseConfig
 from ..models.environment import EnvironmentModel, EnvironmentConfig, WeatherType
+from ..models.alert_context import AlertContext, AlertEvent
+from ..models.alert_rules import AlertRuleEngine, create_default_rules
 
 
 @dataclass
@@ -63,6 +65,12 @@ class SimulationEngine:
         
         # 初始化环境影响模型
         self.environment = EnvironmentModel()
+        
+        # 初始化预警规则引擎
+        self.alert_rule_engine = AlertRuleEngine()
+        for rule in create_default_rules():
+            self.alert_rule_engine.add_rule(rule)
+        self.rule_engine_events: List[Dict] = []  # 规则引擎预警事件
         
         self.vehicles: List[Vehicle] = []
         self.finished_vehicles: List[Vehicle] = []
@@ -274,6 +282,38 @@ class SimulationEngine:
                 'brake_count': v.brake_count, 'emergency_brake_count': v.emergency_brake_count
             })
         
+        # ===== 预警规则引擎评估 (step 方法) =====
+        alert_context = AlertContext(
+            current_time=self.current_time,
+            gate_stats=self.etc_detector.gate_stats,
+            recent_transactions=self.etc_detector.transactions[-100:] if self.etc_detector.transactions else [],
+            active_incidents=[],
+            vehicle_speeds={v.id: v.speed for v in active_vehicles},
+            vehicle_positions={v.id: v.pos for v in active_vehicles},
+            vehicle_anomaly_states={v.id: v.anomaly_state for v in active_vehicles},
+            vehicle_lanes={v.id: v.lane for v in active_vehicles},
+            noise_stats=self.etc_noise_simulator.get_statistics(),
+            weather_type=self.environment.current_weather.value if hasattr(self.environment, 'current_weather') else 'clear',
+            queue_lengths={},
+            segment_avg_speeds={seg: sum(spds)/len(spds) for seg, spds in segment_speeds.items() if spds},
+            alert_history=[],
+            recent_alert_events=self.alert_rule_engine.get_recent_events(
+                max_age=300.0, current_time=self.current_time
+            ),
+        )
+        
+        rule_events = self.alert_rule_engine.evaluate_all(alert_context)
+        for event in rule_events:
+            self.rule_engine_events.append({
+                'rule_name': event.rule_name,
+                'severity': event.severity,
+                'timestamp': event.timestamp,
+                'gate_id': event.gate_id,
+                'position_km': event.position_km,
+                'description': event.description,
+                'confidence': event.confidence,
+            })
+        
         completed = [v for v in self.vehicles if v.finished]
         self.finished_vehicles.extend(completed)
         self.vehicles = [v for v in self.vehicles if not v.finished]
@@ -419,6 +459,38 @@ class SimulationEngine:
                     'emergency_brake_count': v.emergency_brake_count
                 })
             
+            # ===== 预警规则引擎评估 =====
+            alert_context = AlertContext(
+                current_time=self.current_time,
+                gate_stats=self.etc_detector.gate_stats,
+                recent_transactions=self.etc_detector.transactions[-100:] if self.etc_detector.transactions else [],
+                active_incidents=[],
+                vehicle_speeds={v.id: v.speed for v in active_vehicles},
+                vehicle_positions={v.id: v.pos for v in active_vehicles},
+                vehicle_anomaly_states={v.id: v.anomaly_state for v in active_vehicles},
+                vehicle_lanes={v.id: v.lane for v in active_vehicles},
+                noise_stats=self.etc_noise_simulator.get_statistics(),
+                weather_type=self.environment.current_weather.value if hasattr(self.environment, 'current_weather') else 'clear',
+                queue_lengths={},
+                segment_avg_speeds={seg: sum(spds)/len(spds) for seg, spds in segment_speeds.items() if spds},
+                alert_history=[],
+                recent_alert_events=self.alert_rule_engine.get_recent_events(
+                    max_age=300.0, current_time=self.current_time
+                ),
+            )
+            
+            rule_events = self.alert_rule_engine.evaluate_all(alert_context)
+            for event in rule_events:
+                self.rule_engine_events.append({
+                    'rule_name': event.rule_name,
+                    'severity': event.severity,
+                    'timestamp': event.timestamp,
+                    'gate_id': event.gate_id,
+                    'position_km': event.position_km,
+                    'description': event.description,
+                    'confidence': event.confidence,
+                })
+            
             # 完成车辆
             completed = [v for v in self.vehicles if v.finished]
             self.finished_vehicles.extend(completed)
@@ -479,4 +551,8 @@ class SimulationEngine:
                 'noise_statistics': noise_stats,
             },
             'environment': self.environment.get_status(),
+            'rule_engine': {
+                'events': self.rule_engine_events,
+                'engine_stats': self.alert_rule_engine.to_dict(),
+            },
         }

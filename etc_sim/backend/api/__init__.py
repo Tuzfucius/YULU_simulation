@@ -4,12 +4,15 @@ from .simulations import router as simulations_router
 from .analysis import router as analysis_router
 from .websocket import router as websocket_router
 from .charts import router as charts_router
+from .workflows import router as workflows_router
 
 __all__ = [
     "configs_router",
     "simulations_router", 
     "analysis_router",
     "websocket_router",
-    "charts_router"
+    "charts_router",
+    "workflows_router"
 ]
+
 

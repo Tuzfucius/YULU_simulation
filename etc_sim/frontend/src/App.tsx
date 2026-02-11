@@ -13,6 +13,8 @@ import { LogConsole } from './components/LogConsole';
 import { ReplayPage } from './components/pages/ReplayPage';
 import { DashboardPage } from './components/pages/DashboardPage';
 import { ScenariosPage } from './components/pages/ScenariosPage';
+import { WorkflowPage } from './components/pages/WorkflowPage';
+import { EvaluationPage } from './components/pages/EvaluationPage';
 import { useI18nStore } from './stores/i18nStore';
 import { useSimStore } from './stores/simStore';
 import { engine } from './engine/SimulationEngine';
@@ -24,6 +26,8 @@ const NAV_ITEMS = [
   { path: '/replay', icon: '🛣️', label: '俯视回放', labelEn: 'Replay' },
   { path: '/dashboard', icon: '📊', label: '预警仪表盘', labelEn: 'Dashboard' },
   { path: '/scenarios', icon: '🧪', label: '场景模板', labelEn: 'Scenarios' },
+  { path: '/workflow', icon: '🔀', label: '工作流编辑', labelEn: 'Workflow' },
+  { path: '/evaluation', icon: '📊', label: '评估面板', labelEn: 'Evaluation' },
 ];
 
 // 仿真主页面（原单页面内容）
@@ -193,6 +197,8 @@ function AnimatedRoutes() {
           <Route path="/replay" element={<ReplayPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/scenarios" element={<ScenariosPage />} />
+          <Route path="/workflow" element={<WorkflowPage />} />
+          <Route path="/evaluation" element={<EvaluationPage />} />
         </Routes>
       </motion.div>
     </AnimatePresence>
