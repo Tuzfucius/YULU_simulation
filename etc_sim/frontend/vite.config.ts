@@ -8,8 +8,12 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    dedupe: ['react', 'react-dom'],
   },
-    server: {
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-router-dom'],
+  },
+  server: {
     port: 3000,
     open: true,
     proxy: {
@@ -18,8 +22,8 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/ws': {
-          target: 'ws://127.0.0.1:8000',
-          ws: true
+        target: 'ws://127.0.0.1:8000',
+        ws: true
       }
     }
   },

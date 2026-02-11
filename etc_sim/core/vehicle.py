@@ -217,8 +217,20 @@ class Vehicle:
         b = self.b_desired
         
         if leader.anomaly_type == 1 and leader.anomaly_state == 'active':
-            emergency_decel = 6.0
-            return -emergency_decel
+            # 基于距离的分阶段制动：远距轻踩→中距减速→近距急刹
+            dist = leader.pos - self.pos
+            s = max(dist - self.length / 2 - leader.length / 2, 0.5)
+            
+            if s > 200:  # 远距离（>200m）：轻微减速
+                return max(-1.5, -v * 0.1)
+            elif s > 100:  # 中距离（100-200m）：中等减速
+                ratio = (200 - s) / 100  # 0→1
+                return -1.5 - 2.5 * ratio  # -1.5 → -4.0
+            elif s > 30:  # 近距离（30-100m）：强力减速
+                ratio = (100 - s) / 70  # 0→1
+                return -4.0 - 3.0 * ratio  # -4.0 → -7.0
+            else:  # 极近距离（<30m）：紧急制动
+                return -7.0
         
         delta_v = v - leader.speed
         dist = leader.pos - self.pos
@@ -403,9 +415,11 @@ class Vehicle:
             return None
         
         trigger = False
+        # 使用配置参数控制异常触发概率
+        anomaly_prob = (self.config.anomaly_ratio if self.config else 0.01) * 0.5
         
         if self.anomaly_type == 0:
-            if random.random() < 0.005:
+            if random.random() < anomaly_prob:
                 trigger = True
                 r = random.random()
                 if r < 0.33:
@@ -510,7 +524,11 @@ class Vehicle:
         
         if self.anomaly_state == 'active':
             if self.anomaly_type == 1:
-                accel = -7.0
+                # 渐停模型：根据当前速度平滑减速到零
+                if self.speed > 1.0:
+                    accel = max(-7.0, -self.speed / max(dt, 0.5) * 0.5)
+                else:
+                    accel = -self.speed / max(dt, 0.1)  # 最终停车
             else:
                 accel = (self.target_speed_override - self.speed) / dt
                 accel = max(-4.0, min(3.0, accel))

@@ -1,34 +1,36 @@
 /**
- * ETC 交通仿真系统 - Modern UI (Glassmorphism)
+ * ETC 交通仿真系统 - Modern UI (Multi-Page with Router)
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import { ConfigPanel } from './components/ConfigPanel';
 import { ControlBar } from './components/ControlBar';
 import { ChartsPanel } from './components/ChartsPanel';
 import { ResultsPanel } from './components/ResultsPanel';
 import { LogConsole } from './components/LogConsole';
-import { RoadViewer } from './components/RoadViewer';
+import { ReplayPage } from './components/pages/ReplayPage';
+import { DashboardPage } from './components/pages/DashboardPage';
+import { ScenariosPage } from './components/pages/ScenariosPage';
 import { useI18nStore } from './stores/i18nStore';
 import { useSimStore } from './stores/simStore';
 import { engine } from './engine/SimulationEngine';
 import { useTheme } from './utils/useTheme';
 
-function App() {
-  const { isRunning, isComplete, turboMode, setTurboMode } = useSimStore();
-  const { lang, setLang, t } = useI18nStore();
-  const { theme, toggleTheme } = useTheme();
+// 导航项
+const NAV_ITEMS = [
+  { path: '/sim', icon: '🎯', label: '仿真控制', labelEn: 'Simulation' },
+  { path: '/replay', icon: '🛣️', label: '俯视回放', labelEn: 'Replay' },
+  { path: '/dashboard', icon: '📊', label: '预警仪表盘', labelEn: 'Dashboard' },
+  { path: '/scenarios', icon: '🧪', label: '场景模板', labelEn: 'Scenarios' },
+];
+
+// 仿真主页面（原单页面内容）
+function SimulationPage() {
+  const { isRunning } = useSimStore();
+  const { t } = useI18nStore();
   const chartsRef = React.useRef<HTMLDivElement>(null);
-  const prevRunningRef = React.useRef(isRunning);
 
-  // ... (useEffect remains same)
-
-  // Sync theme to engine
-  useEffect(() => {
-    engine.setTheme(theme);
-  }, [theme]);
-
-  // 引擎控制回调
   const handleStart = useCallback(() => engine.start(), []);
   const handlePause = useCallback(() => engine.pause(), []);
   const handleResume = useCallback(() => engine.resume(), []);
@@ -36,45 +38,12 @@ function App() {
   const handleReset = useCallback(() => engine.reset(), []);
 
   return (
-    <div className="flex h-screen w-screen bg-[var(--bg-base)] text-[var(--text-primary)] font-sans overflow-hidden">
-
-      {/* 左侧侧边栏 - 配置与信息 */}
+    <div className="flex h-full">
+      {/* 左侧配置面板 */}
       <aside className="w-80 flex flex-col glass-panel z-20 shrink-0 border-r border-[var(--glass-border)]">
-        {/* Title & Switchers */}
-        <div className="h-16 flex items-center justify-between px-6 border-b border-[var(--glass-border)]">
-          <div className="flex items-center">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--accent-blue)] to-[var(--accent-purple)] flex items-center justify-center text-black font-bold mr-3 shadow-[0_0_15px_rgba(168,199,250,0.3)]">
-              E
-            </div>
-            <span className="text-lg font-medium tracking-tight text-white">{t('app.title')}</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Theme Toggle */}
-            <button
-              onClick={toggleTheme}
-              className="p-1.5 text-lg rounded border border-[var(--glass-border)] bg-[rgba(255,255,255,0.05)] hover:bg-[rgba(255,255,255,0.1)] transition-colors"
-              title={theme === 'dark' ? t('app.themeToggle.toLight') : t('app.themeToggle.toDark')}
-            >
-              {theme === 'dark' ? '🌙' : '☀️'}
-            </button>
-
-            {/* Language Toggle */}
-            <button
-              onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
-              className="px-2 py-1 text-xs font-medium rounded border border-[var(--glass-border)] bg-[rgba(255,255,255,0.05)] hover:bg-[rgba(255,255,255,0.1)] transition-colors text-[var(--text-secondary)]"
-            >
-              {lang === 'zh' ? 'EN' : '中'}
-            </button>
-          </div>
-        </div>
-
-        {/* Config Scroll Area */}
         <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
           <ConfigPanel disabled={isRunning} />
         </div>
-
-        {/* Bottom Info or Credits */}
         <div className="p-4 border-t border-[var(--glass-border)] text-xs text-[var(--text-muted)]">
           {t('app.footer')}
         </div>
@@ -82,8 +51,7 @@ function App() {
 
       {/* 主内容区域 */}
       <main className="flex-1 flex flex-col relative overflow-hidden bg-[var(--bg-base)]">
-
-        {/* 顶部控制栏 & 统计 */}
+        {/* 顶部控制栏 */}
         <div className="h-20 shrink-0 flex items-center justify-between px-8 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md z-10">
           <div className="flex items-center gap-6">
             <ControlBar
@@ -93,22 +61,7 @@ function App() {
               onStop={handleStop}
               onReset={handleReset}
             />
-
-            {/* Turbo Switch (Hidden as it is default now) */}
-            {/* <div className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--glass-border)] bg-[rgba(255,255,255,0.03)]">
-              <span className={`text-sm font-medium ${turboMode ? 'text-[var(--accent-green)]' : 'text-[var(--text-secondary)]'}`}>
-                ⚡ Turbo
-              </span>
-              <button
-                onClick={() => setTurboMode(!turboMode)}
-                disabled={isRunning}
-                className={`w-10 h-5 rounded-full relative transition-colors ${turboMode ? 'bg-[var(--accent-green)]' : 'bg-[var(--text-muted)]'}`}
-              >
-                <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${turboMode ? 'left-6' : 'left-1'}`} />
-              </button>
-            </div> */}
           </div>
-
           <div className="flex items-center gap-4">
             <ResultsPanel />
           </div>
@@ -117,22 +70,14 @@ function App() {
         {/* 可滚动视图区域 */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
           <div className="max-w-[1600px] mx-auto p-8 space-y-8">
-
-            {/* 仿真视窗 (已移除 Real-time View) */}
-
-            {/* 统计面板 */}
             <div className="glass-card p-6">
               <h3 className="text-lg font-medium mb-4 text-[var(--text-primary)]">{t('app.simulationStats')}</h3>
               <ResultsPanel />
             </div>
-
-            {/* 图表 Grid */}
             <div ref={chartsRef} className="space-y-4">
               <h3 className="text-lg font-medium text-[var(--text-primary)] px-2">{t('app.analysisCharts')}</h3>
               <ChartsPanel />
             </div>
-
-            {/* Log Console Floating or Embedded? Embedded for now. */}
             <div className="glass-card p-4 h-64 overflow-hidden flex flex-col">
               <h3 className="text-sm font-medium mb-2 text-[var(--text-secondary)]">{t('app.systemLogs')}</h3>
               <div className="flex-1 overflow-hidden relative">
@@ -141,9 +86,96 @@ function App() {
             </div>
           </div>
         </div>
-
       </main>
     </div>
+  );
+}
+
+function App() {
+  const { lang, setLang, t } = useI18nStore();
+  const { theme, toggleTheme } = useTheme();
+  const [navCollapsed, setNavCollapsed] = useState(false);
+
+  useEffect(() => {
+    engine.setTheme(theme);
+  }, [theme]);
+
+  return (
+    <BrowserRouter>
+      <div className="flex h-screen w-screen bg-[var(--bg-base)] text-[var(--text-primary)] font-sans overflow-hidden">
+
+        {/* 全局导航侧边栏 */}
+        <nav className={`flex flex-col border-r border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl shrink-0 transition-[width] duration-300 ${navCollapsed ? 'w-16' : 'w-52'}`}>
+
+          {/* Logo */}
+          <div className="h-16 flex items-center justify-center px-4 border-b border-[var(--glass-border)]">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--accent-blue)] to-[var(--accent-purple)] flex items-center justify-center text-black font-bold shadow-[0_0_15px_rgba(168,199,250,0.3)]">
+              E
+            </div>
+            {!navCollapsed && (
+              <span className="ml-3 text-base font-medium tracking-tight text-[var(--text-primary)] truncate">
+                ETC Sim
+              </span>
+            )}
+          </div>
+
+          {/* 导航项 */}
+          <div className="flex-1 py-4 space-y-1 px-2">
+            {NAV_ITEMS.map(item => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm ${isActive
+                    ? 'bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] font-medium'
+                    : 'text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[var(--text-primary)]'
+                  }`
+                }
+              >
+                <span className="text-lg shrink-0">{item.icon}</span>
+                {!navCollapsed && <span className="truncate">{lang === 'zh' ? item.label : item.labelEn}</span>}
+              </NavLink>
+            ))}
+          </div>
+
+          {/* 底部控制 */}
+          <div className="p-3 border-t border-[var(--glass-border)] space-y-2">
+            <button
+              onClick={toggleTheme}
+              className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
+            >
+              <span className="text-lg">{theme === 'dark' ? '🌙' : '☀️'}</span>
+              {!navCollapsed && <span>{theme === 'dark' ? '深色' : '浅色'}</span>}
+            </button>
+            <button
+              onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
+              className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
+            >
+              <span className="text-lg">🌐</span>
+              {!navCollapsed && <span>{lang === 'zh' ? 'EN' : '中'}</span>}
+            </button>
+            <button
+              onClick={() => setNavCollapsed(!navCollapsed)}
+              className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
+            >
+              <span className="text-lg">{navCollapsed ? '▶' : '◀'}</span>
+              {!navCollapsed && <span>收起</span>}
+            </button>
+          </div>
+        </nav>
+
+        {/* 路由内容区域 */}
+        <div className="flex-1 overflow-hidden">
+          <Routes>
+            <Route path="/" element={<Navigate to="/sim" replace />} />
+            <Route path="/sim" element={<SimulationPage />} />
+            <Route path="/replay" element={<ReplayPage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/scenarios" element={<ScenariosPage />} />
+          </Routes>
+        </div>
+      </div>
+    </BrowserRouter>
   );
 }
 

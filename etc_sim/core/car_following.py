@@ -38,9 +38,21 @@ class IDMModel:
         a_max = vehicle.a_max * vehicle.aggressiveness_range[0]
         b = vehicle.b_desired
         
-        # 前方有静止异常车辆
+        # 前方有静止异常车辆：基于距离的分阶段制动
         if leader.anomaly_type == 1 and leader.anomaly_state == 'active':
-            return -7.0
+            dist = leader.pos - vehicle.pos
+            s = max(dist - vehicle.length / 2 - leader.length / 2, 0.5)
+            
+            if s > 200:  # 远距离：轻微减速
+                return max(-1.5, -v * 0.1)
+            elif s > 100:  # 中距离：中等减速
+                ratio = (200 - s) / 100
+                return -1.5 - 2.5 * ratio  # -1.5 → -4.0
+            elif s > 30:  # 近距离：强力减速
+                ratio = (100 - s) / 70
+                return -4.0 - 3.0 * ratio  # -4.0 → -7.0
+            else:  # 极近距离：紧急制动
+                return -7.0
         
         # 速度差和距离
         delta_v = v - leader.speed

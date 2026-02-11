@@ -15,7 +15,8 @@ class MOBILModel:
     @staticmethod
     def decide_lane_change(vehicle: 'Vehicle', vehicles_nearby: List['Vehicle'],
                           current_lane: int, blocked_lanes: dict = None,
-                          politeness: float = 0.5) -> Tuple[Optional[int], Optional[str]]:
+                          politeness: float = 0.5,
+                          num_lanes: int = 4) -> Tuple[Optional[int], Optional[str]]:
         """
         MOBIL换道决策
         
@@ -37,7 +38,8 @@ class MOBILModel:
         # 前方有静止车辆，强制换道
         if leader and leader.anomaly_type == 1:
             target_lane = MOBILModel._try_emergency_change(
-                vehicle, vehicles_nearby, current_lane, blocked_lanes
+                vehicle, vehicles_nearby, current_lane, blocked_lanes,
+                num_lanes=num_lanes
             )
             if target_lane is not None:
                 return target_lane, 'forced'
@@ -49,7 +51,7 @@ class MOBILModel:
         target_lane = None
         
         for candidate in [current_lane - 1, current_lane + 1]:
-            if 0 <= candidate < 4:  # 假设4车道
+            if 0 <= candidate < num_lanes:
                 if MOBILModel._can_change_to(
                     vehicle, vehicles_nearby, candidate, blocked_lanes
                 ):
@@ -165,10 +167,11 @@ class MOBILModel:
     
     @staticmethod
     def _try_emergency_change(vehicle: 'Vehicle', vehicles_nearby: List['Vehicle'],
-                             current_lane: int, blocked_lanes: dict) -> Optional[int]:
+                             current_lane: int, blocked_lanes: dict,
+                             num_lanes: int = 4) -> Optional[int]:
         """紧急换道（前方有障碍）"""
         for candidate in [current_lane - 1, current_lane + 1]:
-            if 0 <= candidate < 4:
+            if 0 <= candidate < num_lanes:
                 if MOBILModel._can_change_to(vehicle, vehicles_nearby, candidate, blocked_lanes):
                     return candidate
         return None
