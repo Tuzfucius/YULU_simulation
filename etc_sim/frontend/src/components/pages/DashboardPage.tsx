@@ -1,247 +1,247 @@
 /**
- * ETC 预警仪表盘页面
+ * 预警仪表盘 — 代码编辑器 + ETC 门架数据面板
  * 
- * 功能：
- * - 门架健康度面板（红/黄/绿状态）
- * - 异常事件实时推送列表
- * - 拥堵指数实时曲线
- * - 预警响应时间统计
+ * 用户可通过 Monaco 代码编辑器编写 JS 脚本，
+ * 读取 ETCGateData 类的门架数据来自定义预警逻辑。
  */
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import ReactEChartsCore from 'echarts-for-react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import Editor from '@monaco-editor/react';
+import { useI18nStore } from '../../stores/i18nStore';
 
-// 类型定义
-interface GateStatus {
+// ETC 门架数据类型（展示给用户的文档接口）
+interface ETCGateRecord {
     gateId: string;
-    name: string;
     positionKm: number;
-    status: 'normal' | 'warning' | 'critical';
-    avgSpeed: number;
-    flowRate: number;
-    congestionIndex: number;
-    lastUpdate: number;
+    timestamp: number;
+    vehicleId: number;
+    speed: number;
+    lane: number;
+    vehicleType: string;
 }
 
-interface AlertEvent {
-    id: string;
-    time: number;
-    gateId: string;
-    type: 'congestion' | 'accident' | 'anomaly' | 'equipment';
-    severity: 'low' | 'medium' | 'high' | 'critical';
-    message: string;
-    acknowledged: boolean;
+// 模拟门架数据
+function generateMockGateData(): ETCGateRecord[] {
+    const data: ETCGateRecord[] = [];
+    const now = Date.now();
+    for (let g = 1; g <= 10; g++) {
+        for (let i = 0; i < 20; i++) {
+            data.push({
+                gateId: `G${g}`,
+                positionKm: g * 2,
+                timestamp: now - (20 - i) * 3000 + Math.random() * 1000,
+                vehicleId: 1000 + g * 100 + i,
+                speed: 60 + Math.random() * 60,
+                lane: Math.floor(Math.random() * 4),
+                vehicleType: Math.random() > 0.7 ? 'TRUCK' : 'CAR',
+            });
+        }
+    }
+    return data;
 }
 
-interface CongestionPoint {
-    time: number;
-    value: number;
+const DEFAULT_SCRIPT = `/**
+ * ETC 门架预警脚本
+ * 
+ * 可用变量：
+ *   gateData: ETCGateRecord[] — 所有门架通行记录
+ *   gates:    string[]        — 门架 ID 列表
+ * 
+ * 可用辅助函数：
+ *   getGateRecords(gateId) → 获取指定门架的记录
+ *   getAvgSpeed(gateId)    → 获取指定门架的平均速度
+ *   getFlowRate(gateId)    → 获取指定门架的流量 (辆/min)
+ *   alert(message)         → 输出预警信息到面板
+ *   log(message)           → 输出普通日志
+ * 
+ * 编写示例：检测平均速度低于阈值时报警
+ */
+
+const SPEED_THRESHOLD = 60; // km/h
+const FLOW_THRESHOLD = 5;   // vehicles/min
+
+for (const gateId of gates) {
+  const avgSpeed = getAvgSpeed(gateId);
+  const flowRate = getFlowRate(gateId);
+  
+  if (avgSpeed < SPEED_THRESHOLD) {
+    alert(\`⚠️ \${gateId} 平均速度 \${avgSpeed.toFixed(1)} km/h < 阈值 \${SPEED_THRESHOLD}\`);
+  }
+  
+  if (flowRate > FLOW_THRESHOLD) {
+    log(\`📊 \${gateId} 流量 \${flowRate.toFixed(1)} 辆/min\`);
+  }
 }
 
-const SEVERITY_COLORS = {
-    low: '#60a5fa',
-    medium: '#f59e0b',
-    high: '#f97316',
-    critical: '#ef4444',
-};
-
-const STATUS_COLORS = {
-    normal: '#34d399',
-    warning: '#f59e0b',
-    critical: '#ef4444',
-};
+log("✅ 预警脚本执行完毕");
+`;
 
 export const DashboardPage: React.FC = () => {
-    const [gates, setGates] = useState<GateStatus[]>([]);
-    const [alerts, setAlerts] = useState<AlertEvent[]>([]);
-    const [congestionHistory, setCongestionHistory] = useState<CongestionPoint[]>([]);
-    const [selectedGate, setSelectedGate] = useState<string | null>(null);
-    const [isConnected, setIsConnected] = useState(false);
+    const { lang } = useI18nStore();
+    const isEn = lang === 'en';
 
-    // 模拟数据生成（实际项目中从 WebSocket/API 获取）
+    const [script, setScript] = useState(DEFAULT_SCRIPT);
+    const [output, setOutput] = useState<{ type: 'log' | 'alert' | 'error'; msg: string; time: string }[]>([]);
+    const [gateData] = useState(generateMockGateData);
+    const [isRunning, setIsRunning] = useState(false);
+    const outputRef = useRef<HTMLDivElement>(null);
+
+    // 门架统计
+    const gateIds = [...new Set(gateData.map(r => r.gateId))].sort();
+
+    const gateStats = gateIds.map(id => {
+        const records = gateData.filter(r => r.gateId === id);
+        const avgSpeed = records.reduce((s, r) => s + r.speed, 0) / records.length;
+        return { id, count: records.length, avgSpeed };
+    });
+
+    // 自动滚动输出
     useEffect(() => {
-        // 模拟门架数据
-        const mockGates: GateStatus[] = Array.from({ length: 10 }, (_, i) => ({
-            gateId: `G${i + 1}`,
-            name: `门架 ${i + 1}`,
-            positionKm: (i + 1) * 2,
-            status: (['normal', 'normal', 'normal', 'warning', 'normal', 'normal', 'critical', 'normal', 'normal', 'normal'] as const)[i],
-            avgSpeed: 80 + Math.random() * 40,
-            flowRate: 120 + Math.random() * 60,
-            congestionIndex: Math.random() * 1.5,
-            lastUpdate: Date.now(),
-        }));
-        setGates(mockGates);
+        if (outputRef.current) {
+            outputRef.current.scrollTop = outputRef.current.scrollHeight;
+        }
+    }, [output]);
 
-        // 模拟预警事件
-        const mockAlerts: AlertEvent[] = [
-            { id: '1', time: Date.now() - 30000, gateId: 'G7', type: 'congestion', severity: 'high', message: 'G7门架区间拥堵指数超过阈值 (1.8)', acknowledged: false },
-            { id: '2', time: Date.now() - 60000, gateId: 'G4', type: 'anomaly', severity: 'medium', message: 'G4门架检测到异常车辆停驶', acknowledged: false },
-            { id: '3', time: Date.now() - 120000, gateId: 'G2', type: 'equipment', severity: 'low', message: 'G2门架 OBU 通信延迟超过 500ms', acknowledged: true },
-        ];
-        setAlerts(mockAlerts);
+    // 执行脚本
+    const runScript = useCallback(() => {
+        setIsRunning(true);
+        setOutput([]);
 
-        // 模拟拥堵指数历史
-        const history = Array.from({ length: 60 }, (_, i) => ({
-            time: Date.now() - (60 - i) * 60000,
-            value: 0.5 + Math.sin(i * 0.1) * 0.3 + Math.random() * 0.2,
-        }));
-        setCongestionHistory(history);
-        setIsConnected(true);
-    }, []);
+        const logs: typeof output = [];
+        const now = () => new Date().toLocaleTimeString();
 
-    // 拥堵指数图表配置
-    const congestionChartOption = {
-        grid: { top: 30, right: 20, bottom: 30, left: 50 },
-        tooltip: { trigger: 'axis' as const },
-        xAxis: {
-            type: 'time' as const,
-            axisLabel: { color: '#a0aec0', fontSize: 10 },
-            axisLine: { lineStyle: { color: '#4a5568' } },
-        },
-        yAxis: {
-            type: 'value' as const,
-            name: '拥堵指数',
-            nameTextStyle: { color: '#a0aec0', fontSize: 11 },
-            axisLabel: { color: '#a0aec0', fontSize: 10 },
-            axisLine: { lineStyle: { color: '#4a5568' } },
-            splitLine: { lineStyle: { color: '#2d374833' } },
-        },
-        series: [{
-            type: 'line',
-            data: congestionHistory.map(p => [p.time, p.value.toFixed(2)]),
-            smooth: true,
-            lineStyle: { color: '#60a5fa', width: 2 },
-            areaStyle: {
-                color: {
-                    type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-                    colorStops: [
-                        { offset: 0, color: 'rgba(96,165,250,0.3)' },
-                        { offset: 1, color: 'rgba(96,165,250,0.02)' },
-                    ],
-                },
-            },
-            markLine: {
-                data: [
-                    { yAxis: 1.0, label: { formatter: '预警线', color: '#f59e0b' }, lineStyle: { color: '#f59e0b', type: 'dashed' } },
-                    { yAxis: 1.5, label: { formatter: '危险线', color: '#ef4444' }, lineStyle: { color: '#ef4444', type: 'dashed' } },
-                ],
-            },
-        }],
-    };
+        // 构建沙箱辅助函数
+        const getGateRecords = (gateId: string) => gateData.filter(r => r.gateId === gateId);
+        const getAvgSpeed = (gateId: string) => {
+            const records = getGateRecords(gateId);
+            return records.length ? records.reduce((s, r) => s + r.speed, 0) / records.length : 0;
+        };
+        const getFlowRate = (gateId: string) => {
+            const records = getGateRecords(gateId);
+            if (records.length < 2) return 0;
+            const minT = Math.min(...records.map(r => r.timestamp));
+            const maxT = Math.max(...records.map(r => r.timestamp));
+            const minutes = (maxT - minT) / 60000;
+            return minutes > 0 ? records.length / minutes : 0;
+        };
+        const alertFn = (msg: string) => { logs.push({ type: 'alert', msg, time: now() }); };
+        const logFn = (msg: string) => { logs.push({ type: 'log', msg, time: now() }); };
 
-    const acknowledgeAlert = (id: string) => {
-        setAlerts(prev => prev.map(a => a.id === id ? { ...a, acknowledged: true } : a));
-    };
+        try {
+            const fn = new Function('gateData', 'gates', 'getGateRecords', 'getAvgSpeed', 'getFlowRate', 'alert', 'log', script);
+            fn(gateData, gateIds, getGateRecords, getAvgSpeed, getFlowRate, alertFn, logFn);
+            setOutput(logs);
+        } catch (err: any) {
+            setOutput([...logs, { type: 'error', msg: `❌ ${err.message}`, time: now() }]);
+        }
+
+        setIsRunning(false);
+    }, [script, gateData, gateIds]);
 
     return (
-        <div className="flex flex-col h-full bg-[var(--bg-base)] overflow-y-auto">
-            {/* 顶部标题栏 */}
+        <div className="flex flex-col h-full bg-[var(--bg-base)]">
+            {/* 顶部 */}
             <div className="h-14 flex items-center justify-between px-6 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md shrink-0">
+                <h2 className="text-lg font-medium text-[var(--text-primary)]">
+                    📊 {isEn ? 'Alert Dashboard — Script Editor' : '预警仪表盘 — 脚本编辑器'}
+                </h2>
                 <div className="flex items-center gap-3">
-                    <h2 className="text-lg font-medium text-[var(--text-primary)]">📊 ETC 预警仪表盘</h2>
-                    <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs ${isConnected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                        <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
-                        {isConnected ? '数据连接正常' : '连接断开'}
-                    </div>
+                    <span className="text-xs text-[var(--text-muted)]">
+                        {isEn ? `${gateData.length} records from ${gateIds.length} gates` : `${gateIds.length} 个门架 · ${gateData.length} 条记录`}
+                    </span>
+                    <button
+                        onClick={runScript}
+                        disabled={isRunning}
+                        className="px-4 py-1.5 text-sm rounded-lg bg-[var(--accent-green,#34d399)] text-black font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+                    >
+                        ▶ {isEn ? 'Run Script' : '运行脚本'}
+                    </button>
                 </div>
             </div>
 
-            {/* 主要内容 */}
-            <div className="flex-1 p-6 space-y-6 max-w-[1600px] mx-auto w-full">
-
-                {/* 门架健康度面板 */}
-                <div className="glass-card p-5">
-                    <h3 className="text-base font-medium text-[var(--text-primary)] mb-4">🚦 门架健康状态</h3>
-                    <div className="grid grid-cols-5 gap-3">
-                        {gates.map(gate => (
-                            <button
-                                key={gate.gateId}
-                                onClick={() => setSelectedGate(gate.gateId)}
-                                className={`p-3 rounded-xl border transition-all hover:scale-105 ${selectedGate === gate.gateId ? 'ring-2 ring-[var(--accent-blue)]' : ''
-                                    } ${gate.status === 'critical' ? 'border-red-500/50 bg-red-500/10' : gate.status === 'warning' ? 'border-yellow-500/50 bg-yellow-500/10' : 'border-[var(--glass-border)] bg-[var(--glass-bg)]'}`}
-                            >
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-[var(--text-primary)]">{gate.gateId}</span>
-                                    <div className={`w-3 h-3 rounded-full`} style={{ backgroundColor: STATUS_COLORS[gate.status] }} />
-                                </div>
-                                <div className="text-xs text-[var(--text-muted)]">
-                                    <div>速度: {gate.avgSpeed.toFixed(0)} km/h</div>
-                                    <div>流量: {gate.flowRate.toFixed(0)} 辆/h</div>
-                                    <div>拥堵: <span style={{ color: gate.congestionIndex > 1.0 ? '#f59e0b' : '#34d399' }}>{gate.congestionIndex.toFixed(2)}</span></div>
-                                </div>
-                            </button>
-                        ))}
+            {/* 主体 */}
+            <div className="flex-1 flex overflow-hidden">
+                {/* 左侧：代码编辑器 */}
+                <div className="flex-1 flex flex-col border-r border-[var(--glass-border)]">
+                    <div className="px-4 py-2 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] text-xs text-[var(--text-muted)]">
+                        📝 {isEn ? 'Alert Script (JavaScript)' : '预警脚本 (JavaScript)'}
                     </div>
-                </div>
-
-                {/* 拥堵指数曲线 + 预警事件 */}
-                <div className="grid grid-cols-3 gap-6">
-                    {/* 拥堵指数趋势 */}
-                    <div className="col-span-2 glass-card p-5">
-                        <h3 className="text-base font-medium text-[var(--text-primary)] mb-3">📈 拥堵指数趋势</h3>
-                        <ReactEChartsCore
-                            option={congestionChartOption}
-                            style={{ height: 280 }}
-                            opts={{ renderer: 'canvas' }}
+                    <div className="flex-1">
+                        <Editor
+                            language="javascript"
+                            theme="vs-dark"
+                            value={script}
+                            onChange={(v) => setScript(v || '')}
+                            options={{
+                                fontSize: 13,
+                                minimap: { enabled: false },
+                                lineNumbers: 'on',
+                                scrollBeyondLastLine: false,
+                                wordWrap: 'on',
+                                padding: { top: 10 },
+                                tabSize: 2,
+                            }}
                         />
                     </div>
 
-                    {/* 预警事件列表 */}
-                    <div className="glass-card p-5 flex flex-col">
-                        <h3 className="text-base font-medium text-[var(--text-primary)] mb-3">
-                            🔔 实时预警
-                            <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-red-500/20 text-red-400">
-                                {alerts.filter(a => !a.acknowledged).length}
+                    {/* 输出面板 */}
+                    <div className="h-48 border-t border-[var(--glass-border)] flex flex-col">
+                        <div className="px-4 py-1.5 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] flex items-center justify-between">
+                            <span className="text-xs text-[var(--text-muted)]">
+                                💬 {isEn ? 'Output' : '输出'} ({output.length})
                             </span>
-                        </h3>
-                        <div className="flex-1 overflow-y-auto space-y-2 scrollbar-thin">
-                            {alerts.map(alert => (
-                                <div
-                                    key={alert.id}
-                                    className={`p-3 rounded-lg border transition-all ${alert.acknowledged ? 'opacity-50 border-[var(--glass-border)]' : 'border-l-4'
-                                        }`}
-                                    style={{ borderLeftColor: alert.acknowledged ? undefined : SEVERITY_COLORS[alert.severity] }}
-                                >
-                                    <div className="flex items-center justify-between mb-1">
-                                        <span className="text-xs font-medium" style={{ color: SEVERITY_COLORS[alert.severity] }}>
-                                            {alert.type === 'congestion' ? '🚗 拥堵' : alert.type === 'accident' ? '💥 事故' : alert.type === 'anomaly' ? '⚠️ 异常' : '🔧 设备'}
-                                        </span>
-                                        <span className="text-[10px] text-[var(--text-muted)]">
-                                            {new Date(alert.time).toLocaleTimeString()}
-                                        </span>
-                                    </div>
-                                    <p className="text-xs text-[var(--text-secondary)] mb-2">{alert.message}</p>
-                                    {!alert.acknowledged && (
-                                        <button
-                                            onClick={() => acknowledgeAlert(alert.id)}
-                                            className="text-[10px] px-2 py-0.5 rounded bg-[var(--accent-blue)]/20 text-[var(--accent-blue)] hover:bg-[var(--accent-blue)]/30"
-                                        >
-                                            确认
-                                        </button>
-                                    )}
+                            <button onClick={() => setOutput([])} className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+                                {isEn ? 'Clear' : '清空'}
+                            </button>
+                        </div>
+                        <div ref={outputRef} className="flex-1 overflow-y-auto p-3 space-y-1 font-mono text-xs scrollbar-thin">
+                            {output.length === 0 && (
+                                <p className="text-[var(--text-muted)]">{isEn ? 'Run the script to see output...' : '运行脚本查看输出...'}</p>
+                            )}
+                            {output.map((o, i) => (
+                                <div key={i} className={`flex gap-2 ${o.type === 'alert' ? 'text-yellow-400' : o.type === 'error' ? 'text-red-400' : 'text-[var(--text-secondary)]'}`}>
+                                    <span className="text-[var(--text-muted)] shrink-0">[{o.time}]</span>
+                                    <span>{o.msg}</span>
                                 </div>
                             ))}
                         </div>
                     </div>
                 </div>
 
-                {/* 门架统计概览 */}
-                <div className="glass-card p-5">
-                    <h3 className="text-base font-medium text-[var(--text-primary)] mb-4">📋 预警响应统计</h3>
-                    <div className="grid grid-cols-4 gap-4">
-                        {[
-                            { label: '今日预警总数', value: alerts.length.toString(), icon: '📊', color: '#60a5fa' },
-                            { label: '未处理预警', value: alerts.filter(a => !a.acknowledged).length.toString(), icon: '⚠️', color: '#f59e0b' },
-                            { label: '平均响应时间', value: '2.3s', icon: '⏱️', color: '#34d399' },
-                            { label: '系统可用率', value: '99.7%', icon: '✅', color: '#a78bfa' },
-                        ].map((stat, i) => (
-                            <div key={i} className="p-4 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)]">
-                                <div className="text-2xl mb-2">{stat.icon}</div>
-                                <div className="text-2xl font-bold" style={{ color: stat.color }}>{stat.value}</div>
-                                <div className="text-xs text-[var(--text-muted)] mt-1">{stat.label}</div>
+                {/* 右侧：门架数据面板 */}
+                <div className="w-80 flex flex-col shrink-0 bg-[var(--glass-bg)]">
+                    <div className="px-4 py-2 border-b border-[var(--glass-border)] text-xs text-[var(--text-muted)]">
+                        🚦 {isEn ? 'Gate Data Overview' : '门架数据概览'}
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin">
+                        {gateStats.map(gate => (
+                            <div key={gate.id} className="p-3 rounded-lg border border-[var(--glass-border)] bg-[rgba(0,0,0,0.15)]">
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="text-sm font-medium text-[var(--text-primary)]">{gate.id}</span>
+                                    <div className={`w-2.5 h-2.5 rounded-full ${gate.avgSpeed > 80 ? 'bg-green-400' : gate.avgSpeed > 60 ? 'bg-yellow-400' : 'bg-red-400'}`} />
+                                </div>
+                                <div className="text-xs text-[var(--text-muted)] space-y-0.5">
+                                    <div>{isEn ? 'Records' : '记录数'}: {gate.count}</div>
+                                    <div>{isEn ? 'Avg Speed' : '平均速度'}: {gate.avgSpeed.toFixed(1)} km/h</div>
+                                </div>
                             </div>
                         ))}
+                    </div>
+
+                    {/* API 文档 */}
+                    <div className="p-3 border-t border-[var(--glass-border)]">
+                        <h4 className="text-xs font-medium text-[var(--text-primary)] mb-2">
+                            📖 {isEn ? 'Available API' : '可用接口'}
+                        </h4>
+                        <div className="text-[10px] text-[var(--text-muted)] space-y-1 font-mono">
+                            <div>gateData: ETCGateRecord[]</div>
+                            <div>gates: string[]</div>
+                            <div>getGateRecords(id) → Record[]</div>
+                            <div>getAvgSpeed(id) → number</div>
+                            <div>getFlowRate(id) → number</div>
+                            <div>alert(msg) → void</div>
+                            <div>log(msg) → void</div>
+                        </div>
                     </div>
                 </div>
             </div>

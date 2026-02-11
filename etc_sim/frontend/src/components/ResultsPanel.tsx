@@ -36,6 +36,34 @@ export const ResultsPanel: React.FC = () => {
         URL.revokeObjectURL(url);
     };
 
+    const handleExportJSON = () => {
+        if (!statistics) return;
+        const jsonData = {
+            metadata: {
+                exported_at: new Date().toISOString(),
+                config: config,
+            },
+            statistics: {
+                simulationTime: statistics.simulationTime,
+                totalVehicles: statistics.totalVehicles,
+                completedVehicles: statistics.completedVehicles,
+                avgSpeed: statistics.avgSpeed,
+                avgTravelTime: statistics.avgTravelTime,
+                totalAnomalies: statistics.totalAnomalies,
+                affectedByAnomaly: statistics.affectedByAnomaly,
+                totalLaneChanges: statistics.totalLaneChanges,
+                maxCongestionLength: statistics.maxCongestionLength,
+            },
+        };
+        const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `simulation_results.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
     // 显示条件：运行中或已完成
     const showResults = isRunning || isComplete || statistics;
 
@@ -43,7 +71,7 @@ export const ResultsPanel: React.FC = () => {
         return (
             <div className="flex flex-col items-center justify-center p-8 opacity-50 space-y-4">
                 <div className="text-4xl">📊</div>
-                <div className="text-[var(--text-secondary)] text-sm">Start simulation to see real-time statistics</div>
+                <div className="text-[var(--text-secondary)] text-sm">{t('simulation.waitingForCompletion')}</div>
             </div>
         );
     }
@@ -64,7 +92,7 @@ export const ResultsPanel: React.FC = () => {
         { label: t('simulation.time'), value: `${data.simulationTime.toFixed(0)}s`, icon: '⏱️', color: 'text-[var(--accent-blue)]' },
         { label: t('charts.completed'), value: `${data.completedVehicles}`, icon: '✅', color: 'text-[var(--accent-green)]' },
         { label: t('charts.avgSpeed'), value: `${data.avgSpeed.toFixed(1)} km/h`, icon: '🚀', color: 'text-[var(--accent-purple)]' },
-        { label: 'Events', value: `${data.totalAnomalies}`, icon: '⚠️', color: 'text-[var(--accent-red)]' },
+        { label: t('charts.anomalyEvents'), value: `${data.totalAnomalies}`, icon: '⚠️', color: 'text-[var(--accent-red)]' },
     ];
 
     return (
@@ -72,16 +100,24 @@ export const ResultsPanel: React.FC = () => {
             {/* Header / Actions */}
             <div className="flex items-center justify-between mb-4">
                 <div className="text-xs text-[var(--text-tertiary)] flex gap-4">
-                    <span>Target: {config.totalVehicles}</span>
-                    <span>Progress: {progress.progress.toFixed(1)}%</span>
+                    <span>{t('simulation.total')}: {config.totalVehicles}</span>
+                    <span>{t('charts.progress')}: {progress.progress.toFixed(1)}%</span>
                 </div>
                 {isComplete && (
-                    <button
-                        onClick={handleExportCSV}
-                        className="glass-btn text-xs py-1.5 px-3 hover:bg-[var(--accent-green)]/20 hover:text-[var(--accent-green)]"
-                    >
-                        Export CSV
-                    </button>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={handleExportCSV}
+                            className="glass-btn text-xs py-1.5 px-3 hover:bg-[var(--accent-green)]/20 hover:text-[var(--accent-green)]"
+                        >
+                            {t('common.export')} CSV
+                        </button>
+                        <button
+                            onClick={handleExportJSON}
+                            className="glass-btn text-xs py-1.5 px-3 hover:bg-[var(--accent-blue)]/20 hover:text-[var(--accent-blue)]"
+                        >
+                            {t('common.export')} JSON
+                        </button>
+                    </div>
                 )}
             </div>
 

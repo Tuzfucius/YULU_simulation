@@ -3,7 +3,8 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { ConfigPanel } from './components/ConfigPanel';
 import { ControlBar } from './components/ControlBar';
 import { ChartsPanel } from './components/ChartsPanel';
@@ -145,37 +146,56 @@ function App() {
               className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
             >
               <span className="text-lg">{theme === 'dark' ? '🌙' : '☀️'}</span>
-              {!navCollapsed && <span>{theme === 'dark' ? '深色' : '浅色'}</span>}
+              {!navCollapsed && <span>{lang === 'zh' ? (theme === 'dark' ? '深色' : '浅色') : (theme === 'dark' ? 'Dark' : 'Light')}</span>}
             </button>
             <button
               onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
               className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
             >
               <span className="text-lg">🌐</span>
-              {!navCollapsed && <span>{lang === 'zh' ? 'EN' : '中'}</span>}
+              {!navCollapsed && <span>{lang === 'zh' ? 'English' : '中文'}</span>}
             </button>
             <button
               onClick={() => setNavCollapsed(!navCollapsed)}
               className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
             >
               <span className="text-lg">{navCollapsed ? '▶' : '◀'}</span>
-              {!navCollapsed && <span>收起</span>}
+              {!navCollapsed && <span>{lang === 'zh' ? '收起' : 'Collapse'}</span>}
             </button>
           </div>
         </nav>
 
-        {/* 路由内容区域 */}
+        {/* 路由内容区域 — 带过渡动画 */}
         <div className="flex-1 overflow-hidden">
-          <Routes>
-            <Route path="/" element={<Navigate to="/sim" replace />} />
-            <Route path="/sim" element={<SimulationPage />} />
-            <Route path="/replay" element={<ReplayPage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/scenarios" element={<ScenariosPage />} />
-          </Routes>
+          <AnimatedRoutes />
         </div>
       </div>
     </BrowserRouter>
+  );
+}
+
+/** 带动画的路由切换 */
+function AnimatedRoutes() {
+  const location = useLocation();
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={location.pathname}
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -20 }}
+        transition={{ duration: 0.2, ease: 'easeInOut' }}
+        className="h-full"
+      >
+        <Routes location={location}>
+          <Route path="/" element={<Navigate to="/sim" replace />} />
+          <Route path="/sim" element={<SimulationPage />} />
+          <Route path="/replay" element={<ReplayPage />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/scenarios" element={<ScenariosPage />} />
+        </Routes>
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
