@@ -36,6 +36,22 @@ interface SimulationConfig {
     anomalyProbType2: number;
     anomalyProbType3: number;
     anomalyDurationType1: number;
+
+    // Scenario Params
+    flowMode?: string;
+    weather?: string;
+    speedFactor?: number;
+    safeDistFactor?: number;
+    visibility?: number;
+    platoonProbability?: number;
+    platoonSizeRange?: [number, number];
+    construction?: boolean;
+    closedLanes?: number[];
+    speedLimit?: number;
+    zoneStart?: number;
+    zoneEnd?: number;
+    chainCollision?: boolean;
+    gradualStop?: boolean;
 }
 
 // ... (existing interfaces)

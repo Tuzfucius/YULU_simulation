@@ -9,7 +9,9 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useI18nStore } from '../../stores/i18nStore';
+import { useSimStore } from '../../stores/simStore';
 
 interface ScenarioOption {
     id: string;
@@ -171,6 +173,8 @@ const SCENARIO_LAYERS: ScenarioLayer[] = [
 
 export const ScenariosPage: React.FC = () => {
     const { lang, t } = useI18nStore();
+    const navigate = useNavigate();
+    const { setConfig } = useSimStore();
     const isEn = lang === 'en';
 
     // 每层只保留一个选中项（key → option id）
@@ -204,9 +208,19 @@ export const ScenariosPage: React.FC = () => {
     const selectedCount = Object.values(selections).filter(Boolean).length;
 
     const handleApply = useCallback(() => {
-        console.log('Apply scenario params:', mergedParams);
-        alert(isEn ? `Applied ${selectedCount} scenario layers` : `已加载 ${selectedCount} 个场景维度配置`);
-    }, [mergedParams, selectedCount, isEn]);
+        // Convert snake_case from params to camelCase for store config
+        const configUpdates: any = {};
+        for (const [key, value] of Object.entries(mergedParams)) {
+            const camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+            configUpdates[camelKey] = value;
+        }
+
+        console.log('Apply scenario params:', configUpdates);
+        setConfig(configUpdates);
+
+        // Navigate to simulation control page
+        navigate('/sim');
+    }, [mergedParams, setConfig, navigate]);
 
     const handleReset = () => {
         setSelections({ traffic: 'uniform', weather: '', incident: '', special: '' });
@@ -270,8 +284,8 @@ export const ScenariosPage: React.FC = () => {
                                             key={opt.id}
                                             onClick={() => selectOption(layer.key, opt.id)}
                                             className={`relative p-4 rounded-xl border text-left transition-all hover:scale-[1.02] ${isSelected
-                                                    ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)]/10 ring-2 ring-[var(--accent-blue)]/30 shadow-[0_0_20px_rgba(96,165,250,0.1)]'
-                                                    : 'border-[var(--glass-border)] bg-[var(--glass-bg)] hover:border-[var(--text-muted)]'
+                                                ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)]/10 ring-2 ring-[var(--accent-blue)]/30 shadow-[0_0_20px_rgba(96,165,250,0.1)]'
+                                                : 'border-[var(--glass-border)] bg-[var(--glass-bg)] hover:border-[var(--text-muted)]'
                                                 }`}
                                         >
                                             {isSelected && (

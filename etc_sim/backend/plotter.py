@@ -207,6 +207,7 @@ class ChartGenerator:
         axes = axes.flatten()
         self._setup_dark_style(fig, axes)
         
+        stats = {'normal': 0, 'impacted': 0, 'anomaly': 0}
         for seg_idx in range(num_segments):
             ax = axes[seg_idx]
             ax.set_title(f"区间 {seg_idx+1}: {seg_idx*segment_length_km}-{(seg_idx+1)*segment_length_km} 公里", fontsize=10, color='#E6E1E5')
@@ -216,8 +217,13 @@ class ChartGenerator:
             
             for v in finished_vehicles:
                 logs = v.get('logs', {})
+                info = None
                 if str(seg_idx) in logs:
                     info = logs[str(seg_idx)]
+                elif seg_idx in logs:
+                    info = logs[seg_idx]
+                
+                if info:
                     t_in, t_out = info['in'], info['out']
                     if t_out - t_in < 0.1:
                         continue
@@ -245,6 +251,21 @@ class ChartGenerator:
                         c, w = COLOR_NORMAL, 1.0
                     
                     ax.hlines(y=avg_speed_kmh, xmin=t_in, xmax=t_out, colors=c, alpha=0.7, linewidth=w)
+                    
+                    # 统计计数 (仅对第一个区间统计，避免重复)
+                    if seg_idx == 0:
+                        if anomaly_type == 0:
+                            if was_affected:
+                                stats['impacted'] += 1
+                            else:
+                                stats['normal'] += 1
+                        else:
+                            stats['anomaly'] += 1
+                            
+        # 打印统计信息
+        stats_msg = f"[SpeedProfile] 车辆状态统计: 正常={stats['normal']}, 受影响={stats['impacted']}, 异常={stats['anomaly']} (总计: {sum(stats.values())})"
+        print(stats_msg)
+
         
         axes[-1].set_xlabel("时间 (秒)", color='#E6E1E5')
         axes[-2].set_xlabel("时间 (秒)", color='#E6E1E5')

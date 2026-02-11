@@ -157,6 +157,7 @@ class Vehicle:
         
         # 影响标记
         self.is_affected = False
+        self.was_affected = False
         
         # 安全指标
         self.min_ttc = 999.0
@@ -539,8 +540,54 @@ class Vehicle:
         if not self.lane_changing:
             self.pos += self.speed * dt
         
+        # 异常影响判定逻辑
+        # 1. 计算受异常车辆影响的系数
+        impact_multiplier = self.calc_impact_multiplier(vehicles_nearby)
+        
+        # 2. 判定是否受影响
+        # 阈值：影响系数 < 0.9 或 速度 < 期望速度的 70%
+        # 且必须是非异常车辆
+        if self.anomaly_state == 'normal':
+            speed_ratio = self.speed / self.desired_speed if self.desired_speed > 0 else 1.0
+            
+            # 如果前方有车且距离很近且速度很慢，也被视为受影响
+            congested = (leader is not None and dist < 50 and self.speed < kmh_to_ms(30))
+            
+            # 仅当严重失速 (速度 < 期望的60%) 或 发生拥堵时，才标记为受影响
+            # 移除单纯的 impact_multiplier 判断，避免"稍微靠近异常车辆"就被永久标记
+            is_impacted = (speed_ratio < 0.60 or congested)
+            
+            if is_impacted:
+                self.color = COLORS['impacted']
+                self.is_affected = True
+                self.was_affected = True
+            else:
+                self.color = COLORS['normal']
+                self.is_affected = False
+        
         # 更新安全指标
         self._update_safety_metrics(leader, dist, accel)
+    
+    def calc_impact_multiplier(self, vehicles_nearby: List['Vehicle']) -> float:
+        """计算多异常源叠加减速系数"""
+        n_downstream = 0  # 下游（前方）异常车辆
+        n_upstream = 0    # 上游（后方）异常车辆
+        
+        # 影响发现距离
+        IMPACT_DISCOVER_DIST = 200.0
+        
+        for v in vehicles_nearby:
+            if v != self and v.anomaly_state == 'active':
+                dist = v.pos - self.pos
+                if abs(dist) < IMPACT_DISCOVER_DIST:
+                    if dist > 0:
+                        n_downstream += 1
+                    else:
+                        n_upstream += 1
+        
+        # 下游异常影响大 (0.85^n)，上游影响小 (0.95^n)
+        multiplier = (0.85 ** n_downstream) * (0.95 ** n_upstream)
+        return multiplier
     
     def _update_safety_metrics(self, leader: Optional['Vehicle'], dist: float, accel: float):
         """更新安全指标"""
@@ -598,5 +645,7 @@ class Vehicle:
             'max_decel': self.max_decel,
             'brake_count': self.brake_count,
             'emergency_brake_count': self.emergency_brake_count,
-            'logs': self.logs
+            'logs': self.logs,
+            'is_affected': self.is_affected,
+            'was_affected': getattr(self, 'was_affected', False)
         }

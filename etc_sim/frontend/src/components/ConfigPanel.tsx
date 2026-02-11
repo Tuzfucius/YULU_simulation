@@ -367,12 +367,20 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) =>
                     <input type="file" accept=".json" onChange={handleImportConfig} className="hidden" />
                 </label>
                 <button
-                    onClick={resetConfig}
-                    disabled={disabled}
-                    className="w-full glass-btn justify-center text-[var(--accent-red)] hover:bg-[rgba(242,184,181,0.1)]"
                 >
                     {t('config.resetDefaults')}
                 </button>
+            </div>
+
+            {/* JSON Preview */}
+            <div className="pt-4 border-t border-[var(--glass-border)]">
+                <div className="text-xs text-[var(--text-muted)] mb-2 font-medium flex justify-between items-center">
+                    <span>📋 {t('config.preview') || 'Config Preview'} (JSON)</span>
+                    <span className="text-[10px] opacity-50">{Object.keys(config).length} keys</span>
+                </div>
+                <pre className="text-[10px] font-mono text-[var(--text-secondary)] bg-[rgba(0,0,0,0.2)] p-3 rounded-lg overflow-x-auto max-h-60 scrollbar-thin select-all">
+                    {JSON.stringify(config, null, 2)}
+                </pre>
             </div>
         </div>
     );
