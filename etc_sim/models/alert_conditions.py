@@ -419,3 +419,7 @@ def get_all_condition_types() -> List[Dict[str, Any]]:
             'default_params': temp.default_params,
         })
     return result
+
+
+# 导入扩展条件模块（触发注册）
+from . import alert_conditions_ext  # noqa: E402, F401

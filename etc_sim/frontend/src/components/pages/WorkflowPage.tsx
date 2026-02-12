@@ -20,6 +20,7 @@ import {
     type OnEdgesChange,
     type OnConnect,
     type ReactFlowInstance,
+    type Connection,
     BackgroundVariant,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -39,6 +40,7 @@ export function WorkflowPage() {
         nodes, edges, setNodes, setEdges, addNode,
         selectNode, selectedNodeId, exportToRules, loadRules, clearAll,
         workflowName, workflowDescription, setWorkflowMeta,
+        canConnect,
     } = useWorkflowStore();
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -55,9 +57,28 @@ export function WorkflowPage() {
         (changes) => setEdges(applyEdgeChanges(changes, edges)),
         [edges, setEdges]
     );
+
+    // 连接校验 + 添加
     const onConnect: OnConnect = useCallback(
-        (params) => setEdges(addEdge({ ...params, animated: true, style: { stroke: '#a78bfa' } }, edges)),
-        [edges, setEdges]
+        (params: Connection) => {
+            // 校验：同一个输入端口不允许多条线
+            const valid = canConnect(
+                params.source || '',
+                params.target || '',
+                params.sourceHandle || null,
+                params.targetHandle || null,
+            );
+            if (!valid) {
+                setStatusMsg('⚠️ 连接被拒绝：此输入端口已被占用，或产生重复连接');
+                setTimeout(() => setStatusMsg(null), 3000);
+                return;
+            }
+            setEdges(addEdge(
+                { ...params, animated: true, style: { stroke: '#a78bfa' } },
+                edges,
+            ));
+        },
+        [edges, setEdges, canConnect]
     );
 
     // 选中节点

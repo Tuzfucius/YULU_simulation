@@ -63,6 +63,8 @@ class AlertContext:
     # 聚合统计
     queue_lengths: Dict[str, float] = field(default_factory=dict)
     segment_avg_speeds: Dict[int, float] = field(default_factory=dict)
+    segment_vehicles: Dict[int, List[int]] = field(default_factory=dict)   # 各区间内车辆 ID 列表
+    segment_lengths: Dict[int, float] = field(default_factory=dict)        # 各区间长度（米）
     
     # 历史预警
     alert_history: List[AlertEvent] = field(default_factory=list)

@@ -1,243 +1,296 @@
 /**
- * ETC 代码编辑器组件
- * 使用 Monaco Editor，支持 Python 语法和 ETC 数据分析
+ * ETC 代码编辑器
+ *
+ * 支持 Python 代码编辑和在 conda 虚拟环境中执行。
+ * 使用 Monaco Editor 提供语法高亮，调用后端 /api/code/execute 接口。
  */
 
-import React, { useState, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
-import { useSimStore } from '../stores/simStore';
-import { useTheme } from '../utils/useTheme';
 
-const EXAMPLE_CODE = `# ETC 车流特征分析示例
-def analyze_traffic_patterns(etc_data):
-    """
-    分析 ETC 门架数据，识别异常模式
-    
-    参数:
-        etc_data: {
-            'gate_stats': {...},      # 各门架统计
-            'transactions': [...],     # 交易记录列表
-            'noise_stats': {...}       # 噪声统计
-        }
-    
-    返回:
-        alerts: 异常警报列表
-    """
-    alerts = []
-    
-    # 获取门架统计数据
-    gate_stats = etc_data.get('gate_stats', {})
-    
-    # 1. 检测流量突降（可能事故）
-    for gate_id, stats in gate_stats.items():
-        flow_per_min = stats.get('total_transactions', 0) / 60  # 粗略估算
-        if flow_per_min < 5:  # 阈值可调
-            alerts.append({
-                'type': 'LOW_FLOW',
-                'gate': gate_id,
-                'severity': 'high',
-                'message': f'{gate_id} 流量异常低: {flow_per_min:.1f} veh/min'
-            })
-    
-    # 2. 检测速度骤降区域
-    for gate_id, stats in gate_stats.items():
-        avg_speed = stats.get('avg_speed', 0)
-        if avg_speed < 40:  # km/h
-            alerts.append({
-                'type': 'SLOW_SPEED',
-                'gate': gate_id,
-                'severity': 'medium',
-                'message': f'{gate_id} 平均速度过低: {avg_speed:.1f} km/h'
-            })
-    
-    # 3. 上下游流量不匹配（检测拥堵传播）
-    gate_ids = sorted(gate_stats.keys())
-    for i in range(len(gate_ids) - 1):
-        upstream = gate_stats[gate_ids[i]].get('total_transactions', 0)
-        downstream = gate_stats[gate_ids[i+1]].get('total_transactions', 0)
-        ratio = downstream / upstream if upstream > 0 else 0
-        
-        if ratio < 0.7:  # 流出/流入 < 70%
-            alerts.append({
-                'type': 'FLOW_IMBALANCE',
-                'gate': f'{gate_ids[i]} → {gate_ids[i+1]}',
-                'severity': 'high',
-                'message': f'上下游流量不匹配: {ratio:.1%}'
-            })
-    
-    # 4. 检测噪声异常（硬件故障）
-    noise_stats = etc_data.get('noise_statistics', {})
-    missed_rate = noise_stats.get('missed_read_rate_actual', 0)
-    if missed_rate > 0.05:  # 漏读率超过5%
-        alerts.append({
-            'type': 'HARDWARE_FAULT',
-            'gate': 'SYSTEM',
-            'severity': 'critical',
-            'message': f'漏读率异常高: {missed_rate:.1%}，可能硬件故障'
-        })
-    
-    return alerts
+const API_BASE = 'http://localhost:8000/api/code';
 
+const DEFAULT_CODE = `"""
+ETC 预警自定义分析脚本
 
-# 执行分析
-print("🚀 开始分析 ETC 数据...")
-results = analyze_traffic_patterns(etc_data)
-print(f"✅ 发现 {len(results)} 个异常")
-for idx, alert in enumerate(results, 1):
-    severity_icon = {'critical': '🔴', 'high': '🟠', 'medium': '🟡'}.get(alert['severity'], '⚪')
-    print(f"{idx}. {severity_icon} [{alert['type']}] {alert['message']}")
+可用变量：
+  alert_data: dict  —— 预警数据包 (如果有注入)
+    - session_id: 仿真会话 ID
+    - alerts: 预警记录列表
+    - snapshot: 仿真快照
+    - ground_truths: 真值事件
+
+你可以使用标准 Python 库来分析数据。
+"""
+
+# 如果存在注入的预警数据包
+try:
+    if alert_data:
+        print(f"📦 数据包 session: {alert_data.get('session_id', 'N/A')}")
+        alerts = alert_data.get('alerts', [])
+        print(f"📊 共 {len(alerts)} 条预警记录")
+        for i, a in enumerate(alerts[:5]):
+            print(f"  [{i+1}] {a.get('rule_name', '?')} - {a.get('severity', '?')}")
+    else:
+        print("⚠️ 没有注入预警数据包")
+except NameError:
+    print("⚠️ 未注入预警数据包，使用示例数据")
+    print()
+
+# 基本数据分析示例
+import random
+print("\\n📈 正在生成示例分析 ...")
+speeds = [random.gauss(80, 15) for _ in range(100)]
+avg_speed = sum(speeds) / len(speeds)
+print(f"  平均速度: {avg_speed:.1f} km/h")
+print(f"  最低速度: {min(speeds):.1f} km/h")
+print(f"  速度 < 40 km/h 的比例: {sum(1 for s in speeds if s < 40) / len(speeds) * 100:.1f}%")
+print("\\n✅ 分析完成")
 `;
 
-interface Alert {
-    type: string;
-    gate: string;
-    severity: string;
-    message: string;
+interface EnvironmentInfo {
+    name: string;
+    python_version?: string;
 }
 
-export const ETCCodeEditor: React.FC = () => {
-    const { simulationData } = useSimStore();
-    const { theme } = useTheme();
-    const [code, setCode] = useState(EXAMPLE_CODE);
-    const [output, setOutput] = useState('');
+export function ETCCodeEditor() {
+    const [code, setCode] = useState(DEFAULT_CODE);
+    const [output, setOutput] = useState<string>('');
     const [isRunning, setIsRunning] = useState(false);
-    const editorRef = useRef<any>(null);
+    const [executionTime, setExecutionTime] = useState<number | null>(null);
+    const [environments, setEnvironments] = useState<EnvironmentInfo[]>([]);
+    const [selectedEnv, setSelectedEnv] = useState('base');
+    const [showEnvManager, setShowEnvManager] = useState(false);
 
-    const handleEditorDidMount = (editor: any) => {
-        editorRef.current = editor;
-    };
-
-    const runCode = () => {
-        if (!simulationData?.etc_detection) {
-            setOutput('❌ 错误：未找到仿真数据，请先运行仿真');
-            return;
+    // 加载可用环境列表
+    const loadEnvironments = useCallback(async () => {
+        try {
+            const resp = await fetch(`${API_BASE}/environments`);
+            if (resp.ok) {
+                const data = await resp.json();
+                setEnvironments(data);
+            }
+        } catch {
+            // 后端不可用时使用默认
+            setEnvironments([{ name: 'base' }]);
         }
+    }, []);
 
+    useEffect(() => {
+        loadEnvironments();
+    }, [loadEnvironments]);
+
+    // 运行代码
+    const runCode = async () => {
         setIsRunning(true);
-        setOutput('🚀 正在执行代码...\n');
+        setOutput('⏳ 正在执行...\n');
+        setExecutionTime(null);
 
         try {
-            // 准备 ETC 数据
-            const etcData = {
-                gate_stats: simulationData.etc_detection.gate_stats || {},
-                transactions: [], // 实际数据量太大，这里简化
-                noise_statistics: simulationData.etc_detection.noise_statistics || {}
-            };
-
-            // 模拟 Python 执行（实际需要后端支持）
-            // 这里用 JavaScript 重新实现示例算法
-            const alerts: Alert[] = [];
-
-            // 1. 流量检测
-            Object.entries(etcData.gate_stats).forEach(([gateId, stats]: [string, any]) => {
-                const flowPerMin = stats.total_transactions / 60;
-                if (flowPerMin < 5) {
-                    alerts.push({
-                        type: 'LOW_FLOW',
-                        gate: gateId,
-                        severity: 'high',
-                        message: `${gateId} 流量异常低: ${flowPerMin.toFixed(1)} veh/min`
-                    });
-                }
+            const resp = await fetch(`${API_BASE}/execute`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    code,
+                    environment: selectedEnv,
+                    timeout: 30,
+                }),
             });
 
-            // 2. 速度检测
-            Object.entries(etcData.gate_stats).forEach(([gateId, stats]: [string, any]) => {
-                if (stats.avg_speed < 40) {
-                    alerts.push({
-                        type: 'SLOW_SPEED',
-                        gate: gateId,
-                        severity: 'medium',
-                        message: `${gateId} 平均速度过低: ${stats.avg_speed.toFixed(1)} km/h`
-                    });
-                }
-            });
+            const data = await resp.json();
 
-            // 3. 上下游流量
-            const gateIds = Object.keys(etcData.gate_stats).sort();
-            for (let i = 0; i < gateIds.length - 1; i++) {
-                const upstream = etcData.gate_stats[gateIds[i]].total_transactions;
-                const downstream = etcData.gate_stats[gateIds[i + 1]].total_transactions;
-                const ratio = upstream > 0 ? downstream / upstream : 0;
-
-                if (ratio < 0.7) {
-                    alerts.push({
-                        type: 'FLOW_IMBALANCE',
-                        gate: `${gateIds[i]} → ${gateIds[i + 1]}`,
-                        severity: 'high',
-                        message: `上下游流量不匹配: ${(ratio * 100).toFixed(1)}%`
-                    });
-                }
+            if (data.success) {
+                setOutput(data.output || '(无输出)');
+            } else {
+                setOutput(
+                    `❌ 执行失败:\n${data.error || '未知错误'}\n\n` +
+                    (data.output ? `--- 输出 ---\n${data.output}` : '')
+                );
             }
-
-            // 4. 噪声检测
-            const missedRate = etcData.noise_statistics.missed_read_rate_actual || 0;
-            if (missedRate > 0.05) {
-                alerts.push({
-                    type: 'HARDWARE_FAULT',
-                    gate: 'SYSTEM',
-                    severity: 'critical',
-                    message: `漏读率异常高: ${(missedRate * 100).toFixed(1)}%，可能硬件故障`
-                });
-            }
-
-            // 格式化输出
-            let outputText = '🚀 开始分析 ETC 数据...\n';
-            outputText += `✅ 发现 ${alerts.length} 个异常\n\n`;
-            alerts.forEach((alert, idx) => {
-                const icon = { critical: '🔴', high: '🟠', medium: '🟡' }[alert.severity] || '⚪';
-                outputText += `${idx + 1}. ${icon} [${alert.type}] ${alert.message}\n`;
-            });
-
-            setOutput(outputText);
-        } catch (error: any) {
-            setOutput(`❌ 执行错误：${error.message}`);
+            setExecutionTime(data.execution_time || null);
+        } catch (err) {
+            setOutput(`❌ 网络错误: ${err}\n\n提示: 请确认后端正在运行 (http://localhost:8000)`);
         } finally {
             setIsRunning(false);
         }
     };
 
     return (
-        <div className="flex flex-col h-full">
-            {/* 标题栏 */}
-            <div className="flex items-center justify-between p-3 border-b border-[var(--glass-border)]">
-                <h3 className="text-sm font-medium text-[var(--text-secondary)]">💻 ETC 代码编辑器</h3>
-                <button
-                    onClick={runCode}
-                    disabled={isRunning}
-                    className="px-3 py-1 text-xs rounded bg-[var(--accent-green)] text-black font-medium hover:opacity-80 disabled:opacity-50 transition-opacity"
-                >
-                    {isRunning ? '⏳ 运行中...' : '▶️ 运行分析'}
-                </button>
+        <div className="flex flex-col h-full bg-[var(--bg-base)]">
+            {/* 工具栏 */}
+            <div className="h-12 flex items-center justify-between px-4 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md shrink-0">
+                <div className="flex items-center gap-3">
+                    <span className="text-lg">💻</span>
+                    <span className="text-sm font-medium text-[var(--text-primary)]">
+                        代码编辑器
+                    </span>
+                    {/* 环境选择 */}
+                    <select
+                        value={selectedEnv}
+                        onChange={e => setSelectedEnv(e.target.value)}
+                        className="text-xs px-2 py-1 rounded-md bg-[var(--glass-bg)] border border-[var(--glass-border)] text-[var(--text-primary)] outline-none"
+                    >
+                        {environments.map(env => (
+                            <option key={env.name} value={env.name}>
+                                🐍 {env.name}
+                            </option>
+                        ))}
+                    </select>
+                    <button
+                        onClick={() => setShowEnvManager(!showEnvManager)}
+                        className="text-[11px] px-2 py-1 rounded-md text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
+                        title="管理虚拟环境"
+                    >
+                        ⚙️ 环境管理
+                    </button>
+                </div>
+                <div className="flex items-center gap-2">
+                    {executionTime !== null && (
+                        <span className="text-[10px] text-[var(--text-muted)]">
+                            ⏱ {executionTime.toFixed(2)}s
+                        </span>
+                    )}
+                    <button
+                        onClick={runCode}
+                        disabled={isRunning}
+                        className="text-sm px-4 py-1.5 rounded-lg bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors disabled:opacity-50 font-medium"
+                    >
+                        {isRunning ? '⏳ 执行中...' : '▶ 运行'}
+                    </button>
+                </div>
             </div>
 
-            {/* 编辑器 */}
-            <div className="flex-1 overflow-hidden">
-                <Editor
-                    height="100%"
-                    defaultLanguage="python"
-                    theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
-                    value={code}
-                    onChange={value => setCode(value || '')}
-                    onMount={handleEditorDidMount}
-                    options={{
-                        minimap: { enabled: false },
-                        fontSize: 12,
-                        lineNumbers: 'on',
-                        scrollBeyondLastLine: false,
-                        automaticLayout: true,
-                    }}
-                />
-            </div>
+            {/* 环境管理面板 */}
+            {showEnvManager && <EnvironmentManagerPanel
+                onClose={() => setShowEnvManager(false)}
+                onRefresh={loadEnvironments}
+            />}
 
-            {/* 输出区 */}
-            {output && (
-                <div className="border-t border-[var(--glass-border)] p-3 max-h-40 overflow-y-auto bg-[var(--glass-bg)]">
-                    <pre className="text-xs font-mono whitespace-pre-wrap text-[var(--text-primary)]">
-                        {output}
+            {/* 主体 */}
+            <div className="flex-1 flex overflow-hidden" style={{ minHeight: 0 }}>
+                {/* 编辑器 */}
+                <div className="flex-1 border-r border-[var(--glass-border)]">
+                    <Editor
+                        height="100%"
+                        defaultLanguage="python"
+                        value={code}
+                        onChange={(value) => setCode(value || '')}
+                        theme="vs-dark"
+                        options={{
+                            fontSize: 13,
+                            minimap: { enabled: false },
+                            padding: { top: 12 },
+                            scrollBeyondLastLine: false,
+                            automaticLayout: true,
+                            tabSize: 4,
+                            wordWrap: 'on',
+                        }}
+                    />
+                </div>
+
+                {/* 输出面板 */}
+                <div className="w-[40%] flex flex-col bg-[#0d1117]">
+                    <div className="px-3 py-2 border-b border-[var(--glass-border)] text-xs text-[var(--text-secondary)] font-medium">
+                        📟 输出
+                    </div>
+                    <pre
+                        className="flex-1 p-3 overflow-auto text-xs text-[var(--text-primary)] font-mono leading-relaxed whitespace-pre-wrap scrollbar-thin"
+                        style={{ margin: 0 }}
+                    >
+                        {output || '点击 ▶ 运行 按钮执行代码'}
                     </pre>
                 </div>
+            </div>
+        </div>
+    );
+}
+
+
+/**
+ * 虚拟环境管理面板
+ */
+function EnvironmentManagerPanel({
+    onClose,
+    onRefresh,
+}: {
+    onClose: () => void;
+    onRefresh: () => void;
+}) {
+    const [newEnvName, setNewEnvName] = useState('');
+    const [newPythonVer, setNewPythonVer] = useState('3.10');
+    const [packages, setPackages] = useState('');
+    const [status, setStatus] = useState('');
+    const [isCreating, setIsCreating] = useState(false);
+
+    const createEnv = async () => {
+        if (!newEnvName.trim()) return;
+        setIsCreating(true);
+        setStatus('正在创建环境...');
+
+        try {
+            const resp = await fetch(`${API_BASE}/environments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: newEnvName.trim(),
+                    python_version: newPythonVer,
+                    packages: packages.split(',').map(s => s.trim()).filter(Boolean),
+                }),
+            });
+            const data = await resp.json();
+            setStatus(data.message || '创建完成');
+            onRefresh();
+            setNewEnvName('');
+            setPackages('');
+        } catch (err) {
+            setStatus(`创建失败: ${err}`);
+        } finally {
+            setIsCreating(false);
+        }
+    };
+
+    return (
+        <div className="p-4 border-b border-[var(--glass-border)] bg-[rgba(30,30,50,0.5)] backdrop-blur-md space-y-3">
+            <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-[var(--text-primary)]">🛠️ 虚拟环境管理</h4>
+                <button onClick={onClose} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">✕ 关闭</button>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+                <input
+                    type="text"
+                    value={newEnvName}
+                    onChange={e => setNewEnvName(e.target.value)}
+                    placeholder="环境名称"
+                    className="text-xs px-2.5 py-1.5 rounded-md bg-[var(--glass-bg)] border border-[var(--glass-border)] text-[var(--text-primary)] outline-none w-32"
+                />
+                <select
+                    value={newPythonVer}
+                    onChange={e => setNewPythonVer(e.target.value)}
+                    className="text-xs px-2 py-1.5 rounded-md bg-[var(--glass-bg)] border border-[var(--glass-border)] text-[var(--text-primary)] outline-none"
+                >
+                    <option value="3.9">Python 3.9</option>
+                    <option value="3.10">Python 3.10</option>
+                    <option value="3.11">Python 3.11</option>
+                    <option value="3.12">Python 3.12</option>
+                </select>
+                <input
+                    type="text"
+                    value={packages}
+                    onChange={e => setPackages(e.target.value)}
+                    placeholder="附带安装的包（逗号分隔）"
+                    className="text-xs px-2.5 py-1.5 rounded-md bg-[var(--glass-bg)] border border-[var(--glass-border)] text-[var(--text-primary)] outline-none flex-1 min-w-[120px]"
+                />
+                <button
+                    onClick={createEnv}
+                    disabled={isCreating || !newEnvName.trim()}
+                    className="text-xs px-3 py-1.5 rounded-md bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] hover:bg-[var(--accent-blue)]/25 transition-colors disabled:opacity-40"
+                >
+                    {isCreating ? '创建中...' : '创建环境'}
+                </button>
+            </div>
+            {status && (
+                <p className="text-[11px] text-[var(--text-muted)]">{status}</p>
             )}
         </div>
     );
-};
+}

@@ -127,6 +127,101 @@ async def get_evaluation_summary():
     }
 
 
+@router.post("/run")
+async def run_evaluation_with_params(config: EvaluationConfigModel):
+    """使用前端传入的时间/距离窗口参数重新运行评估"""
+    global _last_evaluation
+
+    if not _last_ground_truths and not _last_alert_events:
+        return {
+            "success": True,
+            "data": {
+                "precision": 0, "recall": 0, "f1_score": 0,
+                "detection_delay_avg": 0, "detection_delay_max": 0,
+                "true_positives": 0, "false_positives": 0, "false_negatives": 0,
+                "total_alerts": 0, "total_ground_truths": 0,
+            },
+            "message": "暂无仿真数据"
+        }
+
+    evaluator = AlertEvaluator(
+        time_window_s=config.time_window_s,
+        distance_window_km=config.distance_window_km,
+    )
+
+    metrics, matches, cat_metrics = evaluator.evaluate(
+        _last_ground_truths, _last_alert_events
+    )
+
+    result = {
+        "precision": metrics.precision,
+        "recall": metrics.recall,
+        "f1_score": metrics.f1_score,
+        "detection_delay_avg": metrics.mean_detection_delay_s,
+        "detection_delay_max": getattr(metrics, 'max_detection_delay_s', 0),
+        "true_positives": metrics.true_positives,
+        "false_positives": metrics.false_positives,
+        "false_negatives": metrics.false_negatives,
+        "total_alerts": metrics.total_alerts,
+        "total_ground_truths": metrics.total_ground_truths,
+        "match_details": [
+            {
+                "alert_time": m.alert_event.timestamp if m.alert_event else 0,
+                "truth_time": m.ground_truth.trigger_time if m.ground_truth else 0,
+                "rule_name": m.alert_event.rule_name if m.alert_event else "",
+                "event_type": m.ground_truth.anomaly_type if m.ground_truth else "",
+                "severity": m.alert_event.severity if m.alert_event else "medium",
+                "position_km": m.ground_truth.position_km if m.ground_truth else 0,
+                "matched": m.matched,
+            }
+            for m in matches[:200]
+        ],
+        "type_metrics": {
+            k: {"precision": v.precision, "recall": v.recall,
+                "f1_score": v.f1_score, "count": v.total_ground_truths}
+            for k, v in (cat_metrics.by_anomaly_type.items() if hasattr(cat_metrics, 'by_anomaly_type') else [])
+        } if hasattr(cat_metrics, 'by_anomaly_type') else {},
+    }
+
+    _last_evaluation = result
+    return {"success": True, "data": result}
+
+
+class SensitivityRequest(BaseModel):
+    param_name: str = "time_window"
+    range: List[float] = [10, 120, 10]  # [start, end, step]
+
+
+@router.post("/sensitivity")
+async def sensitivity_analysis(req: SensitivityRequest):
+    """参数敏感性分析：遍历参数范围，返回每个参数值下的 P/R/F1"""
+    if not _last_ground_truths and not _last_alert_events:
+        return {"success": False, "data": [], "message": "暂无仿真数据"}
+
+    start, end, step = req.range[0], req.range[1], req.range[2]
+    results = []
+    
+    val = start
+    while val <= end:
+        if req.param_name == "time_window":
+            evaluator = AlertEvaluator(time_window_s=val)
+        elif req.param_name == "distance_window":
+            evaluator = AlertEvaluator(distance_window_km=val)
+        else:
+            evaluator = AlertEvaluator(time_window_s=val)
+        
+        metrics, _, _ = evaluator.evaluate(_last_ground_truths, _last_alert_events)
+        results.append({
+            "paramValue": val,
+            "f1Score": metrics.f1_score,
+            "precision": metrics.precision,
+            "recall": metrics.recall,
+        })
+        val += step
+
+    return {"success": True, "data": results}
+
+
 @router.post("/optimize")
 async def optimize_rule(req: OptimizeRequest):
     """对指定规则进行阈值优化"""
