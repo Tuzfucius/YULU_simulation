@@ -226,11 +226,12 @@ async def evaluate_from_file(req: EvaluateFileRequest):
     ground_truths = []
     for log in anomaly_logs:
         gt = GroundTruthEvent(
-            vehicle_id=log.get('vehicle_id', 0),
-            anomaly_type=str(log.get('anomaly_type', log.get('type', 'unknown'))),
-            trigger_time=log.get('time', log.get('trigger_time', 0)),
-            position_km=log.get('position', log.get('position_km', 0)) / 1000,
-            gate_id=log.get('gate_id', ''),
+            vehicle_id=log.get('id', log.get('vehicle_id', 0)),
+            anomaly_type=int(log.get('type', log.get('anomaly_type', 0))),
+            trigger_time=float(log.get('time', log.get('trigger_time', 0))),
+            position_m=float(log.get('pos_km', log.get('position_km', 0))) * 1000,
+            segment_idx=int(log.get('segment', log.get('segment_idx', 0))),
+            min_speed_kmh=float(log.get('min_speed_kmh', 0)),
         )
         ground_truths.append(gt)
 

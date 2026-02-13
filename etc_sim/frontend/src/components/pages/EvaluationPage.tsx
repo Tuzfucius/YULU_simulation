@@ -16,8 +16,8 @@ import { TimelineChart } from '../charts/TimelineChart';
 import { HeatmapChart } from '../charts/HeatmapChart';
 import { SensitivityChart } from '../charts/SensitivityChart';
 
-const API_BASE = 'http://localhost:8000/api/evaluation';
-const FILES_API = 'http://localhost:8000/api/files';
+const API_BASE = '/api/evaluation';
+const FILES_API = '/api/files';
 
 interface EvalMetrics {
     precision: number;
