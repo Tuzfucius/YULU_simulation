@@ -132,13 +132,20 @@ async def list_output_files():
 
 @router.get("/output-file")
 async def read_output_file(path: str):
-    """读取 output 目录下的指定文件内容"""
+    """读取 output 目录下的指定文件内容（小文件专用，>20MB 拒绝）"""
     target = (OUTPUT_DIR / path).resolve()
-    # 安全检查
     if not str(target).startswith(str(OUTPUT_DIR)):
         raise HTTPException(400, "路径越界")
     if not target.exists():
         raise HTTPException(404, "文件不存在")
+    
+    # 大文件保护
+    size = target.stat().st_size
+    if size > 20 * 1024 * 1024:
+        raise HTTPException(
+            413,
+            f"文件过大 ({size / 1024 / 1024:.1f}MB)，请使用分块加载 API: /output-file-info + /output-file-chunk"
+        )
     
     content = target.read_text(encoding="utf-8")
     
@@ -149,6 +156,215 @@ async def read_output_file(path: str):
             return {"type": "text", "data": content}
     else:
         return {"type": "text", "data": content}
+
+
+# ============================================
+# 大文件分块加载 API
+# ============================================
+
+def _trajectory_to_frames(trajectory_data: list, config: dict = None) -> list:
+    """
+    将平铺的 trajectory_data 按时间分组为帧列表。
+    trajectory_data 的每个元素是一个车辆状态快照：
+      {time, id, pos/x, lane, speed, vehicle_type, anomaly_type, ...}
+    返回格式：
+      [{time, vehicles: [{id, x, lane, speed, type, anomaly}], etcGates: [...]}]
+    """
+    from collections import defaultdict
+    frame_map = defaultdict(list)
+    for entry in trajectory_data:
+        t = entry.get('time', 0)
+        # 按 0.5s 分辨率聚合
+        rt = round(t * 2) / 2
+        frame_map[rt].append({
+            'id': entry.get('id', 0),
+            'x': entry.get('pos', entry.get('x', 0)),
+            'lane': entry.get('lane', 0),
+            'speed': entry.get('speed', 0),
+            'type': entry.get('vehicle_type', entry.get('type', 'CAR')),
+            'anomaly': entry.get('anomaly_type', entry.get('anomaly', 0)),
+        })
+
+    frames = []
+    for t in sorted(frame_map.keys()):
+        frame = {'time': t, 'vehicles': frame_map[t]}
+        frames.append(frame)
+
+    # 注入 ETC 门架位置（每2km一个）
+    road_length = 20000
+    num_lanes = 4
+    if config:
+        road_length = config.get('road_length', config.get('roadLength', 20000))
+        num_lanes = config.get('num_lanes', config.get('numLanes', 4))
+
+    gate_km = 2
+    gates = []
+    pos = gate_km * 1000
+    seg = 1
+    while pos < road_length:
+        gates.append({'position': pos, 'segment': seg})
+        pos += gate_km * 1000
+        seg += 1
+    if gates and frames:
+        for f in frames:
+            f['etcGates'] = gates
+
+    return frames
+
+
+# 缓存：避免重复解析大文件
+_frame_cache: dict = {}  # {file_path: {'frames': [...], 'config': {...}, 'ts': mtime}}
+
+
+def _get_frames_for_file(target: Path) -> dict:
+    """获取文件对应的帧数据（带缓存）"""
+    global _frame_cache
+    mtime = target.stat().st_mtime
+    cache_key = str(target)
+    
+    if cache_key in _frame_cache and _frame_cache[cache_key]['ts'] == mtime:
+        return _frame_cache[cache_key]
+    
+    data = json.loads(target.read_text(encoding="utf-8"))
+    config = data.get('config', {})
+    
+    # 尝试多种数据格式
+    if 'trajectory_data' in data:
+        frames = _trajectory_to_frames(data['trajectory_data'], config)
+    elif 'frames' in data:
+        frames = data['frames']
+    elif isinstance(data, list):
+        # 整个文件就是帧数组
+        frames = data
+    else:
+        frames = []
+    
+    result = {
+        'frames': frames,
+        'config': config,
+        'ts': mtime,
+        'total_frames': len(frames),
+        'anomaly_logs': data.get('anomaly_logs', []),
+        'finished_vehicles': len(data.get('finished_vehicles', [])),
+    }
+    
+    # 仅缓存最近 3 个文件，避免内存爆炸
+    if len(_frame_cache) >= 3:
+        oldest_key = min(_frame_cache, key=lambda k: _frame_cache[k]['ts'])
+        del _frame_cache[oldest_key]
+    
+    _frame_cache[cache_key] = result
+    return result
+
+
+@router.get("/output-file-info")
+async def get_output_file_info(path: str):
+    """获取文件元信息（不返回帧数据本身）"""
+    target = (OUTPUT_DIR / path).resolve()
+    if not str(target).startswith(str(OUTPUT_DIR)):
+        raise HTTPException(400, "路径越界")
+    if not target.exists():
+        raise HTTPException(404, "文件不存在")
+    
+    size = target.stat().st_size
+    
+    if target.suffix.lower() != '.json':
+        # CSV 文件：计算行数
+        line_count = 0
+        with open(target, 'r', encoding='utf-8') as f:
+            for _ in f:
+                line_count += 1
+        return {
+            "path": path,
+            "size": size,
+            "type": "csv",
+            "total_lines": line_count,
+            "total_frames": 0,
+        }
+    
+    try:
+        cache = _get_frames_for_file(target)
+        return {
+            "path": path,
+            "size": size,
+            "type": "json",
+            "total_frames": cache['total_frames'],
+            "config": cache['config'],
+            "finished_vehicles_count": cache['finished_vehicles'],
+            "anomaly_count": len(cache['anomaly_logs']),
+        }
+    except Exception as e:
+        logger.error(f"解析文件信息失败: {e}")
+        raise HTTPException(500, f"解析失败: {e}")
+
+
+@router.get("/output-file-chunk")
+async def get_output_file_chunk(path: str, offset: int = 0, limit: int = 500):
+    """
+    分块获取帧数据
+    
+    Args:
+        path: 文件相对路径
+        offset: 起始帧索引
+        limit: 返回帧数（默认 500，最大 2000）
+    
+    Returns:
+        {frames: [...], offset, limit, total_frames, has_more}
+    """
+    target = (OUTPUT_DIR / path).resolve()
+    if not str(target).startswith(str(OUTPUT_DIR)):
+        raise HTTPException(400, "路径越界")
+    if not target.exists():
+        raise HTTPException(404, "文件不存在")
+    
+    limit = min(limit, 2000)  # 硬上限
+    
+    if target.suffix.lower() == '.csv':
+        # CSV 分块读取
+        lines = []
+        headers = None
+        current_line = 0
+        with open(target, 'r', encoding='utf-8') as f:
+            for line in f:
+                if current_line == 0:
+                    headers = line.strip()
+                elif current_line > offset and current_line <= offset + limit:
+                    lines.append(line.strip())
+                elif current_line > offset + limit:
+                    break
+                current_line += 1
+        
+        total_lines = current_line
+        csv_text = headers + '\n' + '\n'.join(lines) if headers else '\n'.join(lines)
+        return {
+            "type": "csv",
+            "data": csv_text,
+            "offset": offset,
+            "limit": limit,
+            "total_lines": total_lines,
+            "has_more": offset + limit < total_lines,
+        }
+    
+    try:
+        cache = _get_frames_for_file(target)
+        frames = cache['frames']
+        total = cache['total_frames']
+        
+        chunk = frames[offset:offset + limit]
+        
+        result = {
+            "type": "json",
+            "frames": chunk,
+            "config": cache['config'] if offset == 0 else None,  # 仅首次返回 config
+            "offset": offset,
+            "limit": limit,
+            "total_frames": total,
+            "has_more": offset + limit < total,
+        }
+        return result
+    except Exception as e:
+        logger.error(f"分块读取失败: {e}")
+        raise HTTPException(500, f"读取失败: {e}")
 
 
 # ============================================

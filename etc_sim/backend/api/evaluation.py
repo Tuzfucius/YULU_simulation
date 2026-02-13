@@ -187,6 +187,126 @@ async def run_evaluation_with_params(config: EvaluationConfigModel):
     return {"success": True, "data": result}
 
 
+class EvaluateFileRequest(BaseModel):
+    """文件评估请求 — 从磁盘 data.json 加载数据"""
+    file_path: str  # 相对于 OUTPUT_DIR 的路径
+    time_window_s: float = 120.0
+    distance_window_km: float = 2.0
+
+
+@router.post("/evaluate-file")
+async def evaluate_from_file(req: EvaluateFileRequest):
+    """
+    从 output 目录的 data.json 文件加载仿真数据并运行评估。
+    后端分批读取，无需前端传输大文件。
+    """
+    global _last_evaluation, _last_ground_truths, _last_alert_events
+    import json
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parents[2]
+    output_dir = project_root / "output"
+    target = (output_dir / req.file_path).resolve()
+
+    if not str(target).startswith(str(output_dir)):
+        raise HTTPException(400, "路径越界")
+    if not target.exists():
+        raise HTTPException(404, "文件不存在")
+
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(400, f"JSON 解析失败: {e}")
+
+    # 从 anomaly_logs 构造 ground truths
+    anomaly_logs = data.get('anomaly_logs', [])
+    trajectory_data = data.get('trajectory_data', [])
+    config = data.get('config', {})
+
+    ground_truths = []
+    for log in anomaly_logs:
+        gt = GroundTruthEvent(
+            vehicle_id=log.get('vehicle_id', 0),
+            anomaly_type=str(log.get('anomaly_type', log.get('type', 'unknown'))),
+            trigger_time=log.get('time', log.get('trigger_time', 0)),
+            position_km=log.get('position', log.get('position_km', 0)) / 1000,
+            gate_id=log.get('gate_id', ''),
+        )
+        ground_truths.append(gt)
+
+    # 没有真值数据时仍然返回空指标
+    if not ground_truths:
+        return {
+            "success": True,
+            "data": {
+                "precision": 0, "recall": 0, "f1_score": 0,
+                "detection_delay_avg": 0, "detection_delay_max": 0,
+                "true_positives": 0, "false_positives": 0, "false_negatives": 0,
+                "total_alerts": 0, "total_ground_truths": 0,
+            },
+            "message": f"文件中无 anomaly_logs 数据 (trajectory_data: {len(trajectory_data)} 条)",
+            "file_info": {
+                "trajectory_records": len(trajectory_data),
+                "anomaly_logs": len(anomaly_logs),
+                "config": config,
+            },
+        }
+
+    _last_ground_truths = ground_truths
+
+    evaluator = AlertEvaluator(
+        time_window_s=req.time_window_s,
+        distance_window_km=req.distance_window_km,
+    )
+
+    # 使用已有的 alert_events 或空列表
+    metrics, matches, cat_metrics = evaluator.evaluate(
+        _last_ground_truths, _last_alert_events
+    )
+
+    result = {
+        "precision": metrics.precision,
+        "recall": metrics.recall,
+        "f1_score": metrics.f1_score,
+        "detection_delay_avg": metrics.mean_detection_delay_s,
+        "detection_delay_max": getattr(metrics, 'max_detection_delay_s', 0),
+        "true_positives": metrics.true_positives,
+        "false_positives": metrics.false_positives,
+        "false_negatives": metrics.false_negatives,
+        "total_alerts": metrics.total_alerts,
+        "total_ground_truths": metrics.total_ground_truths,
+        "match_details": [
+            {
+                "alert_time": m.alert_event.timestamp if m.alert_event else 0,
+                "truth_time": m.ground_truth.trigger_time if m.ground_truth else 0,
+                "rule_name": m.alert_event.rule_name if m.alert_event else "",
+                "event_type": m.ground_truth.anomaly_type if m.ground_truth else "",
+                "severity": m.alert_event.severity if m.alert_event else "medium",
+                "position_km": m.ground_truth.position_km if m.ground_truth else 0,
+                "matched": m.matched,
+            }
+            for m in matches[:200]
+        ],
+        "type_metrics": {
+            k: {"precision": v.precision, "recall": v.recall,
+                "f1_score": v.f1_score, "count": v.total_ground_truths}
+            for k, v in (cat_metrics.by_anomaly_type.items() if hasattr(cat_metrics, 'by_anomaly_type') else [])
+        } if hasattr(cat_metrics, 'by_anomaly_type') else {},
+    }
+
+    _last_evaluation = result
+    logger.info(f"File evaluation complete: GT={len(ground_truths)}, F1={metrics.f1_score:.4f}")
+    return {
+        "success": True,
+        "data": result,
+        "file_info": {
+            "trajectory_records": len(trajectory_data),
+            "anomaly_logs": len(anomaly_logs),
+            "config": config,
+        },
+    }
+
+
 class SensitivityRequest(BaseModel):
     param_name: str = "time_window"
     range: List[float] = [10, 120, 10]  # [start, end, step]
