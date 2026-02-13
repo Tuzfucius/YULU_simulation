@@ -2,9 +2,9 @@
  * 节点属性编辑面板 — 右侧面板，编辑选中节点的参数
  */
 
-
 import { useWorkflowStore } from '../../stores/workflowStore';
-import type { LogicType } from '../../types/workflow';
+import type { LogicType, ParamFieldMeta } from '../../types/workflow';
+import { DATA_SOURCE_FIELDS } from '../../types/workflow';
 
 const LOGIC_OPTIONS: { value: LogicType; label: string }[] = [
     { value: 'AND', label: 'AND (全部满足)' },
@@ -15,6 +15,18 @@ const LOGIC_OPTIONS: { value: LogicType; label: string }[] = [
     { value: 'EQ', label: '= (等于)' },
     { value: 'THRESHOLD', label: '⊕ (阈值判断)' },
 ];
+
+/** 生成门架 ID 列表 G02..G18（每 2km 一个，默认 20km 路段） */
+const GATE_OPTIONS = Array.from({ length: 9 }, (_, i) => {
+    const km = (i + 1) * 2;
+    const id = `G${km.toString().padStart(2, '0')}`;
+    return { value: id, label: `${id} (${km}km)` };
+});
+
+const inputCls = `w-full px-2.5 py-1.5 text-xs rounded-md
+    bg-[var(--glass-bg)] border border-[var(--glass-border)]
+    text-[var(--text-primary)] outline-none
+    focus:border-[var(--accent-blue)] transition-colors`;
 
 export function NodePropertiesPanel() {
     const { nodes, selectedNodeId, updateNodeData, removeNode } = useWorkflowStore();
@@ -33,7 +45,6 @@ export function NodePropertiesPanel() {
 
     const handleParamChange = (key: string, value: string) => {
         const params = { ...data.params };
-        // 尝试转数字
         const num = Number(value);
         if (!isNaN(num) && value.trim() !== '') {
             params[key] = num;
@@ -46,6 +57,67 @@ export function NodePropertiesPanel() {
     const handleGateIdChange = (value: string) => {
         updateNodeData(selectedNode.id, { gateId: value });
     };
+
+    /** 检查 showWhen 条件是否满足 */
+    const isFieldVisible = (field: ParamFieldMeta): boolean => {
+        if (!field.showWhen) return true;
+        const currentValue = String(data.params[field.showWhen.key] ?? '');
+        return field.showWhen.value.includes(currentValue);
+    };
+
+    /** 渲染单个元数据驱动的字段 */
+    const renderMetaField = (field: ParamFieldMeta) => {
+        if (!isFieldVisible(field)) return null;
+
+        return (
+            <div key={field.key}>
+                <label className="text-[11px] font-medium text-[var(--text-secondary)] block mb-1">
+                    {field.label}
+                </label>
+                {field.type === 'select' && field.options ? (
+                    <select
+                        value={String(data.params[field.key] ?? '')}
+                        onChange={e => handleParamChange(field.key, e.target.value)}
+                        className={inputCls}
+                    >
+                        {field.options.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                    </select>
+                ) : field.type === 'gate_id' ? (
+                    <select
+                        value={String(data.params[field.key] ?? 'G04')}
+                        onChange={e => handleParamChange(field.key, e.target.value)}
+                        className={inputCls}
+                    >
+                        {GATE_OPTIONS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                    </select>
+                ) : field.type === 'number' ? (
+                    <input
+                        type="number"
+                        value={data.params[field.key] as number ?? 0}
+                        min={field.min}
+                        max={field.max}
+                        step={field.step}
+                        onChange={e => handleParamChange(field.key, e.target.value)}
+                        className={inputCls}
+                    />
+                ) : (
+                    <input
+                        type="text"
+                        value={String(data.params[field.key] ?? '')}
+                        onChange={e => handleParamChange(field.key, e.target.value)}
+                        className={inputCls}
+                    />
+                )}
+            </div>
+        );
+    };
+
+    // 数据源节点的字段元数据
+    const sourceFields = data.category === 'source' ? DATA_SOURCE_FIELDS[data.subType] : null;
 
     return (
         <div className="flex flex-col h-full">
@@ -93,7 +165,17 @@ export function NodePropertiesPanel() {
                     </div>
                 )}
 
-                {/* 逻辑节点 — 逻辑类型选择 */}
+                {/* ═══════ 数据源节点 — 元数据驱动表单 ═══════ */}
+                {data.category === 'source' && sourceFields && (
+                    <div className="space-y-3">
+                        <div className="text-[11px] font-semibold text-[var(--accent-blue)] flex items-center gap-1.5 pb-1 border-b border-[var(--glass-border)]">
+                            <span>📋</span> 数据源参数
+                        </div>
+                        {sourceFields.map(renderMetaField)}
+                    </div>
+                )}
+
+                {/* ═══════ 逻辑节点 — 逻辑类型选择 ═══════ */}
                 {data.category === 'logic' && (
                     <div>
                         <label className="text-[11px] font-medium text-[var(--text-secondary)] block mb-1">
@@ -105,10 +187,7 @@ export function NodePropertiesPanel() {
                                 logic: e.target.value as LogicType,
                                 label: LOGIC_OPTIONS.find(o => o.value === e.target.value)?.label.split(' ')[0] || e.target.value,
                             })}
-                            className="w-full px-2.5 py-1.5 text-xs rounded-md
-                bg-[var(--glass-bg)] border border-[var(--glass-border)]
-                text-[var(--text-primary)] outline-none
-                focus:border-[var(--accent-blue)] transition-colors"
+                            className={inputCls}
                         >
                             {LOGIC_OPTIONS.map(opt => (
                                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -128,10 +207,7 @@ export function NodePropertiesPanel() {
                                 type="number"
                                 value={typeof data.params.threshold === 'number' ? data.params.threshold : 0}
                                 onChange={e => handleParamChange('threshold', e.target.value)}
-                                className="w-full px-2.5 py-1.5 text-xs rounded-md
-                    bg-[var(--glass-bg)] border border-[var(--glass-border)]
-                    text-[var(--text-primary)] outline-none
-                    focus:border-[var(--accent-blue)] transition-colors"
+                                className={inputCls}
                             />
                         </div>
                         <div>
@@ -144,45 +220,43 @@ export function NodePropertiesPanel() {
                                     const params = { ...data.params, operator: e.target.value };
                                     updateNodeData(selectedNode.id, { params });
                                 }}
-                                className="w-full px-2.5 py-1.5 text-xs rounded-md
-                    bg-[var(--glass-bg)] border border-[var(--glass-border)]
-                    text-[var(--text-primary)] outline-none
-                    focus:border-[var(--accent-blue)] transition-colors"
+                                className={inputCls}
                             >
-                                <option value=">">{'>'} 大于</option>
-                                <option value="<">{'<'} 小于</option>
-                                <option value=">=">{'>='} 大于等于</option>
-                                <option value="<=">{'<='} 小于等于</option>
+                                <option value="&gt;">{'>'} 大于</option>
+                                <option value="&lt;">{'<'} 小于</option>
+                                <option value="&gt;=">{'≥'} 大于等于</option>
+                                <option value="&lt;=">{'≤'} 小于等于</option>
                                 <option value="==">{'=='} 等于</option>
                             </select>
                         </div>
                     </>
                 )}
 
-                {/* 门架 ID */}
+                {/* ═══════ 条件节点 — 门架 ID ═══════ */}
                 {data.category === 'condition' && (
                     <div>
                         <label className="text-[11px] font-medium text-[var(--text-secondary)] block mb-1">
                             门架 ID
                         </label>
-                        <input
-                            type="text"
-                            value={data.gateId || '*'}
+                        <select
+                            value={String(data.gateId || '*')}
                             onChange={e => handleGateIdChange(e.target.value)}
-                            className="w-full px-2.5 py-1.5 text-xs rounded-md
-                bg-[var(--glass-bg)] border border-[var(--glass-border)]
-                text-[var(--text-primary)] outline-none
-                focus:border-[var(--accent-blue)] transition-colors"
-                            placeholder="* 表示所有门架"
-                        />
+                            className={inputCls}
+                        >
+                            <option value="*">* (所有门架 / 由数据源传播)</option>
+                            {GATE_OPTIONS.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                        <p className="text-[10px] text-[var(--text-muted)] mt-1">
+                            设为 * 时，将继承上游数据源的门架设置
+                        </p>
                     </div>
                 )}
 
-                {/* 参数列表 */}
-                {Object.entries(data.params || {}).map(([key, val]) => {
-                    // 跳过已在上面渲染的阈值参数
-                    if (data.category === 'logic' && (key === 'threshold' || key === 'operator')) return null;
-                    return (
+                {/* ═══════ 条件/动作节点 — 通用参数列表 ═══════ */}
+                {(data.category === 'condition' || data.category === 'action') &&
+                    Object.entries(data.params || {}).map(([key, val]) => (
                         <div key={key}>
                             <label className="text-[11px] font-medium text-[var(--text-secondary)] block mb-1">
                                 {key}
@@ -196,10 +270,7 @@ export function NodePropertiesPanel() {
                                         params[key] = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
                                         updateNodeData(selectedNode.id, { params });
                                     }}
-                                    className="w-full px-2.5 py-1.5 text-xs rounded-md
-                      bg-[var(--glass-bg)] border border-[var(--glass-border)]
-                      text-[var(--text-primary)] outline-none
-                      focus:border-[var(--accent-blue)] transition-colors"
+                                    className={inputCls}
                                     placeholder="逗号分隔"
                                 />
                             ) : (
@@ -207,17 +278,34 @@ export function NodePropertiesPanel() {
                                     type="text"
                                     value={String(val)}
                                     onChange={e => handleParamChange(key, e.target.value)}
-                                    className="w-full px-2.5 py-1.5 text-xs rounded-md
-                      bg-[var(--glass-bg)] border border-[var(--glass-border)]
-                      text-[var(--text-primary)] outline-none
-                      focus:border-[var(--accent-blue)] transition-colors"
+                                    className={inputCls}
                                 />
                             )}
                         </div>
-                    );
-                })}
+                    ))
+                }
 
-                {Object.keys(data.params || {}).length === 0 && data.category !== 'logic' && (
+                {/* 逻辑节点 — 非阈值的通用参数 */}
+                {data.category === 'logic' &&
+                    Object.entries(data.params || {}).map(([key, val]) => {
+                        if (key === 'threshold' || key === 'operator') return null;
+                        return (
+                            <div key={key}>
+                                <label className="text-[11px] font-medium text-[var(--text-secondary)] block mb-1">
+                                    {key}
+                                </label>
+                                <input
+                                    type="text"
+                                    value={String(val)}
+                                    onChange={e => handleParamChange(key, e.target.value)}
+                                    className={inputCls}
+                                />
+                            </div>
+                        );
+                    })
+                }
+
+                {Object.keys(data.params || {}).length === 0 && data.category !== 'logic' && data.category !== 'source' && (
                     <p className="text-xs text-[var(--text-muted)] text-center py-4">
                         此节点无可配置参数
                     </p>

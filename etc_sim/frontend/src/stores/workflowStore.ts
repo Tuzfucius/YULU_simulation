@@ -5,7 +5,7 @@
 import { create } from 'zustand';
 import type { Node, Edge } from '@xyflow/react';
 import type {
-    WorkflowNodeData, NodeTypeConfig, RuleDefinition,
+    WorkflowNodeData, NodeTypeConfig, RuleDefinition, ConditionParams,
     PortDefinition, LogicType,
 } from '../types/workflow';
 import { PORT_TEMPLATES as PORTS } from '../types/workflow';
@@ -30,13 +30,41 @@ function getDefaultPorts(category: string, nodeType?: string): PortDefinition[] 
 
 export const NODE_TYPE_CONFIGS: NodeTypeConfig[] = [
     // ────────── 数据源 ──────────
-    { type: 'etc_data', label: 'ETC 门架数据', category: 'source', icon: '📡', color: '#60a5fa', description: '门架交易记录和统计', defaultParams: {} },
-    { type: 'vehicle_data', label: '车辆状态数据', category: 'source', icon: '🚗', color: '#34d399', description: '车辆实时速度/位置', defaultParams: {} },
-    { type: 'env_data', label: '环境数据', category: 'source', icon: '🌤️', color: '#fbbf24', description: '天气和环境状态', defaultParams: {} },
-    { type: 'history_data', label: '历史数据', category: 'source', icon: '📂', color: '#818cf8', description: '查询历史仿真记录', defaultParams: { lookback_s: 300 } },
-    { type: 'aggregation_data', label: '统计聚合', category: 'source', icon: '📊', color: '#c084fc', description: '对时间窗口内数据做聚合', defaultParams: { window_s: 60, method: 'mean' } },
-    { type: 'gate_corr_data', label: '门架关联', category: 'source', icon: '🔗', color: '#22d3ee', description: '上下游门架关联数据', defaultParams: {} },
-    { type: 'realtime_calc', label: '实时计算', category: 'source', icon: '⚡', color: '#fb923c', description: '滑动窗口实时指标计算', defaultParams: { window_s: 30, metric: 'moving_avg' } },
+    {
+        type: 'etc_data', label: 'ETC 门架数据', category: 'source', icon: '📡', color: '#60a5fa',
+        description: '指定门架的交易量/速度/行程时间统计',
+        defaultParams: { scope: 'single', gate_id: 'G04', gate_from: 'G02', gate_to: 'G08', metric: 'avg_speed' }
+    },
+    {
+        type: 'vehicle_data', label: '车辆状态数据', category: 'source', icon: '🚗', color: '#34d399',
+        description: '指定范围内车辆的实时速度/位置/车道',
+        defaultParams: { scope: 'segment', segment_id: 0, center_km: 5, radius_km: 1, metric: 'speed' }
+    },
+    {
+        type: 'env_data', label: '环境数据', category: 'source', icon: '🌤️', color: '#fbbf24',
+        description: '天气、噪声等环境状态',
+        defaultParams: { metric: 'weather_type' }
+    },
+    {
+        type: 'history_data', label: '历史预警', category: 'source', icon: '📂', color: '#818cf8',
+        description: '查询最近 N 秒内的历史预警事件',
+        defaultParams: { lookback_s: 300, severity_filter: 'all' }
+    },
+    {
+        type: 'aggregation_data', label: '统计聚合', category: 'source', icon: '📊', color: '#c084fc',
+        description: '在时间窗口内对指标做聚合计算',
+        defaultParams: { scope: 'all', gate_id: 'G04', source_metric: 'avg_speed', window_s: 60, method: 'mean' }
+    },
+    {
+        type: 'gate_corr_data', label: '门架关联', category: 'source', icon: '🔗', color: '#22d3ee',
+        description: '上下游门架的流量/速度差异',
+        defaultParams: { upstream_gate: 'G04', downstream_gate: 'G06', metric: 'flow_diff' }
+    },
+    {
+        type: 'realtime_calc', label: '实时计算', category: 'source', icon: '⚡', color: '#fb923c',
+        description: '滑动窗口实时指标计算',
+        defaultParams: { scope: 'all', gate_id: 'G04', target: 'avg_speed', window_s: 30, metric: 'moving_avg' }
+    },
 
     // ────────── 条件 ──────────
     { type: 'speed_below_threshold', label: '速度低于阈值', category: 'condition', icon: '⚡', color: '#f97316', description: '平均速度低于阈值', defaultParams: { threshold_kmh: 40, min_samples: 3 } },
@@ -197,13 +225,35 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         const { nodes, edges } = get();
         const rules: RuleDefinition[] = [];
 
-        // Find logic nodes as rule centers
+        /** 从上游数据源节点收集 data_sources 配置 */
+        const collectDataSources = (nodeIds: string[]) => {
+            return nodeIds
+                .map(id => nodes.find(n => n.id === id))
+                .filter((n): n is Node<WorkflowNodeData> => n !== undefined && n.data.category === 'source')
+                .map(n => ({ type: n.data.subType, params: { ...n.data.params } }));
+        };
+
+        /**
+         * 从关联的数据源推导 gate_id（注入到每个条件的 gate_id）
+         * 优先级：条件自带 gateId > 数据源的 gate_id > '*'
+         */
+        const resolveGateId = (condNode: Node<WorkflowNodeData>, dataSources: { type: string; params: ConditionParams }[]) => {
+            // 条件节点自带 gateId 优先
+            if (condNode.data.gateId && condNode.data.gateId !== '*') return String(condNode.data.gateId);
+            // 从数据源继承
+            for (const ds of dataSources) {
+                if (ds.params.scope === 'single' && ds.params.gate_id) return String(ds.params.gate_id);
+            }
+            return '*';
+        };
+
         const logicNodes = nodes.filter(n => n.data.category === 'logic');
 
         if (logicNodes.length === 0) {
-            // No logic nodes: treat all conditions as a single AND rule
             const conditions = nodes.filter(n => n.data.category === 'condition');
             const actions = nodes.filter(n => n.data.category === 'action');
+            const sources = nodes.filter(n => n.data.category === 'source');
+            const dataSources = sources.map(n => ({ type: n.data.subType, params: { ...n.data.params } }));
 
             if (conditions.length > 0) {
                 rules.push({
@@ -212,7 +262,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
                     conditions: conditions.map(n => ({
                         type: n.data.subType,
                         params: n.data.params,
-                        gate_id: n.data.gateId || '*',
+                        gate_id: resolveGateId(n, dataSources),
                     })),
                     logic: 'AND',
                     severity: 'medium',
@@ -222,22 +272,39 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
                     })),
                     cooldown_s: 60,
                     enabled: true,
+                    data_sources: dataSources.length > 0 ? dataSources : undefined,
                 });
             }
         } else {
-            // Each logic node = one rule
             for (const logicNode of logicNodes) {
-                // 支持 handleId 区分的入边
                 const incomingEdges = edges.filter(e => e.target === logicNode.id);
                 const outgoingEdges = edges.filter(e => e.source === logicNode.id);
 
-                // 递归收集上游条件节点（跳过中间的逻辑节点链）
-                const conditionNodes = incomingEdges
-                    .map(e => nodes.find(n => n.id === e.source))
-                    .filter((n): n is Node<WorkflowNodeData> =>
-                        n !== undefined && (n.data.category === 'condition' || n.data.category === 'source')
-                    );
+                // 上游所有直连节点 id
+                const upstreamIds = incomingEdges.map(e => e.source);
 
+                // 分离 condition 和 source 节点
+                const conditionNodes = upstreamIds
+                    .map(id => nodes.find(n => n.id === id))
+                    .filter((n): n is Node<WorkflowNodeData> => n !== undefined && n.data.category === 'condition');
+
+                // 也尝试收集间接上游：condition 节点的上游 source 节点
+                const allSourceIds = new Set<string>();
+                // 直连到逻辑节点的 source
+                upstreamIds.forEach(id => {
+                    const n = nodes.find(nd => nd.id === id);
+                    if (n && n.data.category === 'source') allSourceIds.add(id);
+                });
+                // condition 节点上游的 source
+                for (const cond of conditionNodes) {
+                    const condInputEdges = edges.filter(e => e.target === cond.id);
+                    condInputEdges.forEach(e => {
+                        const src = nodes.find(n => n.id === e.source);
+                        if (src && src.data.category === 'source') allSourceIds.add(src.id);
+                    });
+                }
+
+                const dataSources = collectDataSources([...allSourceIds]);
                 const actionNodes = outgoingEdges
                     .map(e => nodes.find(n => n.id === e.target))
                     .filter((n): n is Node<WorkflowNodeData> => n !== undefined && n.data.category === 'action');
@@ -249,7 +316,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
                         conditions: conditionNodes.map(n => ({
                             type: n.data.subType,
                             params: n.data.params,
-                            gate_id: n.data.gateId || '*',
+                            gate_id: resolveGateId(n, dataSources),
                         })),
                         logic: (logicNode.data.logic as RuleDefinition['logic']) || 'AND',
                         severity: 'medium',
@@ -259,6 +326,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
                         })),
                         cooldown_s: 60,
                         enabled: true,
+                        data_sources: dataSources.length > 0 ? dataSources : undefined,
                     });
                 }
             }

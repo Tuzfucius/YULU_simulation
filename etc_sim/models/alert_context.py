@@ -69,3 +69,45 @@ class AlertContext:
     # 历史预警
     alert_history: List[AlertEvent] = field(default_factory=list)
     recent_alert_events: List[AlertEvent] = field(default_factory=list)
+
+    # ── 辅助查询方法 ──
+
+    def get_gates_in_range(self, from_id: str, to_id: str) -> Dict[str, Any]:
+        """返回指定门架 ID 范围内的 gate_stats 子集
+        
+        门架 ID 格式 'G02', 'G04', ...
+        从 from_id 到 to_id（含两端）
+        """
+        import re
+        def _gate_km(gid: str) -> float:
+            m = re.match(r'G(\d+)', gid)
+            return float(m.group(1)) if m else 0.0
+
+        lo, hi = _gate_km(from_id), _gate_km(to_id)
+        if lo > hi:
+            lo, hi = hi, lo
+        return {
+            gid: stat for gid, stat in self.gate_stats.items()
+            if lo <= _gate_km(gid) <= hi
+        }
+
+    def get_vehicles_in_segment(self, segment_id: int,
+                                 segment_length_km: float = 2.0) -> Dict[int, float]:
+        """返回指定区间内的车辆速度 {vehicle_id: speed}"""
+        lo = segment_id * segment_length_km * 1000
+        hi = lo + segment_length_km * 1000
+        return {
+            vid: spd for vid, spd in self.vehicle_speeds.items()
+            if lo <= self.vehicle_positions.get(vid, -1) < hi
+        }
+
+    def get_vehicles_in_radius(self, center_km: float,
+                                radius_km: float) -> Dict[int, float]:
+        """返回以 center_km 为圆心、radius_km 为半径范围内的车辆速度"""
+        lo = (center_km - radius_km) * 1000
+        hi = (center_km + radius_km) * 1000
+        return {
+            vid: spd for vid, spd in self.vehicle_speeds.items()
+            if lo <= self.vehicle_positions.get(vid, -1) <= hi
+        }
+

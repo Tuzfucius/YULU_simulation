@@ -16,6 +16,7 @@ from typing import List, Dict, Any, Optional, Type
 
 from .alert_context import AlertContext, AlertEvent
 from .alert_conditions import Condition, CONDITION_REGISTRY
+from .data_source_resolver import DataSourceResolver, ResolvedData
 
 logger = logging.getLogger(__name__)
 
@@ -165,50 +166,73 @@ class AlertRule:
     actions: List[Action] = field(default_factory=list)
     cooldown_s: float = 60.0
     enabled: bool = True
+    data_sources: List[Dict[str, Any]] = field(default_factory=list)
     
     # 内部状态
     _last_trigger_time: float = field(default=0.0, repr=False)
     
     def evaluate(self, context: AlertContext) -> Optional[AlertEvent]:
         """评估规则，如满足条件则返回预警事件
-        
-        Args:
-            context: 预警上下文
-            
-        Returns:
-            预警事件，若条件不满足则返回 None
+
+        流程:
+        1. 解析关联的 data_sources，提取 resolved_gate_id
+        2. 将 resolved_gate_id 注入到 gate_id='*' 的条件中
+        3. 评估条件组合
+        4. 触发动作
         """
         if not self.enabled or not self.conditions:
             return None
-        
+
         # 检查冷却时间
         if context.current_time - self._last_trigger_time < self.cooldown_s:
             return None
-        
-        # 评估条件组合
+
+        # ── 步骤 1: 解析数据源，获取推荐 gate_id ──
+        resolved_gate_id = '*'
+        if self.data_sources:
+            resolver = DataSourceResolver()
+            for ds_config in self.data_sources:
+                resolved = resolver.resolve(ds_config, context)
+                if resolved.resolved_gate_id != '*':
+                    resolved_gate_id = resolved.resolved_gate_id
+                    break  # 使用第一个有效的 gate_id
+
+        # ── 步骤 2: 将数据源 gate_id 注入到 gate_id='*' 的条件 ──
+        for cond in self.conditions:
+            if cond.gate_id == '*' and resolved_gate_id != '*':
+                cond.gate_id = resolved_gate_id
+
+        # ── 步骤 3: 评估条件 ──
         if self.logic == 'AND':
             triggered = all(c.evaluate(context) for c in self.conditions)
         elif self.logic == 'OR':
             triggered = any(c.evaluate(context) for c in self.conditions)
         else:
             triggered = all(c.evaluate(context) for c in self.conditions)
-        
+
+        # ── 步骤 3b: 恢复注入的 gate_id（避免状态泄漏到下一轮） ──
+        for cond in self.conditions:
+            if resolved_gate_id != '*' and cond.gate_id == resolved_gate_id:
+                cond.gate_id = '*'
+
         if not triggered:
             return None
-        
+
         # 构建预警事件
         self._last_trigger_time = context.current_time
-        
-        # 尝试从条件中获取门架信息
-        gate_id = ''
+
+        # 尝试从条件或数据源中获取门架信息
+        gate_id = resolved_gate_id if resolved_gate_id != '*' else ''
         position_km = 0.0
-        for cond in self.conditions:
-            if cond.gate_id != '*':
-                gate_id = cond.gate_id
-                stat = context.gate_stats.get(gate_id)
-                if stat:
-                    position_km = getattr(stat, 'position_km', 0.0)
-                break
+        if not gate_id:
+            for cond in self.conditions:
+                if cond.gate_id != '*':
+                    gate_id = cond.gate_id
+                    break
+        if gate_id:
+            stat = context.gate_stats.get(gate_id)
+            if stat:
+                position_km = getattr(stat, 'position_km', 0.0)
         
         event = AlertEvent(
             rule_name=self.name,
@@ -232,7 +256,7 @@ class AlertRule:
     
     def to_dict(self) -> dict:
         """序列化为字典"""
-        return {
+        d = {
             'name': self.name,
             'description': self.description,
             'conditions': [c.to_dict() for c in self.conditions],
@@ -242,6 +266,9 @@ class AlertRule:
             'cooldown_s': self.cooldown_s,
             'enabled': self.enabled,
         }
+        if self.data_sources:
+            d['data_sources'] = self.data_sources
+        return d
     
     @classmethod
     def from_dict(cls, data: dict) -> 'AlertRule':
@@ -258,6 +285,7 @@ class AlertRule:
             actions=actions,
             cooldown_s=data.get('cooldown_s', 60.0),
             enabled=data.get('enabled', True),
+            data_sources=data.get('data_sources', []),
         )
 
 
