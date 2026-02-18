@@ -15,6 +15,7 @@ import { DashboardPage } from './components/pages/DashboardPage';
 import { ScenariosPage } from './components/pages/ScenariosPage';
 import { WorkflowPage } from './components/pages/WorkflowPage';
 import { EvaluationPage } from './components/pages/EvaluationPage';
+import { RoadEditorPage } from './components/pages/RoadEditorPage';
 import { useI18nStore } from './stores/i18nStore';
 import { useSimStore } from './stores/simStore';
 import { engine } from './engine/SimulationEngine';
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { path: '/dashboard', icon: '📊', label: '预警仪表盘', labelEn: 'Dashboard' },
   { path: '/scenarios', icon: '🧪', label: '场景模板', labelEn: 'Scenarios' },
   { path: '/workflow', icon: '🔀', label: '工作流编辑', labelEn: 'Workflow' },
+  { path: '/editor', icon: '✏️', label: '路径编辑', labelEn: 'Editor' },
   { path: '/evaluation', icon: '📊', label: '评估面板', labelEn: 'Evaluation' },
 ];
 
@@ -198,6 +200,7 @@ function AnimatedRoutes() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/scenarios" element={<ScenariosPage />} />
           <Route path="/workflow" element={<WorkflowPage />} />
+          <Route path="/editor" element={<RoadEditorPage />} />
           <Route path="/evaluation" element={<EvaluationPage />} />
         </Routes>
       </motion.div>

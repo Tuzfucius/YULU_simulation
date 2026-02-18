@@ -102,6 +102,11 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) =>
     const { config, setConfig, resetConfig } = useSimStore();
     const { t } = useI18nStore();
 
+    // 自定义路径激活时，禁用相关参数
+    const isCustomRoad = !!config.customRoadPath;
+    const customLengthKm = config.customRoadLengthKm;
+    const customGantryPositions = config.customGantryPositionsKm ?? [];
+
     const handleExportConfig = () => {
         const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -132,35 +137,59 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) =>
         <div className="flex flex-col space-y-6">
             <div>
                 <Section title={t('config.title')} icon="🛣️">
-                    <ParamInput
-                        label={t('config.roadLength')}
-                        value={config.roadLengthKm}
-                        onChange={(v) => setConfig({ roadLengthKm: v })}
-                        min={1}
-                        max={50}
-                        step={1}
-                        unit="km"
-                        disabled={disabled}
-                    />
-                    <ParamInput
-                        label={t('config.numLanes')}
-                        value={config.numLanes}
-                        onChange={(v) => setConfig({ numLanes: v })}
-                        min={2}
-                        max={8}
-                        step={1}
-                        disabled={disabled}
-                    />
-                    <ParamInput
-                        label="ETC Gate Interval"
-                        value={config.etcGateIntervalKm}
-                        onChange={(v) => setConfig({ etcGateIntervalKm: v })}
-                        min={1}
-                        max={10}
-                        step={0.5}
-                        unit="km"
-                        disabled={disabled}
-                    />
+                    {/* 自定义路径激活时显示提示横幅 */}
+                    {isCustomRoad && (
+                        <div className="mb-3 px-3 py-2 rounded-lg bg-[var(--accent-blue)]/10 border border-[var(--accent-blue)]/30 text-xs text-[var(--accent-blue)]">
+                            <span className="font-medium">📂 自定义路径已激活</span>
+                            <span className="text-[var(--text-muted)] ml-1">({config.customRoadPath})</span>
+                            <br />
+                            <span className="text-[var(--text-muted)]">
+                                路段长度和 ETC 间距由路径文件决定，已禁用手动调整。
+                            </span>
+                        </div>
+                    )}
+                    <div className={isCustomRoad ? 'opacity-40 pointer-events-none select-none' : ''}>
+                        <ParamInput
+                            label={t('config.roadLength')}
+                            value={isCustomRoad && customLengthKm != null ? customLengthKm : config.roadLengthKm}
+                            onChange={(v) => setConfig({ roadLengthKm: v })}
+                            min={1}
+                            max={50}
+                            step={1}
+                            unit="km"
+                            disabled={disabled || isCustomRoad}
+                        />
+                    </div>
+                    <div className={isCustomRoad ? 'opacity-40 pointer-events-none select-none' : ''}>
+                        <ParamInput
+                            label={t('config.numLanes')}
+                            value={config.numLanes}
+                            onChange={(v) => setConfig({ numLanes: v })}
+                            min={2}
+                            max={8}
+                            step={1}
+                            disabled={disabled || isCustomRoad}
+                        />
+                    </div>
+                    <div className={isCustomRoad ? 'opacity-40 pointer-events-none select-none' : ''}>
+                        <ParamInput
+                            label="ETC Gate Interval"
+                            value={config.etcGateIntervalKm}
+                            onChange={(v) => setConfig({ etcGateIntervalKm: v })}
+                            min={1}
+                            max={10}
+                            step={0.5}
+                            unit="km"
+                            disabled={disabled || isCustomRoad}
+                        />
+                    </div>
+                    {/* 自定义路径时显示实际门架位置 */}
+                    {isCustomRoad && customGantryPositions.length > 0 && (
+                        <div className="mt-2 px-2 py-2 rounded bg-[rgba(0,0,0,0.2)] text-[10px] text-[var(--text-muted)]">
+                            <span className="text-[var(--accent-blue)] font-medium">ETC 门架位置：</span>
+                            <span>{customGantryPositions.map(p => `${p.toFixed(2)}km`).join(' · ')}</span>
+                        </div>
+                    )}
                 </Section>
 
                 <Section title={t('simulation.vehicles')} icon="🚗">

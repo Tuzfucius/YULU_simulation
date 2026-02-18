@@ -52,6 +52,11 @@ interface SimulationConfig {
     zoneEnd?: number;
     chainCollision?: boolean;
     gradualStop?: boolean;
+
+    // 自定义路径（路网配置组件写入）
+    customRoadPath?: string;           // 已选择的自定义路径文件名
+    customRoadLengthKm?: number;       // 实际计算的路径总里程
+    customGantryPositionsKm?: number[]; // 门架里程位置列表
 }
 
 // ... (existing interfaces)

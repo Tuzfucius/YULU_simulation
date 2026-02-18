@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useI18nStore } from '../stores/i18nStore';
+import { useSimStore } from '../stores/simStore';
 
 interface NetworkTemplate {
     id: string;
@@ -30,6 +31,7 @@ interface NetworkEdge {
 interface NetworkGraph {
     nodes: NetworkNode[];
     edges: NetworkEdge[];
+    paths: Record<string, any>;
 }
 
 const NODE_COLORS: Record<string, string> = {
@@ -42,20 +44,30 @@ const NODE_COLORS: Record<string, string> = {
 export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }) => {
     const [templates, setTemplates] = useState<NetworkTemplate[]>([]);
     const [selectedTemplate, setSelectedTemplate] = useState('simple_mainline');
+    const [customFiles, setCustomFiles] = useState<string[]>([]);
+    const [customLength, setCustomLength] = useState<number | null>(null); // 自定义路径实际里程
     const [config, setConfig] = useState({
         main_length_km: 20,
         num_lanes: 4,
         ramp_position_km: 8,
-        exit_probability: 0.2
+        exit_probability: 0.2,
+        custom_file_path: ''
     });
     const [preview, setPreview] = useState<NetworkGraph | null>(null);
 
     const { t } = useI18nStore();
+    const { setConfig: setSimConfig } = useSimStore();
 
     useEffect(() => {
         fetch('/api/road-network/templates')
             .then(res => res.json())
             .then(setTemplates)
+            .catch(console.error);
+
+        // Fetch custom files
+        fetch('/api/custom-roads/')
+            .then(res => res.json())
+            .then((files: any[]) => setCustomFiles(files.map(f => f.filename)))
             .catch(console.error);
     }, []);
 
@@ -71,19 +83,48 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
                 body: JSON.stringify({
                     template: selectedTemplate,
                     ...config,
-                    ramp_position_km: selectedTemplate !== 'simple_mainline' ? config.ramp_position_km : null
+                    ramp_position_km: selectedTemplate !== 'simple_mainline' ? config.ramp_position_km : null,
+                    custom_file_path: selectedTemplate === 'custom' ? config.custom_file_path : null
                 })
             });
 
             const previewRes = await fetch('/api/road-network/preview');
             const previewData = await previewRes.json();
             setPreview(previewData);
+
+            // 自定义路径：从 preview 返回的 paths 中读取实际里程，并同步到 simStore
+            if (selectedTemplate === 'custom') {
+                const totalKm: number | null = previewData.paths?.total_length_km ?? null;
+                const gantryPositions: number[] = previewData.paths?.gantry_positions_km ?? [];
+                const filePath: string = config.custom_file_path;
+                setCustomLength(totalKm);
+
+                // 同步到 simStore，供 ConfigPanel 读取并禁用相关参数
+                setSimConfig({
+                    customRoadPath: filePath,
+                    customRoadLengthKm: totalKm ?? undefined,
+                    customGantryPositionsKm: gantryPositions,
+                    // 同时更新 roadLengthKm 使仿真引擎使用正确值
+                    ...(totalKm !== null ? { roadLengthKm: totalKm } : {}),
+                });
+            } else {
+                setCustomLength(null);
+                // 清除自定义路径状态
+                setSimConfig({
+                    customRoadPath: undefined,
+                    customRoadLengthKm: undefined,
+                    customGantryPositionsKm: undefined,
+                });
+            }
+
         } catch (err) {
+
             console.error('Failed to update network config:', err);
         }
     };
 
-    const showRampConfig = selectedTemplate !== 'simple_mainline';
+    const showRampConfig = ['on_ramp', 'off_ramp'].includes(selectedTemplate);
+    const isCustom = selectedTemplate === 'custom';
 
     // Helper to translate template names dynamically if needed, 
     // or map IDs to translation keys.
@@ -91,6 +132,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
         if (id === 'simple_mainline') return t('config.roadNetwork.simpleMainline');
         if (id === 'on_ramp') return t('config.roadNetwork.onRamp');
         if (id === 'off_ramp') return t('config.roadNetwork.offRamp');
+        if (id === 'custom') return t('config.roadNetwork.custom', 'Custom Path');
         return id;
     }
 
@@ -100,7 +142,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
             {/* <h3 className="text-sm font-medium text-[var(--text-secondary)]">{t('config.roadNetwork.title')}</h3> */}
 
             {/* 模板选择 */}
-            <div className="grid grid-cols-1 gap-2">
+            <div className="grid grid-cols-2 gap-2">
                 {templates.map(t => (
                     <button
                         key={t.id}
@@ -120,22 +162,53 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
                 ))}
             </div>
 
+            {/* 自定义路径选择 */}
+            {isCustom && (
+                <div>
+                    <label className="text-xs text-[var(--text-muted)]">{t('config.roadNetwork.selectPath', 'Select Path')}</label>
+                    <select
+                        value={config.custom_file_path}
+                        onChange={e => setConfig({ ...config, custom_file_path: e.target.value })}
+                        className="w-full bg-[var(--bg-card)] border border-[var(--glass-border)] rounded p-2 text-sm mt-1"
+                    >
+                        <option value="">-- Select a File --</option>
+                        {customFiles.map(f => (
+                            <option key={f} value={f}>{f}</option>
+                        ))}
+                    </select>
+                    <p className="text-[10px] text-[var(--text-muted)] mt-1">
+                        Create paths in <a href="/editor" className="text-[var(--accent-blue)] underline">Road Editor</a>
+                    </p>
+                </div>
+            )}
+
             {/* 基础参数 */}
             <div className="space-y-3">
-                <div>
-                    <label className="text-xs text-[var(--text-muted)]">{t('config.roadLength')}: {config.main_length_km} km</label>
-                    <input
-                        type="range"
-                        min={10}
-                        max={50}
-                        value={config.main_length_km}
-                        onChange={e => setConfig({ ...config, main_length_km: +e.target.value })}
-                        disabled={disabled}
-                        className="w-full"
-                    />
+                <div className={isCustom ? 'opacity-40 pointer-events-none' : ''}>
+                    <label className="text-xs text-[var(--text-muted)]">
+                        {t('config.roadLength')}:
+                        {isCustom && customLength !== null
+                            ? <span className="text-[var(--accent-blue)] ml-1 font-medium">{customLength.toFixed(2)} km <span className="text-[10px] opacity-60">(自定义路径)</span></span>
+                            : <span className="ml-1">{config.main_length_km} km</span>
+                        }
+                    </label>
+                    {!isCustom && (
+                        <input
+                            type="range"
+                            min={10}
+                            max={50}
+                            value={config.main_length_km}
+                            onChange={e => setConfig({ ...config, main_length_km: +e.target.value })}
+                            disabled={disabled}
+                            className="w-full"
+                        />
+                    )}
+                    {isCustom && customLength === null && (
+                        <p className="text-[10px] text-[var(--text-muted)] mt-1">请先选择路径文件</p>
+                    )}
                 </div>
 
-                <div>
+                <div className={isCustom ? 'opacity-40 pointer-events-none' : ''}>
                     <label className="text-xs text-[var(--text-muted)]">{t('config.numLanes')}: {config.num_lanes}</label>
                     <input
                         type="range"
@@ -143,7 +216,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
                         max={8}
                         value={config.num_lanes}
                         onChange={e => setConfig({ ...config, num_lanes: +e.target.value })}
-                        disabled={disabled}
+                        disabled={disabled || isCustom}
                         className="w-full"
                     />
                 </div>
@@ -206,12 +279,18 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
             {preview && (
                 <div className="p-4 rounded-lg border border-[var(--glass-border)] bg-black/30">
                     <p className="text-xs text-[var(--text-muted)] mb-2">{t('common.preview')}</p>
-                    <svg viewBox="-1 -2 24 4" className="w-full h-16">
+                    <svg viewBox={`-1 -2 ${isCustom ? (preview.nodes[preview.nodes.length - 1]?.position_km || 24) + 2 : 24} 4`} className="w-full h-16" preserveAspectRatio="none">
                         {/* 边 */}
                         {preview.edges.map(edge => {
                             const from = preview.nodes.find(n => n.node_id === edge.from_node);
                             const to = preview.nodes.find(n => n.node_id === edge.to_node);
                             if (!from || !to) return null;
+
+                            // For custom, we might want to scale x to fit or use a scrollable view
+                            // But keeping it simple for now, using position_km as x for visualization logic reuse
+                            // Or better: use x,y from nodes if they exist and meaningful?
+                            // Logic below uses from.x and to.x. 
+
                             return (
                                 <line
                                     key={edge.edge_id}

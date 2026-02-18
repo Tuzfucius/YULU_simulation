@@ -202,15 +202,23 @@ class ChartGenerator:
         if not finished_vehicles:
             return None
         
-        rows = (num_segments + 1) // 2
-        fig, axes = plt.subplots(rows, 2, figsize=(18, 4 * rows), sharex=True)
-        axes = axes.flatten()
-        self._setup_dark_style(fig, axes)
+        # 根据实际区间数动态决定行列布局
+        cols = 2 if num_segments > 1 else 1
+        rows = math.ceil(num_segments / cols)
+        fig, axes_grid = plt.subplots(rows, cols, figsize=(18, 4 * rows), sharex=True)
+        # 统一为一维数组，方便按索引访问
+        if num_segments == 1:
+            axes = [axes_grid]
+        else:
+            axes = np.array(axes_grid).flatten().tolist()
+        self._setup_dark_style(fig, np.array(axes))
         
         stats = {'normal': 0, 'impacted': 0, 'anomaly': 0}
         for seg_idx in range(num_segments):
             ax = axes[seg_idx]
-            ax.set_title(f"区间 {seg_idx+1}: {seg_idx*segment_length_km}-{(seg_idx+1)*segment_length_km} 公里", fontsize=10, color='#E6E1E5')
+            seg_start = seg_idx * segment_length_km
+            seg_end = (seg_idx + 1) * segment_length_km
+            ax.set_title(f"区间 {seg_idx+1}: {seg_start:.2f}-{seg_end:.2f} 公里", fontsize=10, color='#E6E1E5')
             ax.set_ylabel("速度 (km/h)", fontsize=8)
             ax.set_ylim(0, 140)
             ax.grid(True, alpha=0.3, color='#49454F')
@@ -266,10 +274,16 @@ class ChartGenerator:
         stats_msg = f"[SpeedProfile] 车辆状态统计: 正常={stats['normal']}, 受影响={stats['impacted']}, 异常={stats['anomaly']} (总计: {sum(stats.values())})"
         print(stats_msg)
 
-        
-        axes[-1].set_xlabel("时间 (秒)", color='#E6E1E5')
-        axes[-2].set_xlabel("时间 (秒)", color='#E6E1E5')
-        
+        # 隐藏多余的子图（num_segments 为奇数时最后一格为空）
+        total_axes = rows * cols
+        for i in range(num_segments, total_axes):
+            axes[i].set_visible(False)
+
+        # 仅对最后一行的有效子图设置 xlabel
+        last_row_start = (rows - 1) * cols
+        for i in range(last_row_start, num_segments):
+            axes[i].set_xlabel("时间 (秒)", color='#E6E1E5')
+                    
         patches = [
             mpatches.Patch(color=COLOR_NORMAL, label='正常车辆'),
             mpatches.Patch(color=COLOR_IMPACTED, label='受影响/慢行'),

@@ -93,6 +93,10 @@ export class SimulationEngine {
     private spawnSchedule: number[] = [];
     private spawnIndex: number = 0;
 
+    // 动态路段参数（每次 start() 时根据 simStore 重新计算）
+    private segmentLengthKm: number = SEGMENT_LENGTH_KM;
+    private numSegments: number = NUM_SEGMENTS;
+
     // 记录数据
     private anomalyLogs: AnomalyLog[] = [];
     private trajectoryData: TrajectoryPoint[] = [];
@@ -139,6 +143,12 @@ export class SimulationEngine {
         const store = useSimStore.getState();
         const config = store.config;
 
+        // 动态计算路段参数：根据实际路长计算区间数和每区间长度
+        const roadLengthKm = config.roadLengthKm;
+        // 每个区间约 1km，最多 20 个区间，最少 1 个区间
+        this.numSegments = Math.max(1, Math.min(20, Math.round(roadLengthKm)));
+        this.segmentLengthKm = roadLengthKm / this.numSegments;
+
         // 重置
         this.vehicles = [];
         this.finishedVehicles = [];
@@ -168,7 +178,7 @@ export class SimulationEngine {
             timestamp: 0,
             level: 'INFO',
             category: 'SYSTEM',
-            message: `Simulation started: ${config.roadLengthKm}km × ${config.numLanes} lanes, target ${config.totalVehicles} vehicles`,
+            message: `Simulation started: ${roadLengthKm.toFixed(1)}km × ${config.numLanes} lanes (${this.numSegments} segments × ${this.segmentLengthKm.toFixed(2)}km), target ${config.totalVehicles} vehicles`,
         });
 
         // 启动循环
@@ -335,7 +345,7 @@ export class SimulationEngine {
             // 尝试触发异常
             const anomalyResult = v.triggerAnomaly(this.currentTime);
             if (anomalyResult) {
-                const segmentIdx = Math.floor(v.pos / (SEGMENT_LENGTH_KM * 1000));
+                const segmentIdx = Math.floor(v.pos / (this.segmentLengthKm * 1000));
                 this.anomalyLogs.push({
                     id: v.id,
                     type: anomalyResult.type,
@@ -392,17 +402,16 @@ export class SimulationEngine {
     // --- 记录区间速度 ---
     private recordSegmentSpeed() {
         const store = useSimStore.getState();
-        const numSegments = Math.floor(store.config.roadLengthKm / SEGMENT_LENGTH_KM);
         const config = store.config;
 
-        for (let seg = 0; seg < numSegments; seg++) {
-            const segStart = seg * SEGMENT_LENGTH_KM * 1000;
-            const segEnd = (seg + 1) * SEGMENT_LENGTH_KM * 1000;
+        for (let seg = 0; seg < this.numSegments; seg++) {
+            const segStart = seg * this.segmentLengthKm * 1000;
+            const segEnd = (seg + 1) * this.segmentLengthKm * 1000;
             const vehiclesInSeg = this.vehicles.filter(v => v.pos >= segStart && v.pos < segEnd);
 
             if (vehiclesInSeg.length > 0) {
                 const avgSpeed = vehiclesInSeg.reduce((sum, v) => sum + v.speed, 0) / vehiclesInSeg.length;
-                const density = (vehiclesInSeg.length / (SEGMENT_LENGTH_KM * 1000)) * 1000 * config.numLanes;
+                const density = (vehiclesInSeg.length / (this.segmentLengthKm * 1000)) * 1000 * config.numLanes;
                 const flow = density * avgSpeed; // 流量公式: q = k * v
 
                 this.segmentSpeedHistory.push({
@@ -508,8 +517,8 @@ export class SimulationEngine {
         };
 
         // 异常分布
-        const anomalyDistribution = Array.from({ length: NUM_SEGMENTS }, (_, i) => ({
-            segment: `${i * SEGMENT_LENGTH_KM}-${(i + 1) * SEGMENT_LENGTH_KM}km`,
+        const anomalyDistribution = Array.from({ length: this.numSegments }, (_, i) => ({
+            segment: `${(i * this.segmentLengthKm).toFixed(1)}-${((i + 1) * this.segmentLengthKm).toFixed(1)}km`,
             type1: this.anomalyLogs.filter(a => a.segment === i && a.type === 1).length,
             type2: this.anomalyLogs.filter(a => a.segment === i && a.type === 2).length,
             type3: this.anomalyLogs.filter(a => a.segment === i && a.type === 3).length,
@@ -709,9 +718,8 @@ export class SimulationEngine {
         const snakeConfig = {
             road_length_km: config.roadLengthKm,
             num_lanes: config.numLanes,
-            // 假设从 config import 了常量，或者直接用 store config 如果有
-            segment_length_km: SEGMENT_LENGTH_KM,
-            num_segments: NUM_SEGMENTS,
+            segment_length_km: this.segmentLengthKm,
+            num_segments: this.numSegments,
             total_vehicles: config.totalVehicles
         };
 
