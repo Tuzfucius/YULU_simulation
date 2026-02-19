@@ -4,6 +4,7 @@
  */
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { CustomRoadData } from '../pages/RoadEditorPage';
+import { useThemeStore } from '../../stores/themeStore';
 
 interface EditorCanvasProps {
     data: CustomRoadData;
@@ -106,6 +107,7 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
     const [cursor, setCursor] = useState('default');
     const [mouseWorld, setMouseWorld] = useState<{ x: number; y: number } | null>(null);
     const [snapPreview, setSnapPreview] = useState<{ x: number; y: number } | null>(null);
+    const { theme } = useThemeStore();
 
     const isPanning = useRef(false);
     const lastMouse = useRef({ x: 0, y: 0 });
@@ -134,12 +136,13 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
         canvas.height = H;
 
         // 背景
-        ctx.fillStyle = '#12121f';
+        const isDark = theme === 'dark';
+        ctx.fillStyle = isDark ? '#12121f' : '#f2f2f0';
         ctx.fillRect(0, 0, W, H);
 
         // ── 网格 ──
         if (showGrid) {
-            ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+            ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.07)';
             ctx.lineWidth = 1;
             ctx.beginPath();
             const startX = Math.floor((-pan.x / zoom) / GRID_PX) * GRID_PX;
@@ -155,7 +158,7 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
             ctx.stroke();
 
             // 坐标轴
-            ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+            ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)';
             ctx.lineWidth = 1.5;
             const o = toScreen(0, 0);
             ctx.beginPath();
@@ -190,7 +193,7 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
                 accDist += Math.hypot(curr.x - prev.x, curr.y - prev.y) * SCALE_M_PER_UNIT;
                 if (zoom > 0.5) {
                     const p = toScreen(curr.x, curr.y);
-                    ctx.fillStyle = 'rgba(150,200,255,0.5)';
+                    ctx.fillStyle = isDark ? 'rgba(150,200,255,0.5)' : 'rgba(30,80,180,0.6)';
                     ctx.font = `${Math.max(9, 10 * zoom)}px monospace`;
                     ctx.fillText(`${accDist.toFixed(0)}m`, p.x + 6, p.y - 6);
                 }

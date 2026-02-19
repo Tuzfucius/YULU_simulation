@@ -96,6 +96,8 @@ export class SimulationEngine {
     // 动态路段参数（每次 start() 时根据 simStore 重新计算）
     private segmentLengthKm: number = SEGMENT_LENGTH_KM;
     private numSegments: number = NUM_SEGMENTS;
+    /** 区间边界里程（km）数组，长度为 numSegments+1，例如 [0, g1, g2, ..., roadLength] */
+    private segmentBoundaries: number[] = [];
 
     // 记录数据
     private anomalyLogs: AnomalyLog[] = [];
@@ -143,11 +145,26 @@ export class SimulationEngine {
         const store = useSimStore.getState();
         const config = store.config;
 
-        // 动态计算路段参数：根据实际路长计算区间数和每区间长度
+        // 动态计算路段参数
         const roadLengthKm = config.roadLengthKm;
-        // 每个区间约 1km，最多 20 个区间，最少 1 个区间
-        this.numSegments = Math.max(1, Math.min(20, Math.round(roadLengthKm)));
-        this.segmentLengthKm = roadLengthKm / this.numSegments;
+        const gantryPositions = config.customGantryPositionsKm;
+        if (gantryPositions && gantryPositions.length >= 1) {
+            // 自定义路网：按门架位置划分区间，区间数 = 门架数 + 1
+            // 边界：[0, g1, g2, ..., gN, roadLength]（含首尾）
+            this.segmentBoundaries = [0, ...gantryPositions, roadLengthKm];
+            this.numSegments = gantryPositions.length + 1;
+            // segmentLengthKm 此时无意义（各区间不等长），置为平均值供兼容
+            this.segmentLengthKm = roadLengthKm / this.numSegments;
+        } else {
+            // 无门架/默认路网：按道路长度每 ~1km 一个区间
+            this.numSegments = Math.max(1, Math.min(20, Math.round(roadLengthKm)));
+            this.segmentLengthKm = roadLengthKm / this.numSegments;
+            // 均匀分布的边界
+            this.segmentBoundaries = Array.from(
+                { length: this.numSegments + 1 },
+                (_, i) => i * this.segmentLengthKm
+            );
+        }
 
         // 重置
         this.vehicles = [];
@@ -405,13 +422,14 @@ export class SimulationEngine {
         const config = store.config;
 
         for (let seg = 0; seg < this.numSegments; seg++) {
-            const segStart = seg * this.segmentLengthKm * 1000;
-            const segEnd = (seg + 1) * this.segmentLengthKm * 1000;
-            const vehiclesInSeg = this.vehicles.filter(v => v.pos >= segStart && v.pos < segEnd);
+            const segStartM = (this.segmentBoundaries[seg] ?? seg * this.segmentLengthKm) * 1000;
+            const segEndM = (this.segmentBoundaries[seg + 1] ?? (seg + 1) * this.segmentLengthKm) * 1000;
+            const segLenM = segEndM - segStartM;
+            const vehiclesInSeg = this.vehicles.filter(v => v.pos >= segStartM && v.pos < segEndM);
 
             if (vehiclesInSeg.length > 0) {
                 const avgSpeed = vehiclesInSeg.reduce((sum, v) => sum + v.speed, 0) / vehiclesInSeg.length;
-                const density = (vehiclesInSeg.length / (this.segmentLengthKm * 1000)) * 1000 * config.numLanes;
+                const density = (vehiclesInSeg.length / Math.max(segLenM, 1)) * 1000 * config.numLanes;
                 const flow = density * avgSpeed; // 流量公式: q = k * v
 
                 this.segmentSpeedHistory.push({
@@ -720,6 +738,7 @@ export class SimulationEngine {
             num_lanes: config.numLanes,
             segment_length_km: this.segmentLengthKm,
             num_segments: this.numSegments,
+            segment_boundaries: this.segmentBoundaries,  // 区间边界里程，含首尾
             total_vehicles: config.totalVehicles
         };
 

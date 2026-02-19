@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { TrajectoryList } from '../road-editor/TrajectoryList';
 import { EditorCanvas } from '../road-editor/EditorCanvas';
 import { EditorToolbar } from '../road-editor/EditorToolbar';
@@ -13,6 +13,17 @@ export type CustomRoadData = {
 
 const SCALE_M_PER_UNIT = 2; // 1 画布单位 = 2 米（1格50px = 100m）
 
+/** 计算折线总长度（米） */
+function calcPolylineLengthM(nodes: { x: number; y: number }[]): number {
+    let total = 0;
+    for (let i = 1; i < nodes.length; i++) {
+        const dx = nodes[i].x - nodes[i - 1].x;
+        const dy = nodes[i].y - nodes[i - 1].y;
+        total += Math.hypot(dx, dy) * SCALE_M_PER_UNIT;
+    }
+    return total;
+}
+
 export function RoadEditorPage() {
     const { t } = useI18nStore();
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -21,6 +32,15 @@ export function RoadEditorPage() {
     const [showGrid, setShowGrid] = useState(true);
     const [refreshKey, setRefreshKey] = useState(0);
     const [defaultRadius, setDefaultRadius] = useState(0); // 默认圆弧半径（米）
+
+    // 新建画布（清空当前内容）
+    const handleNew = () => {
+        if (roadData.nodes.length > 0 || roadData.gantries.length > 0) {
+            if (!window.confirm(t('editor.newCanvasConfirm'))) return;
+        }
+        setRoadData({ nodes: [], gantries: [] });
+        setSelectedFile(null);
+    };
 
     // Load file handler
     const handleLoadFile = async (filename: string) => {
@@ -39,31 +59,28 @@ export function RoadEditorPage() {
         }
     };
 
-    // Clear handler
-    const handleClear = () => {
-        // Confirm dialog could be added here
-        setRoadData({ nodes: [], gantries: [] });
-        setSelectedFile(null);
-    };
-
     // Save handler
     const handleSave = async () => {
         let filename = selectedFile;
         if (!filename) {
-            const input = prompt(t('editor.enterFilename', 'Enter filename:'), `path_${Date.now()}`);
+            const input = prompt(t('editor.enterFilename'), `path_${Date.now()}`);
             if (!input) return;
             filename = input;
         }
 
         // 验证：至少要有起始点和1个ETC门架
         if (roadData.nodes.length < 2) {
-            alert(t('editor.validationNodes', 'Please draw a path with at least 2 points.'));
+            alert(t('editor.validationNodes'));
             return;
         }
         if (roadData.gantries.length < 1) {
-            alert(t('editor.validationGantries', 'Please place at least 1 ETC gantry on the path.'));
+            alert(t('editor.validationGantries'));
             return;
         }
+
+        // 计算路径长度写入 meta
+        const totalLengthM = calcPolylineLengthM(roadData.nodes);
+        const totalLengthKm = totalLengthM / 1000;
 
         try {
             const payload = {
@@ -72,7 +89,11 @@ export function RoadEditorPage() {
                     nodes: roadData.nodes,
                     edges: [],
                     gantries: roadData.gantries,
-                    meta: { scale_m_per_unit: SCALE_M_PER_UNIT }
+                    meta: {
+                        scale_m_per_unit: SCALE_M_PER_UNIT,
+                        total_length_km: parseFloat(totalLengthKm.toFixed(4)),
+                        num_gantries: roadData.gantries.length,
+                    }
                 }
             };
 
@@ -86,7 +107,7 @@ export function RoadEditorPage() {
                 const result = await response.json();
                 setSelectedFile(result.filename);
                 setRefreshKey(k => k + 1); // 触发列表刷新
-                alert(t('editor.saveSuccess', 'Saved successfully!'));
+                alert(t('editor.saveSuccess'));
             } else {
                 const err = await response.json().catch(() => ({}));
                 alert(`Save failed: ${err.detail || response.statusText}`);
@@ -101,8 +122,15 @@ export function RoadEditorPage() {
         <div className="flex h-full bg-[var(--bg-base)] text-[var(--text-primary)]">
             {/* Sidebar: File List */}
             <aside className="w-64 border-r border-[var(--glass-border)] bg-[var(--glass-bg)] flex flex-col">
-                <div className="p-4 border-b border-[var(--glass-border)]">
-                    <h2 className="text-lg font-bold">🛣️ {t('editor.projectList', 'Project List')}</h2>
+                <div className="p-4 border-b border-[var(--glass-border)] flex items-center justify-between">
+                    <h2 className="text-lg font-bold">🛣️ {t('editor.projectList')}</h2>
+                    <button
+                        onClick={handleNew}
+                        title={t('editor.newCanvas')}
+                        className="w-7 h-7 rounded-full bg-[var(--accent-blue)] hover:bg-blue-500 text-white flex items-center justify-center text-lg font-bold leading-none transition-colors"
+                    >
+                        +
+                    </button>
                 </div>
                 <div className="flex-1 overflow-y-auto">
                     <TrajectoryList
@@ -123,7 +151,7 @@ export function RoadEditorPage() {
                             setMode={setDrawingMode}
                             showGrid={showGrid}
                             setShowGrid={setShowGrid}
-                            onClear={handleClear}
+                            onClear={handleNew}
                             canUndo={false}
                             canRedo={false}
                             onUndo={() => { }}
@@ -133,7 +161,7 @@ export function RoadEditorPage() {
                         {drawingMode === 'pen' && (
                             <div className="flex items-center gap-1.5 border-l border-[var(--glass-border)] pl-3">
                                 <label className="text-xs text-[var(--text-muted)] whitespace-nowrap">
-                                    圆弧 R:
+                                    {t('editor.arcRadius')}
                                 </label>
                                 <input
                                     type="number"
@@ -145,27 +173,28 @@ export function RoadEditorPage() {
                                 />
                                 <span className="text-xs text-[var(--text-muted)]">m</span>
                                 <span className="text-[10px] text-[var(--text-muted)] opacity-60">
-                                    {defaultRadius === 0 ? '(尖角)' : '(圆弧)'}
+                                    {defaultRadius === 0 ? t('editor.sharpCorner') : t('editor.smoothArc')}
                                 </span>
                             </div>
                         )}
                     </div>
                     <div className="flex items-center gap-4">
                         <div className="text-sm opacity-70">
-                            {selectedFile ? `Editing: ${selectedFile}` : 'Unsaved Project'}
+                            {selectedFile
+                                ? `${t('editor.editing')}${selectedFile}`
+                                : t('editor.unsaved')}
                         </div>
                         <button
                             onClick={handleSave}
                             className="bg-[var(--accent-blue)] hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
                         >
-                            {t('editor.save', 'Save')}
+                            {t('editor.save')}
                         </button>
                     </div>
                 </div>
 
-
                 {/* Canvas Area */}
-                <div className="flex-1 relative overflow-hidden bg-[#1a1a1a]">
+                <div className="flex-1 relative overflow-hidden">
                     <EditorCanvas
                         data={roadData}
                         setData={setRoadData}

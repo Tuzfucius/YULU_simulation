@@ -5,7 +5,6 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { ChartData } from '../engine/SimulationEngine';
 
 // 仿真配置（用于 UI 显示，实际使用引擎配置）
 interface SimulationConfig {
@@ -59,7 +58,16 @@ interface SimulationConfig {
     customGantryPositionsKm?: number[]; // 门架里程位置列表
 }
 
-// ... (existing interfaces)
+
+interface SimulationProgress {
+    currentTime: number;
+    totalTime: number;
+    progress: number;
+    activeVehicles: number;
+    completedVehicles: number;
+    activeAnomalies: number;
+}
+
 
 const defaultConfig: SimulationConfig = {
     roadLengthKm: 10,
@@ -100,35 +108,59 @@ const defaultProgress: SimulationProgress = {
     activeAnomalies: 0,
 };
 
+interface SimState {
+    config: SimulationConfig;
+    setConfig: (partial: any) => void;
+    resetConfig: () => void;
+    isRunning: boolean;
+    isPaused: boolean;
+    isComplete: boolean;
+    turboMode: boolean;
+    setRunning: (v: boolean) => void;
+    setPaused: (v: boolean) => void;
+    setComplete: (v: boolean) => void;
+    setTurboMode: (v: boolean) => void;
+    progress: any;
+    setProgress: (p: any) => void;
+    statistics: any;
+    setStatistics: (s: any) => void;
+    chartData: any;
+    setChartData: (d: any) => void;
+    logs: any[];
+    addLog: (log: any) => void;
+    clearLogs: () => void;
+    resetAll: () => void;
+}
+
 export const useSimStore = create<SimState>()(
     persist(
-        (set, get) => ({
+        (set) => ({
             config: defaultConfig,
-            setConfig: (partial) =>
-                set((state) => ({ config: { ...state.config, ...partial } })),
+            setConfig: (partial: any) =>
+                set((state: any) => ({ config: { ...state.config, ...partial } })),
             resetConfig: () => set({ config: defaultConfig }),
 
             isRunning: false,
             isPaused: false,
             isComplete: false,
             turboMode: true,
-            setRunning: (v) => set({ isRunning: v }),
-            setPaused: (v) => set({ isPaused: v }),
-            setComplete: (v) => set({ isComplete: v }),
-            setTurboMode: (v) => set({ turboMode: v }),
+            setRunning: (v: boolean) => set({ isRunning: v }),
+            setPaused: (v: boolean) => set({ isPaused: v }),
+            setComplete: (v: boolean) => set({ isComplete: v }),
+            setTurboMode: (v: boolean) => set({ turboMode: v }),
 
             progress: defaultProgress,
-            setProgress: (p) => set({ progress: p }),
+            setProgress: (p: any) => set({ progress: p }),
 
             statistics: null,
-            setStatistics: (s) => set({ statistics: s }),
+            setStatistics: (s: any) => set({ statistics: s }),
 
             chartData: null,
-            setChartData: (d) => set({ chartData: d }),
+            setChartData: (d: any) => set({ chartData: d }),
 
             logs: [],
-            addLog: (log) =>
-                set((state) => ({
+            addLog: (log: Record<string, any>) =>
+                set((state: any) => ({
                     logs: [...state.logs.slice(-199), { ...log, id: Date.now().toString() }],
                 })),
             clearLogs: () => set({ logs: [] }),

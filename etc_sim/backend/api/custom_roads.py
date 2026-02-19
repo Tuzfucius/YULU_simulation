@@ -56,6 +56,8 @@ class CustomRoadFile(BaseModel):
     filename: str
     updated_at: float
     size: int
+    total_length_km: Optional[float] = None
+    num_gantries: Optional[int] = None
 
 @router.get("/", response_model=List[CustomRoadFile])
 async def list_custom_roads():
@@ -67,10 +69,24 @@ async def list_custom_roads():
     for file_path in BASE_DIR.glob("*.json"):
         try:
             stat = file_path.stat()
+            # 尝试读取路径长度和门架数
+            total_length_km = None
+            num_gantries = None
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    road_data = json.load(f)
+                meta = road_data.get("meta", {})
+                total_length_km = meta.get("total_length_km")
+                num_gantries = len(road_data.get("gantries", []))
+            except Exception:
+                pass  # 读取失败时保持 None
+            
             files.append(CustomRoadFile(
                 filename=file_path.name,
                 updated_at=stat.st_mtime,
-                size=stat.st_size
+                size=stat.st_size,
+                total_length_km=total_length_km,
+                num_gantries=num_gantries,
             ))
         except Exception as e:
             logger.error(f"Error reading file {file_path}: {e}")

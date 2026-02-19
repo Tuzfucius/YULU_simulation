@@ -5,6 +5,8 @@ type FileItem = {
     filename: string;
     updated_at: number;
     size: number;
+    total_length_km?: number | null;
+    num_gantries?: number | null;
 };
 
 interface ContextMenu {
@@ -57,7 +59,7 @@ export function TrajectoryList({ onSelect, selectedFile, refreshKey }: Trajector
 
     const handleDelete = async (filename: string) => {
         setContextMenu(null);
-        if (!confirm(`删除 "${filename.replace('.json', '')}"？`)) return;
+        if (!confirm(`${t('editor.deleteConfirm')} "${filename.replace('.json', '')}"？`)) return;
         try {
             await fetch(`http://localhost:8000/api/custom-roads/${filename}`, { method: 'DELETE' });
             fetchFiles();
@@ -86,11 +88,9 @@ export function TrajectoryList({ onSelect, selectedFile, refreshKey }: Trajector
     const handleCopy = async (filename: string) => {
         setContextMenu(null);
         try {
-            // 1. 读取原文件内容
             const res = await fetch(`http://localhost:8000/api/custom-roads/${filename}`);
             if (!res.ok) return;
             const data = await res.json();
-            // 2. 保存为新文件
             const newName = filename.replace('.json', '') + '_copy';
             await fetch('http://localhost:8000/api/custom-roads/', {
                 method: 'POST',
@@ -107,21 +107,28 @@ export function TrajectoryList({ onSelect, selectedFile, refreshKey }: Trajector
         setContextMenu({ x: e.clientX, y: e.clientY, filename });
     };
 
+    // ─── 格式化路径长度 ──────────────────────────────────────
+
+    const formatLength = (km: number | null | undefined) => {
+        if (km == null) return null;
+        return km >= 1 ? `${km.toFixed(2)} km` : `${(km * 1000).toFixed(0)} m`;
+    };
+
     // ─── 渲染 ────────────────────────────────────────────────
 
     return (
         <div className="p-2 space-y-1 relative">
             {/* 头部 */}
             <div className="flex justify-between items-center mb-2 px-2">
-                <span className="text-xs text-[var(--text-muted)]">{files.length} 个路径</span>
+                <span className="text-xs text-[var(--text-muted)]">{files.length} {t('editor.projectList')}</span>
                 <button
                     onClick={fetchFiles}
                     className="text-xs hover:text-[var(--accent-blue)] transition-colors"
-                    title="刷新"
+                    title={t('editor.refreshList')}
                 >↻</button>
             </div>
 
-            {loading && <div className="text-center py-4 text-xs opacity-50">加载中...</div>}
+            {loading && <div className="text-center py-4 text-xs opacity-50">{t('common.loading')}</div>}
 
             {!loading && files.map(file => (
                 <div
@@ -129,8 +136,8 @@ export function TrajectoryList({ onSelect, selectedFile, refreshKey }: Trajector
                     onClick={() => onSelect(file.filename)}
                     onContextMenu={(e) => handleContextMenu(e, file.filename)}
                     className={`group flex items-center justify-between p-2 rounded cursor-pointer text-sm transition-colors ${selectedFile === file.filename
-                            ? 'bg-[var(--accent-blue)] text-white'
-                            : 'hover:bg-[rgba(255,255,255,0.08)] text-[var(--text-secondary)]'
+                        ? 'bg-[var(--accent-blue)] text-white'
+                        : 'hover:bg-[rgba(255,255,255,0.08)] text-[var(--text-secondary)]'
                         }`}
                 >
                     {renamingFile === file.filename ? (
@@ -154,9 +161,17 @@ export function TrajectoryList({ onSelect, selectedFile, refreshKey }: Trajector
                                     {file.filename.replace('.json', '')}
                                 </span>
                             </div>
-                            <span className="text-[10px] opacity-40 shrink-0">
-                                {(file.size / 1024).toFixed(1)}k
-                            </span>
+                            <div className="flex flex-col items-end shrink-0 text-[10px] opacity-40 gap-0.5">
+                                {formatLength(file.total_length_km) && (
+                                    <span>{formatLength(file.total_length_km)}</span>
+                                )}
+                                {file.num_gantries != null && (
+                                    <span>{file.num_gantries} {t('editor.gantries')}</span>
+                                )}
+                                {file.total_length_km == null && (
+                                    <span>{(file.size / 1024).toFixed(1)}k</span>
+                                )}
+                            </div>
                         </>
                     )}
                 </div>
@@ -164,8 +179,8 @@ export function TrajectoryList({ onSelect, selectedFile, refreshKey }: Trajector
 
             {!loading && files.length === 0 && (
                 <div className="text-center py-8 text-xs text-[var(--text-muted)]">
-                    <p>暂无路径</p>
-                    <p className="mt-1 opacity-60">使用钢笔工具绘制并保存</p>
+                    <p>{t('editor.noFiles')}</p>
+                    <p className="mt-1 opacity-60">{t('editor.noFilesHint')}</p>
                 </div>
             )}
 
@@ -180,20 +195,20 @@ export function TrajectoryList({ onSelect, selectedFile, refreshKey }: Trajector
                         onClick={() => handleRenameStart(contextMenu.filename)}
                         className="w-full text-left px-3 py-1.5 text-sm hover:bg-[rgba(255,255,255,0.08)] flex items-center gap-2"
                     >
-                        <span>📝</span> 重命名
+                        <span>📝</span> {t('editor.rename')}
                     </button>
                     <button
                         onClick={() => handleCopy(contextMenu.filename)}
                         className="w-full text-left px-3 py-1.5 text-sm hover:bg-[rgba(255,255,255,0.08)] flex items-center gap-2"
                     >
-                        <span>📋</span> 复制
+                        <span>📋</span> {t('editor.copy')}
                     </button>
                     <div className="border-t border-[var(--glass-border)] my-1" />
                     <button
                         onClick={() => handleDelete(contextMenu.filename)}
                         className="w-full text-left px-3 py-1.5 text-sm hover:bg-red-500/10 text-red-400 flex items-center gap-2"
                     >
-                        <span>🗑️</span> 删除
+                        <span>🗑️</span> {t('editor.delete')}
                     </button>
                 </div>
             )}

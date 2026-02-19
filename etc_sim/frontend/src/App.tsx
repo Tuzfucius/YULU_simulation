@@ -99,7 +99,7 @@ function SimulationPage() {
 }
 
 function App() {
-  const { lang, setLang, t } = useI18nStore();
+  const { lang, setLang } = useI18nStore();
   const { theme, toggleTheme } = useTheme();
   const [navCollapsed, setNavCollapsed] = useState(false);
 

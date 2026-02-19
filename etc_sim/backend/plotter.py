@@ -198,6 +198,11 @@ class ChartGenerator:
         config = data.get('config', {})
         num_segments = config.get('num_segments', 10)
         segment_length_km = config.get('segment_length_km', 1)
+        # 优先使用精确边界（门架划分），回退到均匀分布
+        segment_boundaries = config.get('segment_boundaries', [])
+        if len(segment_boundaries) != num_segments + 1:
+            # 生成均匀边界
+            segment_boundaries = [i * segment_length_km for i in range(num_segments + 1)]
         
         if not finished_vehicles:
             return None
@@ -216,9 +221,10 @@ class ChartGenerator:
         stats = {'normal': 0, 'impacted': 0, 'anomaly': 0}
         for seg_idx in range(num_segments):
             ax = axes[seg_idx]
-            seg_start = seg_idx * segment_length_km
-            seg_end = (seg_idx + 1) * segment_length_km
-            ax.set_title(f"区间 {seg_idx+1}: {seg_start:.2f}-{seg_end:.2f} 公里", fontsize=10, color='#E6E1E5')
+            seg_start = segment_boundaries[seg_idx]
+            seg_end   = segment_boundaries[seg_idx + 1]
+            seg_len_km = seg_end - seg_start
+            ax.set_title(f"区间 {seg_idx+1}: {seg_start:.2f}~{seg_end:.2f} 公里", fontsize=10, color='#E6E1E5')
             ax.set_ylabel("速度 (km/h)", fontsize=8)
             ax.set_ylim(0, 140)
             ax.grid(True, alpha=0.3, color='#49454F')
@@ -236,7 +242,7 @@ class ChartGenerator:
                     if t_out - t_in < 0.1:
                         continue
                     
-                    distance_m = segment_length_km * 1000
+                    distance_m = seg_len_km * 1000
                     avg_speed_kmh = (distance_m / (t_out - t_in)) * 3.6
                     
                     if avg_speed_kmh > 200 or avg_speed_kmh < 0:
