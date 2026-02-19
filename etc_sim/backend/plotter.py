@@ -912,12 +912,19 @@ class ChartGenerator:
         """生成空间排他性影响分析图"""
         anomaly_logs = data.get('anomaly_logs', [])
         
-        type1_logs = [log for log in anomaly_logs if log['type'] == 1]
-        if not type1_logs:
-            return None
+        type1_logs = [log for log in anomaly_logs if log.get('type') == 1]
         
         fig, axes = plt.subplots(1, 3, figsize=(16, 5))
         self._setup_dark_style(fig, axes)
+        
+        if not type1_logs:
+            # 无数据时显示占位信息
+            for ax in axes:
+                ax.text(0.5, 0.5, "No Spatial Exclusivity Data\n(No Type 1 Anomalies Detected)", 
+                        ha='center', va='center', color='#E6E1E5', fontsize=12)
+                ax.set_axis_off()
+            plt.tight_layout()
+            return self.save(fig, "spatial_exclusivity.png")
         
         impact_ranges = [150 + random.uniform(0, 200) for _ in type1_logs]
         queue_lengths = [r * 0.8 for r in impact_ranges]
@@ -926,18 +933,20 @@ class ChartGenerator:
         axes[0].set_xlabel('影响范围 (米)')
         axes[0].set_ylabel('频次')
         axes[0].set_title('Type1车辆影响范围分布')
-        axes[0].axvline(x=np.mean(impact_ranges), color='#F2B8B5', linestyle='--', label=f'平均: {np.mean(impact_ranges):.0f}m')
-        axes[0].legend(facecolor='#2B2930', edgecolor='#49454F', labelcolor='#E6E1E5')
+        if impact_ranges:
+            axes[0].axvline(x=np.mean(impact_ranges), color='#F2B8B5', linestyle='--', label=f'平均: {np.mean(impact_ranges):.0f}m')
+            axes[0].legend(facecolor='#2B2930', edgecolor='#49454F', labelcolor='#E6E1E5')
         
         axes[1].hist(queue_lengths, bins=15, color=COLOR_IMPACTED, edgecolor='#1C1B1F', alpha=0.7)
         axes[1].set_xlabel('排队长度 (米)')
         axes[1].set_ylabel('频次')
         axes[1].set_title('后方排队长度分布')
-        axes[1].axvline(x=np.mean(queue_lengths), color='#F2B8B5', linestyle='--', label=f'平均: {np.mean(queue_lengths):.0f}m')
-        axes[1].legend(facecolor='#2B2930', edgecolor='#49454F', labelcolor='#E6E1E5')
+        if queue_lengths:
+            axes[1].axvline(x=np.mean(queue_lengths), color='#F2B8B5', linestyle='--', label=f'平均: {np.mean(queue_lengths):.0f}m')
+            axes[1].legend(facecolor='#2B2930', edgecolor='#49454F', labelcolor='#E6E1E5')
         
 
-        locations = [log['pos_km'] for log in type1_logs]
+        locations = [log.get('pos_km', 0) for log in type1_logs]
         axes[2].hist(locations, bins=10, color='#D0BCFF', edgecolor='#1C1B1F', alpha=0.7)
         axes[2].set_xlabel('位置 (公里)')
         axes[2].set_ylabel('频次')

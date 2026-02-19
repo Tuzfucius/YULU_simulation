@@ -156,8 +156,9 @@ export class SimulationEngine {
             // segmentLengthKm 此时无意义（各区间不等长），置为平均值供兼容
             this.segmentLengthKm = roadLengthKm / this.numSegments;
         } else {
-            // 无门架/默认路网：按道路长度每 ~1km 一个区间
-            this.numSegments = Math.max(1, Math.min(20, Math.round(roadLengthKm)));
+            // 无自定义路网：按 ETC 门架间距均匀划分区间
+            const intervalKm = (config.etcGateIntervalKm > 0) ? config.etcGateIntervalKm : 1;
+            this.numSegments = Math.max(1, Math.ceil(roadLengthKm / intervalKm));
             this.segmentLengthKm = roadLengthKm / this.numSegments;
             // 均匀分布的边界
             this.segmentBoundaries = Array.from(
