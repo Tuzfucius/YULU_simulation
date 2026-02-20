@@ -143,6 +143,7 @@ class ChartGenerator:
             ('anomaly_timeline', self.generate_anomaly_timeline),
             ('etc_performance', self.generate_etc_performance),
             ('spatial_exclusivity', self.generate_spatial_exclusivity),
+            ('curve_analysis', self.generate_curve_analysis),
             ('trajectory_animation', self.generate_trajectory_animation),
         ]
         
@@ -954,6 +955,92 @@ class ChartGenerator:
         
         plt.tight_layout()
         return self.save(fig, "spatial_exclusivity.png")
+
+    def generate_curve_analysis(self, data: Dict) -> str:
+        """生成弯道曲率分析图
+        
+        子图1：沿程曲率半径分布（道路几何）
+        子图2：弯道 vs 直道事故位置对比
+        子图3：弯道路段平均车速 vs 安全速度
+        """
+        curve_profile = data.get('curve_profile', [])
+        anomaly_logs = data.get('anomaly_logs', [])
+
+        # 有曲率数据的弯道区间（radius_m 不为 None）
+        curve_segs = [s for s in curve_profile if s.get('radius_m') is not None]
+
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+        self._setup_dark_style(fig, axes)
+
+        if not curve_segs:
+            # 无弯道数据时显示占位
+            msgs = [
+                "No Curve Profile Data",
+                "No Curvature Data\n(Straight Road or No Custom Road)",
+                "No Curvature Data"
+            ]
+            for ax, msg in zip(axes, msgs):
+                ax.text(0.5, 0.5, msg, ha='center', va='center',
+                        color='#E6E1E5', fontsize=11)
+                ax.set_axis_off()
+            plt.tight_layout()
+            return self.save(fig, "curve_analysis.png")
+
+        # ── 子图1：沿程曲率半径分布 ────────────────────────────────
+        midpoints = [(s['start_m'] / 1000 + s['end_m'] / 1000) / 2 for s in curve_segs]
+        radii = [s['radius_m'] for s in curve_segs]
+        axes[0].bar(midpoints, radii, width=[(s['end_m'] - s['start_m']) / 1000 * 0.8 for s in curve_segs],
+                    color='#D0BCFF', alpha=0.7, edgecolor='#1C1B1F')
+        axes[0].axhline(y=500, color='#F2B8B5', linestyle='--', alpha=0.8, label='安全基准(500m)')
+        axes[0].set_xlabel('里程 (km)')
+        axes[0].set_ylabel('曲率半径 (m)')
+        axes[0].set_title('沿程曲率半径分布')
+        axes[0].legend(facecolor='#2B2930', edgecolor='#49454F', labelcolor='#E6E1E5')
+
+        # ── 子图2：弯道 vs 直道事故位置对比 ─────────────────────────
+        # 判断事故位置是否在弯道区间内
+        curve_accident_pos = []
+        straight_accident_pos = []
+        for log in anomaly_logs:
+            if log.get('type') == 1:
+                pos_m = log.get('pos_km', 0) * 1000
+                in_curve = any(s['start_m'] <= pos_m < s['end_m'] for s in curve_segs)
+                if in_curve:
+                    curve_accident_pos.append(log.get('pos_km', 0))
+                else:
+                    straight_accident_pos.append(log.get('pos_km', 0))
+
+        if curve_accident_pos:
+            axes[1].scatter(curve_accident_pos, [1.0] * len(curve_accident_pos),
+                           color=COLOR_TYPE1, s=80, alpha=0.8, label=f'弯道事故 ({len(curve_accident_pos)})')
+        if straight_accident_pos:
+            axes[1].scatter(straight_accident_pos, [0.5] * len(straight_accident_pos),
+                           color='#5C85D6', s=80, alpha=0.8, label=f'直道事故 ({len(straight_accident_pos)})')
+        axes[1].set_xlabel('里程 (km)')
+        axes[1].set_yticks([0.5, 1.0])
+        axes[1].set_yticklabels(['直道', '弯道'])
+        axes[1].set_title('Type1 事故位置分布（弯道 vs 直道）')
+        axes[1].legend(facecolor='#2B2930', edgecolor='#49454F', labelcolor='#E6E1E5')
+        if not curve_accident_pos and not straight_accident_pos:
+            axes[1].text(0.5, 0.5, 'No Type1 Accidents', ha='center', va='center', color='#E6E1E5')
+
+        # ── 子图3：弯道路段平均车速 vs 安全速度 ─────────────────────
+        MU, E, G = 0.50, 0.06, 9.81
+        safe_speeds_kmh = [math.sqrt((MU + E) * G * s['radius_m']) * 3.6 for s in curve_segs]
+
+        # 从 segment_speed_history 中找弯道路段上的平均速度
+        speed_hist = data.get('segment_speed_history', [])
+        seg_mid_km = [(s['start_m'] / 1000 + s['end_m'] / 1000) / 2 for s in curve_segs]
+
+        axes[2].plot(seg_mid_km, safe_speeds_kmh, 'o--', color='#F2B8B5',
+                    label='安全速度上限', linewidth=2, markersize=5)
+        axes[2].set_xlabel('里程 (km)')
+        axes[2].set_ylabel('速度 (km/h)')
+        axes[2].set_title('弯道安全速度分布')
+        axes[2].legend(facecolor='#2B2930', edgecolor='#49454F', labelcolor='#E6E1E5')
+
+        plt.tight_layout()
+        return self.save(fig, "curve_analysis.png")
 
     def generate_trajectory_animation(self, data: Dict) -> str:
         """生成轨迹动画 (GIF) - 时空图样式"""

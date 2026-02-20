@@ -16,6 +16,7 @@ import { ScenariosPage } from './components/pages/ScenariosPage';
 import { WorkflowPage } from './components/pages/WorkflowPage';
 import { EvaluationPage } from './components/pages/EvaluationPage';
 import { RoadEditorPage } from './components/pages/RoadEditorPage';
+import { RoadNetworkOverview } from './components/RoadNetworkOverview';
 import { useI18nStore } from './stores/i18nStore';
 import { useSimStore } from './stores/simStore';
 import { engine } from './engine/SimulationEngine';
@@ -82,6 +83,8 @@ function SimulationPage() {
               <ResultsPanel />
             </div>
             <div ref={chartsRef} className="space-y-4">
+              {/* 路网全局预览（有自定义路网时显示）*/}
+              <RoadNetworkOverview />
               <h3 className="text-lg font-medium text-[var(--text-primary)] px-2">{t('app.analysisCharts')}</h3>
               <ChartsPanel />
             </div>

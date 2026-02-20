@@ -49,6 +49,7 @@ CHART_METADATA = {
     "anomaly_timeline": {"name": "异常时间线", "description": "异常事件散点图"},
     "etc_performance": {"name": "ETC性能", "description": "响应时间/检测延迟"},
     "spatial_exclusivity": {"name": "空间排他性", "description": "Type1 影响范围"},
+    "curve_analysis": {"name": "弯道分析", "description": "弯道曲率、事故位置与车速分布"},
 }
 
 

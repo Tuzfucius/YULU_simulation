@@ -20,10 +20,10 @@ import {
     type AnomalyState,
 } from './config';
 import { useSimStore } from '../stores/simStore';
+import { calcSafeSpeed, calcAccidentFactor, SAFE_RADIUS_M } from './CurvatureProfile';
 
 // 工具函数
 const kmhToMs = (kmh: number): number => kmh / 3.6;
-const msToKmh = (ms: number): number => ms * 3.6;
 const randomInRange = (min: number, max: number): number => min + Math.random() * (max - min);
 
 export interface VehicleData {
@@ -94,6 +94,9 @@ export class Vehicle {
     wasAffected: boolean = false; // 永久记录: 是否曾经受影响
     color: string;
 
+    // 弯道感知（由 SimulationEngine 每帧注入）
+    /** 当前位置的弯道曲率半径（米），直道为 Infinity */
+    currentCurveRadius: number = Infinity;
 
     // 记录
     finished: boolean = false;
@@ -310,7 +313,7 @@ export class Vehicle {
         }
     }
 
-    // --- 异常触发 ---
+    // --- 异常触发（弯道事故率感知版） ---
     triggerAnomaly(currentTime: number): { type: AnomalyType; time: number; posKm: number } | null {
         if (!this.isPotentialAnomaly) return null;
         if (this.anomalyState === 'active') return null;
@@ -331,7 +334,15 @@ export class Vehicle {
         let trigger = false;
 
         if (this.anomalyType === 0) {
-            if (Math.random() < 0.005) { // 每次检查0.5%概率触发
+            // 弯道事故率增益（AASHTO HSM 幂次关系）
+            const safeSpeedMs = calcSafeSpeed(this.currentCurveRadius);
+            const accidentFactor = calcAccidentFactor(
+                this.currentCurveRadius,
+                this.speed,
+                safeSpeedMs
+            );
+            const baseTriggerProb = 0.005;
+            if (Math.random() < baseTriggerProb * accidentFactor) {
                 trigger = true;
                 const r = Math.random();
 
@@ -431,6 +442,27 @@ export class Vehicle {
         // 计算影响系数
         const impactMultiplier = this.calcImpactMultiplier(vehiclesNearby);
 
+        // ── 弯道感知：限制期望速度和增大跟车安全距离 ──────────────
+        const safeSpeedMs = calcSafeSpeed(this.currentCurveRadius);
+        const isOnCurve = isFinite(this.currentCurveRadius) && this.currentCurveRadius < SAFE_RADIUS_M;
+        // 驾驶风格系数：激进司机更接近安全速度上限
+        const styleFactor = this.driverStyle === 'aggressive' ? 1.0
+            : this.driverStyle === 'conservative' ? 0.80
+                : 0.90;
+        // 卡车/大巴额外减速 10%
+        const typeFactor = (this.type === 'TRUCK' || this.type === 'BUS') ? 0.90 : 1.0;
+        // 最终弯道安全速度
+        const curveSafeSpeed = isFinite(safeSpeedMs)
+            ? safeSpeedMs * styleFactor * typeFactor
+            : Infinity;
+
+        // 暂存原始 T，弯道内增大安全距离
+        const originalT = this.T;
+        if (isOnCurve) {
+            this.T = originalT * 1.3;
+        }
+        // ─────────────────────────────────────────────────────────────
+
         // MOBIL 换道决策
         const { targetLane, reason } = this.mobilDecision(vehiclesNearby, blockedLanes);
         if (targetLane !== null && reason !== null) {
@@ -447,9 +479,14 @@ export class Vehicle {
             accel *= impactMultiplier;
         }
 
+        // 恢复原始 T
+        this.T = originalT;
+
         // 更新速度和位置
         this.speed += accel * dt;
-        this.speed = Math.max(0, Math.min(this.v0 * 1.1, this.speed));
+        // 弯道速度上限约束
+        const speedCap = isFinite(curveSafeSpeed) ? curveSafeSpeed : this.v0 * 1.1;
+        this.speed = Math.max(0, Math.min(speedCap, this.speed));
 
         if (!this.laneChanging) {
             this.pos += this.speed * dt;

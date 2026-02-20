@@ -16,6 +16,11 @@ import {
     type AnomalyType,
 } from './config';
 import { useSimStore } from '../stores/simStore';
+import {
+    buildCurveProfile,
+    getCurveRadius,
+    type CurveSegment,
+} from './CurvatureProfile';
 
 // 异常日志
 interface AnomalyLog {
@@ -98,6 +103,8 @@ export class SimulationEngine {
     private numSegments: number = NUM_SEGMENTS;
     /** 区间边界里程（km）数组，长度为 numSegments+1，例如 [0, g1, g2, ..., roadLength] */
     private segmentBoundaries: number[] = [];
+    /** 弯道曲率档案（load 自定义路网时构建） */
+    private curveProfile: CurveSegment[] = [];
 
     // 记录数据
     private anomalyLogs: AnomalyLog[] = [];
@@ -141,7 +148,7 @@ export class SimulationEngine {
     private timeoutId: any = null;
 
     // --- 启动仿真 ---
-    start() {
+    async start() {
         const store = useSimStore.getState();
         const config = store.config;
 
@@ -183,6 +190,26 @@ export class SimulationEngine {
         this.laneChangeByReason = { free: 0, forced: 0 };
         this.laneChangeByStyle = { aggressive: 0, normal: 0, conservative: 0 };
         this.speedHistory = [];
+
+        // 构建弯道曲率档案（仅自定义路网时有效）
+        try {
+            const customRoadPath = config.customRoadPath;
+            if (customRoadPath) {
+                const res = await fetch(`http://localhost:8000/api/custom-roads/${customRoadPath}`).catch(() => null);
+                if (res && res.ok) {
+                    const roadData = await res.json();
+                    const nodes = roadData.nodes || [];
+                    const scaleM = roadData.meta?.scale_m_per_unit ?? 2;
+                    this.curveProfile = buildCurveProfile(nodes, scaleM);
+                } else {
+                    this.curveProfile = [];
+                }
+            } else {
+                this.curveProfile = [];
+            }
+        } catch {
+            this.curveProfile = [];
+        }
 
         this.planSpawns(config.totalVehicles);
 
@@ -360,6 +387,9 @@ export class SimulationEngine {
 
         // 更新每辆车
         for (const v of this.vehicles) {
+            // 每帧注入弯道半径（加错返回 Infinity）
+            v.currentCurveRadius = getCurveRadius(v.pos / 1000, this.curveProfile);
+
             // 尝试触发异常
             const anomalyResult = v.triggerAnomaly(this.currentTime);
             if (anomalyResult) {
@@ -743,6 +773,13 @@ export class SimulationEngine {
             total_vehicles: config.totalVehicles
         };
 
+        // 弯道曲率档案（供后端绘图分析）
+        const snakeCurveProfile = this.curveProfile.map(seg => ({
+            start_m: seg.startM,
+            end_m: seg.endM,
+            radius_m: isFinite(seg.radiusM) ? seg.radiusM : null, // null 表示直道
+        }));
+
         // 采样 lane_history (每10秒一条，加快载入速度)
         const laneHistoryStep = Math.max(1, Math.floor(10 / (store.config.simulationDt || 1)));
         const snakeLaneHistory = this.laneHistory
@@ -756,6 +793,7 @@ export class SimulationEngine {
             trajectory_data: sampledTrajectory,
             segment_speed_history: snakeSpeedHistory,
             lane_history: snakeLaneHistory,
+            curve_profile: snakeCurveProfile, // 弯道曲率档案
             theme: this.currentTheme, // Pass current theme
         };
 
