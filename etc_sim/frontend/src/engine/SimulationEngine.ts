@@ -886,6 +886,9 @@ export class SimulationEngine {
             totalLaneChanges: this.totalLaneChanges,
             maxCongestionLength: 0,
             simulationTime: this.currentTime,
+            // 暴露原始数据供前端详细分析图表使用
+            segmentSpeedHistory: this.segmentSpeedHistory,
+            segmentBoundaries: this.segmentBoundaries,
         });
         store.setChartData(this.generateChartData());
 
