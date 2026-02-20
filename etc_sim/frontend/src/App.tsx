@@ -18,6 +18,7 @@ import { EvaluationPage } from './components/pages/EvaluationPage';
 import { RoadEditorPage } from './components/pages/RoadEditorPage';
 import { RoadNetworkOverview } from './components/RoadNetworkOverview';
 import { SegmentInspector } from './components/SegmentInspector';
+import { MicroscopicInspector } from './components/MicroscopicInspector';
 import { useI18nStore } from './stores/i18nStore';
 import { useSimStore } from './stores/simStore';
 import { engine } from './engine/SimulationEngine';
@@ -89,6 +90,9 @@ function SimulationPage() {
 
               {/* 区间详细分析（仿真结束后显示）*/}
               <SegmentInspector />
+
+              {/* 单车微观分析（仿真结束后显示）*/}
+              <MicroscopicInspector />
 
               <h3 className="text-lg font-medium text-[var(--text-primary)] px-2">{t('app.analysisCharts')}</h3>
               <ChartsPanel />

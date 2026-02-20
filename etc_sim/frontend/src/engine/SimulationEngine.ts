@@ -190,6 +190,7 @@ export class SimulationEngine {
         this.laneChangeByReason = { free: 0, forced: 0 };
         this.laneChangeByStyle = { aggressive: 0, normal: 0, conservative: 0 };
         this.speedHistory = [];
+        this.sampledTrajectoryData = [];
 
         // 构建弯道曲率档案（仅自定义路网时有效）
         try {
@@ -737,28 +738,10 @@ export class SimulationEngine {
         });
 
 
-        // 3. 采样并转换轨迹数据
-        const totalPoints = this.trajectoryData.length;
-        const targetPoints = 100000;
-        const step = Math.max(1, Math.ceil(totalPoints / targetPoints));
+        // 3. 采样并转换轨迹数据 (现在统一在 complete 中处理，这里直接使用)
+        const sampledTrajectory = this.sampledTrajectoryData; // 使用已缓存的数据
 
-        const sampledTrajectory = (step > 1
-            ? this.trajectoryData.filter((_, i) => i % step === 0)
-            : this.trajectoryData).map(p => ({
-                id: p.id,
-                time: p.time,
-                pos: p.pos,
-                lane: p.lane,
-                speed: p.speed,
-                anomaly_type: p.anomalyType,   // camel -> snake
-                anomaly_state: p.anomalyState, // camel -> snake
-                is_affected: p.isAffected,     // camel -> snake
-                // 补全车辆类型和风格
-                vehicle_type: vehicleInfoMap.get(p.id)?.type || 'CAR',
-                driver_style: vehicleInfoMap.get(p.id)?.style || 'normal',
-            }));
-
-        console.log(`Trajectory points: ${totalPoints} -> ${sampledTrajectory.length}`);
+        console.log(`Trajectory points: ${this.trajectoryData.length} -> ${sampledTrajectory.length}`);
 
         // 4. 转换其他数据
         const snakeAnomalyLogs = this.anomalyLogs.map(l => ({
@@ -801,11 +784,16 @@ export class SimulationEngine {
             .filter((_, i) => i % laneHistoryStep === 0)
             .map(r => ({ time: r.time, counts: r.counts }));
 
+        // 后端绘图不需要 10万点，从 Store 的高精度数据中再抽样 (例如 1万点)
+        // 解决 fetch timeout 问题
+        const backendTrajectoryStep = 10;
+        const backendTrajectory = this.sampledTrajectoryData.filter((_, i) => i % backendTrajectoryStep === 0);
+
         const payload = {
             config: snakeConfig,
             finished_vehicles: snakeVehicles,
             anomaly_logs: snakeAnomalyLogs,
-            trajectory_data: sampledTrajectory,
+            trajectory_data: backendTrajectory, // 使用更稀疏的数据传给后端
             segment_speed_history: snakeSpeedHistory,
             lane_history: snakeLaneHistory,
             curve_profile: snakeCurveProfile, // 弯道曲率档案
@@ -883,6 +871,9 @@ export class SimulationEngine {
             ? this.speedHistory.reduce((a, b) => a + b, 0) / this.speedHistory.length
             : 0;
 
+        // 预先生成采样轨迹数据
+        this.prepareTrajectorySamples();
+
         store.setRunning(false);
         store.setComplete(true);
         store.setStatistics({
@@ -900,6 +891,7 @@ export class SimulationEngine {
             // 暴露原始数据供前端详细分析图表使用
             segmentSpeedHistory: this.segmentSpeedHistory,
             segmentBoundaries: this.segmentBoundaries,
+            sampledTrajectory: this.sampledTrajectoryData, // 新增：暴露微观采样数据
         });
         store.setChartData(this.generateChartData());
 
@@ -912,6 +904,37 @@ export class SimulationEngine {
 
         // 触发后端图表生成
         this.uploadData();
+    }
+
+    // --- 准备轨迹采样数据 ---
+    private prepareTrajectorySamples() {
+        // 构建车辆信息映射表 (ID -> Info)
+        const vehicleInfoMap = new Map<number, { type: string, style: string }>();
+        // 包括所有车辆（完成的 + 活跃的）
+        [...this.finishedVehicles, ...this.vehicles].forEach(v => {
+            vehicleInfoMap.set(v.id, { type: v.type, style: v.style });
+        });
+
+        const totalPoints = this.trajectoryData.length;
+        const targetPoints = 100000;
+        const step = Math.max(1, Math.ceil(totalPoints / targetPoints));
+
+        // 生成采样数据并缓存
+        this.sampledTrajectoryData = (step > 1
+            ? this.trajectoryData.filter((_, i) => i % step === 0)
+            : this.trajectoryData).map(p => ({
+                id: p.id,
+                time: p.time,
+                pos: p.pos,
+                lane: p.lane,
+                speed: p.speed,
+                anomaly_type: p.anomalyType,   // camel -> snake (前端也用 snake 兼容)
+                anomaly_state: p.anomalyState,
+                is_affected: p.isAffected,
+                // 补全车辆类型和风格
+                vehicle_type: vehicleInfoMap.get(p.id)?.type || 'CAR',
+                driver_style: vehicleInfoMap.get(p.id)?.style || 'normal',
+            }));
     }
 
     pause() {
