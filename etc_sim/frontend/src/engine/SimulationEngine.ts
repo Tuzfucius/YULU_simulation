@@ -385,6 +385,9 @@ export class SimulationEngine {
         const blockedLanes = new Set<number>();
         const completedIds: number[] = [];
 
+        // 准备路段边界（米），用于 Vehicle.update 修正区间统计
+        const boundariesM = this.segmentBoundaries.map(k => k * 1000);
+
         // 更新每辆车
         for (const v of this.vehicles) {
             // 每帧注入弯道半径（加错返回 Infinity）
@@ -393,7 +396,8 @@ export class SimulationEngine {
             // 尝试触发异常
             const anomalyResult = v.triggerAnomaly(this.currentTime);
             if (anomalyResult) {
-                const segmentIdx = Math.floor(v.pos / (this.segmentLengthKm * 1000));
+                // 修复：直接使用车辆当前维护的 segment，保证与统计逻辑一致
+                const segmentIdx = v.currentSegment;
                 this.anomalyLogs.push({
                     id: v.id,
                     type: anomalyResult.type,
@@ -411,7 +415,7 @@ export class SimulationEngine {
             }
 
             // 更新物理状态
-            v.update(SIMULATION_DT, this.vehicles, blockedLanes, this.currentTime);
+            v.update(SIMULATION_DT, this.vehicles, blockedLanes, this.currentTime, boundariesM);
 
             // 检查完成
             if (v.pos >= roadLengthM) {

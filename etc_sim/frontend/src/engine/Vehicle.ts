@@ -413,7 +413,7 @@ export class Vehicle {
     }
 
     // --- 物理更新 ---
-    update(dt: number, vehiclesNearby: Vehicle[], blockedLanes: Set<number>, currentTime: number) {
+    update(dt: number, vehiclesNearby: Vehicle[], blockedLanes: Set<number>, currentTime: number, segmentBoundaries?: number[]) {
         if (this.finished) return;
 
         this.laneChangeCooldown -= dt;
@@ -492,20 +492,48 @@ export class Vehicle {
             this.pos += this.speed * dt;
         }
 
-        // --- 区间日志记录 ---
-        const SEGMENT_LENGTH_M = 1000; // 1 km segment
-        const newSegment = Math.floor(this.pos / SEGMENT_LENGTH_M);
-        if (newSegment !== this.currentSegment) {
-            // Exit old segment
-            if (this.logs.has(this.currentSegment)) {
-                const log = this.logs.get(this.currentSegment)!;
-                if (log.out === 0) {
-                    log.out = currentTime;
+        // --- 区间日志记录 (修复自定义路网统计错误) ---
+        if (segmentBoundaries && segmentBoundaries.length > 0) {
+            // 使用传入的真实边界判定
+            let nextBoundary = segmentBoundaries[this.currentSegment + 1];
+            // 循环处理跨越（防止高速穿过极短区间导致漏记）
+            while (nextBoundary !== undefined && this.pos >= nextBoundary) {
+                // 1. 结算旧区间离开时间
+                if (this.logs.has(this.currentSegment)) {
+                    const log = this.logs.get(this.currentSegment)!;
+                    if (log.out === 0) {
+                        log.out = currentTime;
+                    }
                 }
+
+                // 2. 移动到下一区间
+                this.currentSegment++;
+
+                // 3. 记录新区间的进入时间（若还在路网内）
+                if (this.currentSegment < segmentBoundaries.length - 1) {
+                    if (!this.logs.has(this.currentSegment)) {
+                        this.logs.set(this.currentSegment, { in: currentTime, out: 0 });
+                    }
+                }
+
+                nextBoundary = segmentBoundaries[this.currentSegment + 1];
             }
-            // Enter new segment
-            this.logs.set(newSegment, { in: currentTime, out: 0 });
-            this.currentSegment = newSegment;
+        } else {
+            // fallback: 默认 1000m 分段（仅用于无配置情况，实际上 SimulationEngine 总会提供边界）
+            const SEGMENT_LENGTH_M = 1000;
+            const newSegment = Math.floor(this.pos / SEGMENT_LENGTH_M);
+            if (newSegment !== this.currentSegment) {
+                // Exit old segment
+                if (this.logs.has(this.currentSegment)) {
+                    const log = this.logs.get(this.currentSegment)!;
+                    if (log.out === 0) {
+                        log.out = currentTime;
+                    }
+                }
+                // Enter new segment
+                this.logs.set(newSegment, { in: currentTime, out: 0 });
+                this.currentSegment = newSegment;
+            }
         }
 
         // 更新影响状态
