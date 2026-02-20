@@ -499,7 +499,18 @@ export class SimulationEngine {
     private updateUI() {
         const store = useSimStore.getState();
         const config = store.config;
-        const progress = Math.min((this.currentTime / config.maxSimulationTime) * 100, 100);
+
+        // 修复进度条计算：如果超时运行，动态延长总时间，避免提前满格
+        // 保持至少 10秒 或 5% 的缓冲，让用户知道仿真还在进行
+        const isOvertime = this.currentTime >= config.maxSimulationTime;
+        const activeVehicles = this.vehicles.length;
+
+        // 动态总时间：如果超时且有车，总时间 = 当前时间 + 缓冲
+        const displayTotalTime = (isOvertime && activeVehicles > 0)
+            ? this.currentTime + 30
+            : config.maxSimulationTime;
+
+        const progress = Math.min((this.currentTime / displayTotalTime) * 100, 100);
 
         const avgSpeed = this.speedHistory.length > 0
             ? this.speedHistory.reduce((a, b) => a + b, 0) / this.speedHistory.length
@@ -507,7 +518,7 @@ export class SimulationEngine {
 
         store.setProgress({
             currentTime: this.currentTime,
-            totalTime: config.maxSimulationTime,
+            totalTime: displayTotalTime, // 传给 UI 显示动态总时间
             progress,
             activeVehicles: this.vehicles.length,
             completedVehicles: this.finishedVehicles.length,
