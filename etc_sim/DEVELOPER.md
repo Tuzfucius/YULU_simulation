@@ -270,6 +270,28 @@ const store = useWorkflowStore();
 const nodes = useWorkflowStore(s => s.nodes);
 ```
 
+### 交互式分析数据流
+当仿真结束后，`SimulationEngine` 会将各维度的原始数据存入 `simStore.statistics`，前端组件通过选择器提取：
+- `segmentBoundaries`: 用于路段划分的核心边界数据（km）。
+- `segmentSpeedHistory`: 包含时间、流、速、密的统计序列。
+- `sampledTrajectory`: 经过采样的单车运行样本（支持散点图展示）。
+
+**扩展建议**：若要添加新分析图表，应在 `complete()` 方法中准备好所需数据，并将其暴露至 `statistics` 对象。
+
+### 动态边界检测算法 (Vehicle.ts)
+为了支持自定义路网的精准统计，车辆在更新位置时不再使用静态步长，而是采用以下算法：
+1.  **边界感知**：`Vehicle.update` 接收当前路网的 `boundariesM`（米）。
+2.  **多段跨越处理**：使用 `while` 循环检测当前帧位移是否跨越了一个或多个区间边界。
+3.  **精确时间切分**：记录车辆在各区间的累积存在时间，用于精确计算区间平均速度。
+
+```typescript
+// 核心逻辑示意 (frontend/src/engine/Vehicle.ts)
+while (boundariesM && this.pos >= boundariesM[this.currentSegment + 1]) {
+    // 触发完成当前段逻辑，收集统计信息
+    this.currentSegment++;
+}
+```
+
 ## 调试技巧
 
 ### 后端日志
