@@ -344,7 +344,7 @@ export const RoadNetworkOverview: React.FC = () => {
             const container = canvas.parentElement;
             if (!container) return;
             canvas.width = container.clientWidth;
-            canvas.height = 260;
+            canvas.height = 520;
             drawRoad();
         });
         if (canvas.parentElement) observer.observe(canvas.parentElement);
@@ -398,7 +398,7 @@ export const RoadNetworkOverview: React.FC = () => {
             </div>
 
             {/* Canvas 区域 */}
-            <div className="relative" style={{ height: 260 }}>
+            <div className="relative" style={{ height: 520 }}>
                 {loading && (
                     <div className="absolute inset-0 flex items-center justify-center"
                         style={{ background: '#1C1B2388', color: 'var(--text-tertiary)' }}>
@@ -413,7 +413,7 @@ export const RoadNetworkOverview: React.FC = () => {
                 )}
                 <canvas
                     ref={canvasRef}
-                    style={{ width: '100%', height: 260, display: 'block' }}
+                    style={{ width: '100%', height: 520, display: 'block' }}
                 />
             </div>
         </div>
