@@ -12,6 +12,8 @@
 
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import Editor from '@monaco-editor/react';
+import { useWorkflowStore } from '../../stores/workflowStore';
 import type { WorkflowNodeData, PortDefinition } from '../../types/workflow';
 
 // 分类颜色映射
@@ -92,16 +94,19 @@ function PortHandles({
     );
 }
 
-function WorkflowNodeComponent({ data, selected }: NodeProps) {
+function WorkflowNodeComponent({ id, data, selected }: NodeProps) {
     const nodeData = data as unknown as WorkflowNodeData;
+    const { updateNodeData } = useWorkflowStore();
+
     const style = CATEGORY_STYLES[nodeData.category] || CATEGORY_STYLES.condition;
     const isLogic = nodeData.category === 'logic';
     const isDualInput = isLogic && nodeData.logic !== 'NOT' && nodeData.logic !== 'THRESHOLD';
+    const isCustomScript = nodeData.subType === 'custom_script';
 
     // 节点尺寸
-    const nodeWidth = isLogic ? (isDualInput ? 90 : 70) : 200;
+    const nodeWidth = isLogic ? (isDualInput ? 90 : 70) : (isCustomScript ? 320 : 200);
     const nodeHeight = isLogic ? (isDualInput ? 80 : 60) : 'auto';
-    const minNodeHeight = isLogic ? (isDualInput ? 80 : 60) : 70;
+    const minNodeHeight = isLogic ? (isDualInput ? 80 : 60) : (isCustomScript ? 250 : 70);
 
     // 简化参数显示
     const paramEntries = Object.entries(nodeData.params || {}).slice(0, 3);
@@ -201,8 +206,28 @@ function WorkflowNodeComponent({ data, selected }: NodeProps) {
                         </span>
                     </div>
 
-                    {/* 参数区 */}
-                    {paramEntries.length > 0 && (
+                    {/* 参数区 / 代码编辑区 */}
+                    {isCustomScript ? (
+                        <div style={{ padding: '0', height: '220px', borderRadius: '0 0 10px 10px', overflow: 'hidden' }} className="nodrag cursor-text">
+                            <Editor
+                                height="100%"
+                                defaultLanguage="python"
+                                value={String(nodeData.params.script || '# Write Python code here\\n# available inputs: avg_speed, density, etc.\\n# return True/False or Probability (0~1)\\n')}
+                                theme="vs-dark"
+                                options={{
+                                    minimap: { enabled: false },
+                                    fontSize: 11,
+                                    lineNumbers: 'on',
+                                    scrollBeyondLastLine: false,
+                                    wordWrap: 'on',
+                                    padding: { top: 10, bottom: 10 }
+                                }}
+                                onChange={(val) => {
+                                    updateNodeData(id, { params: { ...nodeData.params, script: val || '' } });
+                                }}
+                            />
+                        </div>
+                    ) : paramEntries.length > 0 && (
                         <div style={{ padding: '5px 10px' }}>
                             {paramEntries.map(([key, val]) => (
                                 <div

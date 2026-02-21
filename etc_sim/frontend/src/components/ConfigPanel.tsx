@@ -381,6 +381,51 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) =>
                 <Section title={t('config.etc.title')} icon="📡" defaultOpen={false}>
                     <ETCMonitorPanel />
                 </Section>
+
+                {/* 科研向：数据质量与噪声控制 */}
+                <Section title="数据质量控制 (Noise)" icon="📶" defaultOpen={false}>
+                    <div className="mb-4">
+                        <label className="flex items-center justify-between text-sm text-[var(--text-primary)] mb-2 font-medium cursor-pointer">
+                            <span>启用环境噪声模拟</span>
+                            <div className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${config.enableNoise ? 'bg-[var(--accent-blue)]' : 'bg-[rgba(255,255,255,0.2)]'}`}>
+                                <input
+                                    type="checkbox"
+                                    className="sr-only"
+                                    checked={config.enableNoise}
+                                    onChange={(e) => setConfig({ enableNoise: e.target.checked })}
+                                    disabled={disabled}
+                                />
+                                <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${config.enableNoise ? 'translate-x-5' : 'translate-x-1'}`} />
+                            </div>
+                        </label>
+                        <p className="text-[10px] text-[var(--text-muted)] mb-3 leading-relaxed">
+                            开启后将在门架采集的通过记录中注入高斯测速偏差与随机丢包，用于测试评估算法在弱感知条件下的鲁棒性。
+                        </p>
+                    </div>
+
+                    <div className={!config.enableNoise ? 'opacity-40 pointer-events-none' : ''}>
+                        <ParamInput
+                            label="测速漂移方差 (σ)"
+                            value={config.speedVariance}
+                            onChange={(v) => setConfig({ speedVariance: v })}
+                            min={0}
+                            max={20}
+                            step={0.5}
+                            unit="km/h"
+                            disabled={disabled || !config.enableNoise}
+                        />
+                        <ParamInput
+                            label="门架通信丢包率"
+                            value={config.dropRate}
+                            onChange={(v) => setConfig({ dropRate: v })}
+                            min={0}
+                            max={0.5}
+                            step={0.01}
+                            unit="prob"
+                            disabled={disabled || !config.enableNoise}
+                        />
+                    </div>
+                </Section>
             </div>
 
             {/* Actions */}

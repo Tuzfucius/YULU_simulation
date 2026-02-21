@@ -457,14 +457,40 @@ export class SimulationEngine {
         const store = useSimStore.getState();
         const config = store.config;
 
+        // 读取科研噪声配置
+        const enableNoise = config.enableNoise || false;
+        const stdDev = config.speedVariance || 0; // 视为标准差 km/h
+        const dropRate = config.dropRate || 0;
+
         for (let seg = 0; seg < this.numSegments; seg++) {
             const segStartM = (this.segmentBoundaries[seg] ?? seg * this.segmentLengthKm) * 1000;
             const segEndM = (this.segmentBoundaries[seg + 1] ?? (seg + 1) * this.segmentLengthKm) * 1000;
             const segLenM = segEndM - segStartM;
-            const vehiclesInSeg = this.vehicles.filter(v => v.pos >= segStartM && v.pos < segEndM);
+
+            let vehiclesInSeg = this.vehicles.filter(v => v.pos >= segStartM && v.pos < segEndM);
+
+            // 1. 模拟门架丢包 (随机丢弃记录)
+            if (enableNoise && dropRate > 0) {
+                vehiclesInSeg = vehiclesInSeg.filter(() => Math.random() >= dropRate);
+            }
 
             if (vehiclesInSeg.length > 0) {
-                const avgSpeed = vehiclesInSeg.reduce((sum, v) => sum + v.speed, 0) / vehiclesInSeg.length;
+                // 2. 模拟高斯测速漂移误差
+                let speedSum = 0;
+                for (const v of vehiclesInSeg) {
+                    let vSpeedKmH = v.speed * 3.6;
+                    if (enableNoise && stdDev > 0) {
+                        // Box-Muller 生成标准正态分布随机数
+                        const u1 = Math.max(Number.MIN_VALUE, Math.random());
+                        const u2 = Math.random();
+                        const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+                        vSpeedKmH += z0 * stdDev;
+                        vSpeedKmH = Math.max(0, vSpeedKmH); // 防止速度为负
+                    }
+                    speedSum += vSpeedKmH / 3.6;
+                }
+
+                const avgSpeed = speedSum / vehiclesInSeg.length;
                 const density = (vehiclesInSeg.length / Math.max(segLenM, 1)) * 1000 * config.numLanes;
                 const flow = density * avgSpeed; // 流量公式: q = k * v
 

@@ -216,3 +216,92 @@ class CustomExpression(Condition):
         safe['weather'] = context.weather_type
         
         return safe
+
+
+# ==================== 自定义算法脚本条件 ====================
+
+import logging
+logger = logging.getLogger(__name__)
+
+@register_condition
+@dataclass
+class CustomScript(Condition):
+    """自定义 Python 算法脚本判断
+    
+    支持在节点内部直接编写和执行多行 Python 代码或加载模型推理。
+    脚本中应当定义一个 `predict(context)` 函数并返回 bool 或预警概率。
+    基于哈希值进行重复编译缓存，以保证高频的帧评估性能。
+    """
+    condition_type: str = 'custom_script'
+    description: str = '自定义算法 (Python)'
+    default_params: Dict[str, Any] = field(default_factory=lambda: {
+        'script': "def predict(context):\n    # Return pre-warning prob\n    return 0.8\n",
+    })
+    
+    # 避免每次 evaluation 重复编译，缓存编译后的执行环境
+    _compiled_env: Dict[str, Any] = field(default_factory=dict, repr=False, init=False)
+    _script_hash: int = field(default=0, repr=False, init=False)
+    
+    def evaluate(self, context: AlertContext) -> bool:
+        script = self.get_param('script', '')
+        if not script.strip():
+            return False
+            
+        current_hash = hash(script)
+        if current_hash != self._script_hash:
+            # 重新编译代码
+            try:
+                env = {}
+                # 局部命名空间隔离，执行代码生成 predict() 方法
+                exec(script, globals(), env)
+                if 'predict' not in env or not callable(env['predict']):
+                    logger.error("自定义代码节点未正确定义 callable 的 predict(context) 方法！")
+                    return False
+                self._compiled_env = env
+                self._script_hash = current_hash
+            except Exception as e:
+                logger.error(f"自定义代码节点编译失败: {e}")
+                self._script_hash = current_hash # 避免反复提示
+                self._compiled_env = {}
+                return False
+                
+        if not self._compiled_env:
+            return False
+            
+        # 构建算法预测时所需的特征化上下文
+        input_ctx = self._build_input_ctx(context)
+        
+        try:
+            result = self._compiled_env['predict'](input_ctx)
+            # 兼容算法返回的多种类型（布尔值或连续的预警概率）
+            if isinstance(result, bool):
+                return result
+            elif isinstance(result, (int, float)):
+                return result > 0.5
+            return bool(result)
+        except Exception as e:
+            logger.error(f"自定义代码节点执行期抛出异常: {e}")
+            return False
+            
+    def _build_input_ctx(self, context: AlertContext) -> dict:
+        """从 AlertContext 中提取全量上下文数据，供研究员提取专属算法特征"""
+        all_speeds = []
+        for stat in getattr(context, 'gate_stats', {}).values():
+            if getattr(stat, 'avg_speed', 0) > 0:
+                all_speeds.append(stat.avg_speed)
+
+        return {
+            'time': getattr(context, 'current_time', 0),
+            'weather': getattr(context, 'weather_type', 'clear'),
+            'queue_lengths': getattr(context, 'queue_lengths', {}),
+            'avg_speed': sum(all_speeds) / len(all_speeds) if all_speeds else 0,
+            'traffic_volume': len(getattr(context, 'recent_transactions', [])),
+            'gate_stats': {
+                k: {
+                    'avg_speed': getattr(v, 'avg_speed', 0), 
+                    'flow': len(getattr(v, 'recent_speeds', [])),
+                } for k, v in getattr(context, 'gate_stats', {}).items()
+            },
+            # 给予真正的高端研究玩家直接访问整个裸环境状态对象的能力
+            'raw_context': context   
+        }
