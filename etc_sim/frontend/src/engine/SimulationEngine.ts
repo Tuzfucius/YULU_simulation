@@ -121,6 +121,11 @@ export class SimulationEngine {
     private laneChangeByReason: { free: number; forced: number } = { free: 0, forced: 0 };
     private laneChangeByStyle: Record<DriverStyle, number> = { aggressive: 0, normal: 0, conservative: 0 };
     private speedHistory: number[] = [];
+    private sampledTrajectoryData: TrajectoryPoint[] = [];
+
+    // 匝道配置与累加器
+    private ramps: any[] = [];
+    private onRampAccumulator: Map<string, number> = new Map();
 
     constructor() {
     }
@@ -191,6 +196,10 @@ export class SimulationEngine {
         this.laneChangeByStyle = { aggressive: 0, normal: 0, conservative: 0 };
         this.speedHistory = [];
         this.sampledTrajectoryData = [];
+
+        // 初始化匝道
+        this.ramps = [...(config.customRamps || [])];
+        this.onRampAccumulator.clear();
 
         // 构建弯道曲率档案（仅自定义路网时有效）
         try {
@@ -274,12 +283,17 @@ export class SimulationEngine {
             // 生成车辆
             this.spawnVehicles(config);
 
+            // 处理匝道流量
+            this.processRamps(config, SIMULATION_DT);
+
             // 更新车辆
             this.updateVehicles();
 
             // 记录轨迹（每10秒采样）
             if (Math.floor(this.currentTime) % 10 === 0) {
                 this.recordTrajectory();
+                // 触发一次轨迹向下采样，以供前端热更新
+                this.prepareTrajectorySamples();
             }
 
             // 记录区间速度（每30秒）
@@ -376,6 +390,121 @@ export class SimulationEngine {
 
             // 无论是否放置成功，都移动到下一个投放时间（避免无限循环）
             this.spawnIndex++;
+        }
+    }
+
+    // --- 匝道处理 ---
+    private processRamps(config: any, dt: number) {
+        if (!this.ramps || this.ramps.length === 0) return;
+
+        // 1. 入口匝道 (On-Ramps)
+        const onRamps = this.ramps.filter(r => r.type === 'on_ramp');
+        for (const ramp of onRamps) {
+            // flowRate 为 veh/h，转换为 veh/s
+            const ratePerSec = ramp.flowRate / 3600;
+            const prob = ratePerSec * dt;
+
+            let accum = this.onRampAccumulator.get(ramp.id) || 0;
+            accum += prob;
+
+            while (accum >= 1) {
+                // 检查总数限制
+                if (ramp.totalVehicles !== undefined && ramp.totalVehicles !== null) {
+                    const spawnedCount = ramp._spawnedCount || 0;
+                    if (spawnedCount >= ramp.totalVehicles) {
+                        accum = 0;
+                        break;
+                    }
+                    ramp._spawnedCount = spawnedCount + 1;
+                }
+
+                // 尝试在最外侧车道生成车辆
+                const targetLane = config.numLanes - 1;
+                const spawnPos = ramp.position_km * 1000;
+
+                // 检查空间（前后 15 米无车）
+                const isSpaceFree = !this.vehicles.some(v =>
+                    v.lane === targetLane &&
+                    Math.abs(v.pos - spawnPos) < 15
+                );
+
+                if (isSpaceFree) {
+                    const isPotentialAnomaly = Math.random() < config.anomalyRatio;
+
+                    // 车辆类型
+                    const typeRand = Math.random();
+                    let type: VehicleType = 'CAR';
+                    if (typeRand < config.carRatio) type = 'CAR';
+                    else if (typeRand < config.carRatio + config.truckRatio) type = 'TRUCK';
+                    else type = 'BUS';
+
+                    // 驾驶风格
+                    const styleRand = Math.random();
+                    let style: DriverStyle = 'normal';
+                    if (styleRand < config.aggressiveRatio) style = 'aggressive';
+                    else if (styleRand < config.aggressiveRatio + config.conservativeRatio) style = 'conservative';
+                    else style = 'normal';
+
+                    const v = new Vehicle(
+                        this.vehicleIdCounter++,
+                        targetLane,
+                        this.currentTime,
+                        isPotentialAnomaly,
+                        type,
+                        style
+                    );
+                    v.pos = spawnPos;
+                    // 入口匝道汇入车辆速度略低，假设 30km/h (约 8.3m/s)
+                    v.speed = 8.3;
+                    v.color = '#10b981'; // 特殊涂装：绿色表示是从入口进来的
+
+                    this.vehicles.push(v);
+
+                    this.typeCount[v.type]++;
+                    this.styleCount[v.driverStyle]++;
+                    this.speedHistory.push(v.speed * 3.6);
+
+                    accum -= 1;
+                } else {
+                    // 空间不足，等待下一帧
+                    break;
+                }
+            }
+            this.onRampAccumulator.set(ramp.id, accum);
+        }
+
+        // 2. 出口匝道 (Off-Ramps)
+        const offRamps = this.ramps.filter(r => r.type === 'off_ramp');
+        for (const ramp of offRamps) {
+            const rampPosM = ramp.position_km * 1000;
+            const ratePerSec = ramp.flowRate / 3600;
+            const targetExitProb = ratePerSec * dt;
+
+            let accum = this.onRampAccumulator.get(ramp.id) || 0;
+            accum += targetExitProb;
+
+            // 倒序遍历车辆，方便删除
+            for (let i = this.vehicles.length - 1; i >= 0; i--) {
+                const v = this.vehicles[i];
+                // 如果车辆在最外侧车道，且途径出口匝道附近区间（+/- 15米）
+                if (accum >= 1 && v.lane === config.numLanes - 1 && Math.abs(v.pos - rampPosM) < 15) {
+
+                    if (ramp.totalVehicles !== undefined && ramp.totalVehicles !== null) {
+                        const despawnedCount = ramp._despawnedCount || 0;
+                        if (despawnedCount >= ramp.totalVehicles) {
+                            accum = 0;
+                            break;
+                        }
+                        ramp._despawnedCount = despawnedCount + 1;
+                    }
+
+                    // 车辆驶出路网
+                    this.finishedVehicles.push(v);
+                    this.vehicles.splice(i, 1);
+                    accum -= 1;
+                }
+            }
+            this.onRampAccumulator.set(ramp.id, accum);
         }
     }
 
@@ -566,6 +695,10 @@ export class SimulationEngine {
             totalLaneChanges: this.totalLaneChanges,
             maxCongestionLength: 0, // TODO
             simulationTime: this.currentTime,
+            // 将数据实时抛给前端供图表渲染
+            segmentSpeedHistory: [...this.segmentSpeedHistory],
+            segmentBoundaries: this.segmentBoundaries,
+            sampledTrajectory: this.sampledTrajectoryData,
         });
     }
 
@@ -917,7 +1050,8 @@ export class SimulationEngine {
             // 暴露原始数据供前端详细分析图表使用
             segmentSpeedHistory: this.segmentSpeedHistory,
             segmentBoundaries: this.segmentBoundaries,
-            sampledTrajectory: this.sampledTrajectoryData, // 新增：暴露微观采样数据
+            sampledTrajectory: this.sampledTrajectoryData,
+            anomalyLogs: this.anomalyLogs, // 增加透传
         });
         store.setChartData(this.generateChartData());
 
@@ -963,6 +1097,8 @@ export class SimulationEngine {
             }));
     }
 
+    // 重构 step，在每过一定时间或达到特定条件时调用缓存重构
+    // 以支撑前端实时热渲染
     pause() {
         const store = useSimStore.getState();
         store.setPaused(true);

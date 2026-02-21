@@ -50,6 +50,7 @@ class CustomRoadData(BaseModel):
     nodes: List[Dict[str, Any]] # 使用 Dict 以容纳前端传入的灵活结构
     edges: Optional[List[Dict[str, Any]]] = []
     gantries: List[Dict[str, Any]] = []
+    ramps: Optional[List[Dict[str, Any]]] = []
     meta: Optional[Dict[str, Any]] = {}
 
 class CustomRoadFile(BaseModel):

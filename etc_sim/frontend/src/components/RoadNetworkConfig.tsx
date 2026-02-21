@@ -96,6 +96,8 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
             if (selectedTemplate === 'custom') {
                 const totalKm: number | null = previewData.paths?.total_length_km ?? null;
                 const gantryPositions: number[] = previewData.paths?.gantry_positions_km ?? [];
+                const ramps: any[] = previewData.paths?.ramps ?? [];
+
                 const filePath: string = config.custom_file_path;
                 setCustomLength(totalKm);
 
@@ -104,6 +106,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
                     customRoadPath: filePath,
                     customRoadLengthKm: totalKm ?? undefined,
                     customGantryPositionsKm: gantryPositions,
+                    customRamps: ramps,
                     // 同时更新 roadLengthKm 使仿真引擎使用正确值
                     ...(totalKm !== null ? { roadLengthKm: totalKm } : {}),
                 });
@@ -114,6 +117,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
                     customRoadPath: undefined,
                     customRoadLengthKm: undefined,
                     customGantryPositionsKm: undefined,
+                    customRamps: undefined,
                 });
             }
 

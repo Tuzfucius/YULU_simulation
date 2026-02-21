@@ -9,7 +9,7 @@ import { useThemeStore } from '../../stores/themeStore';
 interface EditorCanvasProps {
     data: CustomRoadData;
     setData: React.Dispatch<React.SetStateAction<CustomRoadData>>;
-    mode: 'select' | 'pen' | 'gantry';
+    mode: 'select' | 'pen' | 'gantry' | 'on_ramp' | 'off_ramp';
     showGrid: boolean;
     defaultRadius?: number; // 默认圆弧半径（米）
 }
@@ -281,8 +281,27 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
             ctx.textAlign = 'left';
         });
 
-        // ── 吸附预览（gantry 模式） ──
-        if (snapPreview && mode === 'gantry') {
+        // ── 匝道 Ramps ──
+        (data.ramps || []).forEach(r => {
+            const p = toScreen(r.x, r.y);
+            const isInput = r.type === 'on_ramp';
+            ctx.fillStyle = isInput ? '#10b981' : '#f43f5e';
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 8 * zoom, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1.5 * zoom;
+            ctx.stroke();
+
+            ctx.fillStyle = isInput ? '#10b981' : '#f43f5e';
+            ctx.font = `bold ${Math.max(9, 10 * zoom)}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.fillText(`[${isInput ? 'IN' : 'OUT'}] ${r.flowRate}v/h`, p.x, p.y - 12 * zoom);
+            ctx.textAlign = 'left';
+        });
+
+        // ── 吸附预览 ──
+        if (snapPreview && (mode === 'gantry' || mode === 'on_ramp' || mode === 'off_ramp')) {
             const p = toScreen(snapPreview.x, snapPreview.y);
             ctx.strokeStyle = '#ffbd2e';
             ctx.lineWidth = 2;
@@ -396,29 +415,52 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
                 ...prev,
                 nodes: [...prev.nodes, { x: wp.x, y: wp.y, radius: defaultRadius }]
             }));
-        } else if (mode === 'gantry') {
+        } else if (mode === 'gantry' || mode === 'on_ramp' || mode === 'off_ramp') {
             if (data.nodes.length < 2) {
-                alert('请先绘制路径，再放置 ETC 门架。');
+                alert('请先绘制路径，再放置组件。');
                 return;
             }
             const closest = closestPointOnPolyline(wp.x, wp.y, data.nodes);
             if (!closest) return;
             if (closest.dist * zoom > SNAP_THRESHOLD_PX * 3) {
-                alert('请在路径附近点击以放置 ETC 门架。');
+                alert('请在路径附近点击以放置。');
                 return;
             }
-            const newGantry = {
-                id: `etc_${Date.now()}`,
-                x: closest.x,
-                y: closest.y,
-                segmentIndex: closest.segmentIndex,
-                t: closest.t,
-                name: '' // 临时名称，排序后自动编号
-            };
-            setData(prev => ({
-                ...prev,
-                gantries: sortGantriesByMileage([...prev.gantries, newGantry])
-            }));
+
+            if (mode === 'gantry') {
+                const newGantry = {
+                    id: `etc_${Date.now()}`,
+                    x: closest.x,
+                    y: closest.y,
+                    segmentIndex: closest.segmentIndex,
+                    t: closest.t,
+                    name: '' // 临时名称，排序后自动编号
+                };
+                setData(prev => ({
+                    ...prev,
+                    gantries: sortGantriesByMileage([...prev.gantries, newGantry])
+                }));
+            } else {
+                const isInput = mode === 'on_ramp';
+                const typeName = isInput ? '入口' : '出口';
+                const flowStr = window.prompt(`请输入${typeName}匝道期望流量(veh/h):`, isInput ? '500' : '200');
+                if (flowStr === null) return;
+                const flowRate = Math.max(0, parseInt(flowStr) || 0);
+
+                const newRamp: Required<CustomRoadData>['ramps'][0] = {
+                    id: `ramp_${Date.now()}`,
+                    type: mode as 'on_ramp' | 'off_ramp',
+                    x: closest.x,
+                    y: closest.y,
+                    segmentIndex: closest.segmentIndex,
+                    t: closest.t,
+                    flowRate
+                };
+                setData(prev => ({
+                    ...prev,
+                    ramps: [...(prev.ramps || []), newRamp]
+                }));
+            }
         }
     };
 
@@ -435,7 +477,7 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
         const wp = toWorld(sp.x, sp.y);
         setMouseWorld(wp);
 
-        if (mode === 'gantry' && data.nodes.length >= 2) {
+        if ((mode === 'gantry' || mode === 'on_ramp' || mode === 'off_ramp') && data.nodes.length >= 2) {
             const closest = closestPointOnPolyline(wp.x, wp.y, data.nodes);
             setSnapPreview(closest ? { x: closest.x, y: closest.y } : null);
         } else {
@@ -448,7 +490,7 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
             isPanning.current = false;
             // 恢复光标
             if (mode === 'pen') setCursor('crosshair');
-            else if (mode === 'gantry') setCursor('cell');
+            else if (mode === 'gantry' || mode === 'on_ramp' || mode === 'off_ramp') setCursor('cell');
             else setCursor('default');
         }
     };
@@ -481,6 +523,19 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
         e.preventDefault();
         if (mode === 'pen' && data.nodes.length > 0) {
             setData(prev => ({ ...prev, nodes: prev.nodes.slice(0, -1) }));
+        } else if (mode === 'select' || mode === 'on_ramp' || mode === 'off_ramp') {
+            const sp = getCanvasPos(e);
+            const wp = toWorld(sp.x, sp.y);
+            // 尝试删除附近的匝道
+            if (data.ramps && data.ramps.length > 0) {
+                const nearRamp = data.ramps.find(r => Math.hypot(r.x - wp.x, r.y - wp.y) * zoom < SNAP_THRESHOLD_PX);
+                if (nearRamp) {
+                    if (window.confirm(`删除该${nearRamp.type === 'on_ramp' ? '入口' : '出口'}匝道？`)) {
+                        setData(prev => ({ ...prev, ramps: prev.ramps?.filter(r => r.id !== nearRamp.id) }));
+                        return;
+                    }
+                }
+            }
         }
     };
 
@@ -493,7 +548,7 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
     useEffect(() => {
         if (!isPanning.current) {
             if (mode === 'pen') setCursor('crosshair');
-            else if (mode === 'gantry') setCursor('cell');
+            else if (mode === 'gantry' || mode === 'on_ramp' || mode === 'off_ramp') setCursor('cell');
             else setCursor('default');
         }
     }, [mode]);
@@ -525,7 +580,14 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
                         <p>滚轮：缩放 | Alt+拖拽 / 中键：平移</p>
                     </>
                 )}
-                {mode === 'select' && <p>滚轮：缩放 | Alt+拖拽 / 中键：平移</p>}
+                {(mode === 'on_ramp' || mode === 'off_ramp') && (
+                    <>
+                        <p>点击路径附近：放置{mode === 'on_ramp' ? '入口' : '出口'}匝道</p>
+                        <p>右键匝道：可删除当前匝道节点</p>
+                        <p>滚轮：缩放 | Alt+拖拽 / 中键：平移</p>
+                    </>
+                )}
+                {mode === 'select' && <p>滚轮：缩放 | Alt+拖拽 / 中键：平移 | 右键：删除</p>}
             </div>
         </div>
     );

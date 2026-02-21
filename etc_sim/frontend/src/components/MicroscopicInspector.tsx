@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { useSimStore } from '../stores/simStore';
 
-type ColorMode = 'speed' | 'status' | 'lane';
+type ColorMode = 'speed' | 'status' | 'lane' | 'type' | 'style';
 
 export const MicroscopicInspector: React.FC = () => {
     const statistics = useSimStore(state => state.statistics);
@@ -77,6 +77,14 @@ export const MicroscopicInspector: React.FC = () => {
                 if (p.anomaly_state !== 'none') styleVal = 2; // Anomaly Source
                 else if (p.is_affected) styleVal = 1; // Affected
                 else styleVal = 0; // Normal
+            } else if (colorMode === 'type') {
+                if (p.vehicle_type === 'CAR') styleVal = 0;
+                else if (p.vehicle_type === 'TRUCK') styleVal = 1;
+                else styleVal = 2; // BUS
+            } else if (colorMode === 'style') {
+                if (p.driver_style === 'aggressive') styleVal = 0;
+                else if (p.driver_style === 'normal') styleVal = 1;
+                else styleVal = 2; // conservative
             } else {
                 styleVal = speedKmh; // Speed
             }
@@ -88,7 +96,8 @@ export const MicroscopicInspector: React.FC = () => {
                 p.id,         // 3: ID
                 p.lane,       // 4: Lane
                 p.vehicle_type, // 5: Type
-                p.is_affected // 6: Affected
+                p.is_affected, // 6: Affected
+                p.driver_style // 7: Style
             ];
         });
     }, [sampledTrajectory, selectedSegment, currentSegmentBounds, colorMode]);
@@ -161,6 +170,34 @@ export const MicroscopicInspector: React.FC = () => {
             right: 10,
             top: 40
         };
+    } else if (colorMode === 'type') {
+        visualMap = {
+            type: 'piecewise',
+            dimension: 2, // mapped to 0=CAR, 1=TRUCK, 2=BUS
+            categories: [0, 1, 2],
+            pieces: [
+                { value: 0, label: 'CAR (轿车)', color: '#4ade80' },
+                { value: 1, label: 'TRUCK (货车)', color: '#f87171' },
+                { value: 2, label: 'BUS (客车)', color: '#60a5fa' }
+            ],
+            textStyle: { color: '#ccc' },
+            right: 10,
+            top: 40
+        };
+    } else if (colorMode === 'style') {
+        visualMap = {
+            type: 'piecewise',
+            dimension: 2, // mapped to 0=Aggressive, 1=Normal, 2=Conservative
+            categories: [0, 1, 2],
+            pieces: [
+                { value: 0, label: '激进型 (Aggressive)', color: '#ff4d4f' },
+                { value: 1, label: '正常型 (Normal)', color: '#91CC75' },
+                { value: 2, label: '保守型 (Conservative)', color: '#5470C6' }
+            ],
+            textStyle: { color: '#ccc' },
+            right: 10,
+            top: 40
+        };
     }
 
     const option = {
@@ -172,14 +209,14 @@ export const MicroscopicInspector: React.FC = () => {
             textStyle: { color: '#EEE' },
             formatter: (params: any) => {
                 const d = params.data;
-                // [time, speed, val, id, lane, type, isAffected]
+                // [time, speed, val, id, lane, type, isAffected, style]
                 return `
                     <div style="font-weight:bold; margin-bottom:4px">车辆 ID: ${d[3]}</div>
-                    <div>类型: ${d[5]}</div>
+                    <div>类型: ${d[5]} | 风格: ${d[7]}</div>
                     <div>时间: ${d[0].toFixed(1)} s</div>
                     <div>速度: <span style="color:${d[1] < 40 ? '#ff4d4d' : '#91cc75'}">${d[1].toFixed(1)} km/h</span></div>
                     <div>车道: Lane ${d[4]}</div>
-                    <div>状态: ${d[6] ? '<span style="color:#ffcc00">受影响</span>' : '正常'}</div>
+                    <div>状态: ${d[6] ? '<span style="color:#ffcc00">受阻/受影响</span>' : '正常流'}</div>
                 `;
             }
         },
@@ -287,6 +324,8 @@ export const MicroscopicInspector: React.FC = () => {
                             <option value="speed">按速度</option>
                             <option value="status">按状态 (正常/受影响)</option>
                             <option value="lane">按车道</option>
+                            <option value="type">按车辆类型</option>
+                            <option value="style">按驾驶风格</option>
                         </select>
                     </div>
 

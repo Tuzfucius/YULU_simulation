@@ -8,6 +8,7 @@ import { useI18nStore } from '../../stores/i18nStore';
 export type CustomRoadData = {
     nodes: { x: number, y: number, radius?: number }[];
     gantries: { id: string, x: number, y: number, name?: string, segmentIndex?: number, t?: number }[];
+    ramps?: { id: string, type: 'on_ramp' | 'off_ramp', x: number, y: number, segmentIndex?: number, t?: number, flowRate: number, totalVehicles?: number }[];
     scale?: number;
 };
 
@@ -27,8 +28,8 @@ function calcPolylineLengthM(nodes: { x: number; y: number }[]): number {
 export function RoadEditorPage() {
     const { t } = useI18nStore();
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
-    const [roadData, setRoadData] = useState<CustomRoadData>({ nodes: [], gantries: [], scale: SCALE_M_PER_UNIT });
-    const [drawingMode, setDrawingMode] = useState<'select' | 'pen' | 'gantry'>('select');
+    const [roadData, setRoadData] = useState<CustomRoadData>({ nodes: [], gantries: [], ramps: [], scale: SCALE_M_PER_UNIT });
+    const [drawingMode, setDrawingMode] = useState<'select' | 'pen' | 'gantry' | 'on_ramp' | 'off_ramp'>('select');
     const [showGrid, setShowGrid] = useState(true);
     const [refreshKey, setRefreshKey] = useState(0);
     const [defaultRadius, setDefaultRadius] = useState(0); // 默认圆弧半径（米）
@@ -38,7 +39,7 @@ export function RoadEditorPage() {
         if (roadData.nodes.length > 0 || roadData.gantries.length > 0) {
             if (!window.confirm(t('editor.newCanvasConfirm'))) return;
         }
-        setRoadData({ nodes: [], gantries: [] });
+        setRoadData({ nodes: [], gantries: [], ramps: [] });
         setSelectedFile(null);
     };
 
@@ -50,7 +51,8 @@ export function RoadEditorPage() {
                 const data = await response.json();
                 setRoadData({
                     nodes: data.nodes || [],
-                    gantries: data.gantries || []
+                    gantries: data.gantries || [],
+                    ramps: data.ramps || []
                 });
                 setSelectedFile(filename);
             }
@@ -89,6 +91,7 @@ export function RoadEditorPage() {
                     nodes: roadData.nodes,
                     edges: [],
                     gantries: roadData.gantries,
+                    ramps: roadData.ramps,
                     meta: {
                         scale_m_per_unit: SCALE_M_PER_UNIT,
                         total_length_km: parseFloat(totalLengthKm.toFixed(4)),

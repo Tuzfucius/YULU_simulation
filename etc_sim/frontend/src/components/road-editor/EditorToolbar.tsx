@@ -2,8 +2,8 @@ import React from 'react';
 import { useI18nStore } from '../../stores/i18nStore';
 
 interface EditorToolbarProps {
-    mode: 'select' | 'pen' | 'gantry';
-    setMode: (m: 'select' | 'pen' | 'gantry') => void;
+    mode: 'select' | 'pen' | 'gantry' | 'on_ramp' | 'off_ramp';
+    setMode: (m: 'select' | 'pen' | 'gantry' | 'on_ramp' | 'off_ramp') => void;
     showGrid: boolean;
     setShowGrid: (v: boolean) => void;
     onClear: () => void;
@@ -22,6 +22,8 @@ export function EditorToolbar({
         { id: 'select', icon: '👆', label: 'Select' },
         { id: 'pen', icon: '🖊️', label: 'Pen' },
         { id: 'gantry', icon: '⛩️', label: 'ETC' },
+        { id: 'on_ramp', icon: '↘️', label: 'On-Ramp' },
+        { id: 'off_ramp', icon: '↗️', label: 'Off-Ramp' },
     ] as const;
 
     return (
@@ -33,8 +35,8 @@ export function EditorToolbar({
                         key={tool.id}
                         onClick={() => setMode(tool.id)}
                         className={`p-2 rounded flex items-center gap-2 text-sm transition-all ${mode === tool.id
-                                ? 'bg-[var(--accent-blue)] text-white shadow-lg'
-                                : 'hover:bg-[rgba(255,255,255,0.1)] text-[var(--text-secondary)]'
+                            ? 'bg-[var(--accent-blue)] text-white shadow-lg'
+                            : 'hover:bg-[rgba(255,255,255,0.1)] text-[var(--text-secondary)]'
                             }`}
                         title={tool.label}
                     >

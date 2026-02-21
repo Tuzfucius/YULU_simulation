@@ -56,6 +56,7 @@ interface SimulationConfig {
     customRoadPath?: string;           // 已选择的自定义路径文件名
     customRoadLengthKm?: number;       // 实际计算的路径总里程
     customGantryPositionsKm?: number[]; // 门架里程位置列表
+    customRamps?: any[];               // 自定义路网匝道配置
 
     // Data Quality & Noise
     enableNoise: boolean;
@@ -107,6 +108,8 @@ const defaultConfig: SimulationConfig = {
     enableNoise: false,
     speedVariance: 5.0,
     dropRate: 0.1,
+
+    customRamps: [],
 };
 
 const defaultProgress: SimulationProgress = {

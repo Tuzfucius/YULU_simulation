@@ -9,6 +9,7 @@ export const SegmentInspector: React.FC = () => {
 
     // --- 提前提取数据（所有 hooks 必须在任何 return 之前调用）---
     const segmentSpeedHistory: any[] = statistics?.segmentSpeedHistory ?? [];
+    const anomalyLogs: any[] = statistics?.anomalyLogs ?? [];
     const segmentBoundaries: number[] | undefined = statistics?.segmentBoundaries;
 
     // 准备区间选项列表（在 early return 前调用 useMemo）
@@ -49,9 +50,19 @@ export const SegmentInspector: React.FC = () => {
             .sort((a: any, b: any) => a.time - b.time);
     }, [segmentSpeedHistory, selectedSegment]);
 
+    // 获取当前区间内的异常记录
+    const segmentAnomalies = useMemo(() => {
+        return anomalyLogs.filter((a: any) => a.segment === selectedSegment);
+    }, [anomalyLogs, selectedSegment]);
+
     // === 所有 Hooks 调用完毕，现在可以 early return ===
     if (!statistics || segmentSpeedHistory.length === 0) {
-        return null;
+        return (
+            <div className="glass-card overflow-hidden h-64 flex flex-col items-center justify-center p-8 text-[var(--text-tertiary)] border border-[var(--glass-border)] border-dashed">
+                <span className="text-2xl mb-2 opacity-50">⏳</span>
+                <span className="text-sm">尚未产生足够的宏观统计数据，请等待仿真演进...</span>
+            </div>
+        );
     }
 
     // ECharts 配置
@@ -65,7 +76,7 @@ export const SegmentInspector: React.FC = () => {
             textStyle: { color: '#EEE', fontSize: 12 }
         },
         legend: {
-            data: ['平均速度 (km/h)', '流量 (veh/h)', '密度 (veh/km)'],
+            data: ['平均速度 (km/h)', '流量 (veh/h)', '密度 (veh/km)', '通行量 (辆)'],
             textStyle: { color: '#AAA', fontSize: 12 },
             top: 5
         },
@@ -73,7 +84,7 @@ export const SegmentInspector: React.FC = () => {
             left: '2%',
             right: '4%',
             bottom: '18%',
-            top: '14%',
+            top: '20%',
             containLabel: true
         },
         toolbox: {
@@ -153,6 +164,14 @@ export const SegmentInspector: React.FC = () => {
                 yAxisIndex: 1
             },
             {
+                name: '通行量 (辆)',
+                type: 'bar',
+                data: chartData.map((d: any) => d.vehicleCount),
+                itemStyle: { color: 'rgba(84, 112, 198, 0.3)', borderRadius: [4, 4, 0, 0] },
+                barMaxWidth: 20,
+                yAxisIndex: 1
+            },
+            {
                 name: '密度 (veh/km)',
                 type: 'line',
                 data: chartData.map((d: any) => d.density.toFixed(1)),
@@ -160,7 +179,24 @@ export const SegmentInspector: React.FC = () => {
                 showSymbol: false,
                 lineStyle: { width: 2, color: '#5470C6', type: 'dashed' },
                 itemStyle: { color: '#5470C6' },
-                yAxisIndex: 1
+                yAxisIndex: 1,
+                markLine: segmentAnomalies.length > 0 ? {
+                    symbol: ['none', 'circle'],
+                    label: { show: true, position: 'start', formatter: '异常 {c}', color: '#ff4d4f' },
+                    lineStyle: { color: '#ff4d4f', type: 'dashed', width: 2 },
+                    data: segmentAnomalies.map((a: any) => {
+                        // 寻找最接近产生异常时间的 xAxis label
+                        const closestTime = chartData.reduce((prev: any, curr: any) => {
+                            return Math.abs(curr.time - a.time) < Math.abs(prev.time - a.time) ? curr : prev;
+                        }, chartData[0] || { time: 0 });
+
+                        return {
+                            xAxis: `${Math.round(closestTime.time)}s`,
+                            tooltip: { formatter: `判定类型: ${a.type} <br/>时间: 约 ${a.time.toFixed(1)}s` },
+                            name: `T${a.type}`
+                        };
+                    })
+                } : undefined
             }
         ]
     };
