@@ -17,6 +17,8 @@ from ..models.etc_noise_simulator import ETCNoiseSimulator, NoiseConfig
 from ..models.environment import EnvironmentModel, EnvironmentConfig, WeatherType
 from ..models.alert_context import AlertContext, AlertEvent
 from ..models.alert_rules import AlertRuleEngine, create_default_rules
+from ..models.ml_feature_extractor import TimeSeriesFeatureExtractor
+from ..models.alert_evaluator import extract_ground_truths_from_engine
 
 
 @dataclass
@@ -555,4 +557,20 @@ class SimulationEngine:
                 'events': self.rule_engine_events,
                 'engine_stats': self.alert_rule_engine.to_dict(),
             },
+            'ml_dataset': self._generate_ml_dataset()
         }
+
+    def _generate_ml_dataset(self) -> dict:
+        """生成供机器学习使用的时序特征序列数据集"""
+        try:
+            ground_truths = extract_ground_truths_from_engine(self)
+            extractor = TimeSeriesFeatureExtractor(step_seconds=60.0, window_size_steps=5)
+            dataset = extractor.build_dataset(
+                transactions=self.etc_detector.transactions,
+                ground_truths=ground_truths,
+                run_id="sim_run"
+            )
+            return dataset
+        except Exception as e:
+            print(f"Error generating ML dataset: {e}")
+            return {}

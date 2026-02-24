@@ -9,6 +9,7 @@ echo   ETC Traffic Simulation - Quick Start
 echo ========================================
 echo.
 
+
 REM Check Node.js
 where node >nul 2>nul
 if %ERRORLEVEL% neq 0 (
@@ -19,7 +20,7 @@ if %ERRORLEVEL% neq 0 (
 
 REM Activate low_numpy environment and start Backend
 echo [START] Starting Backend Service (env: low_numpy)...
-start "ETC Backend" cmd /k "cd /d %~dp0.. && uvicorn etc_sim.backend.main:app --reload --host 0.0.0.0 --port 8000"
+start "ETC Backend" cmd /k "cd /d %~dp0.. && conda run --no-capture-output -n low_numpy python -m uvicorn etc_sim.backend.main:app --host 0.0.0.0 --port 8000"
 
 REM Go to frontend directory
 cd /d "%~dp0frontend"

@@ -16,6 +16,7 @@ import { ScenariosPage } from './components/pages/ScenariosPage';
 import { WorkflowPage } from './components/pages/WorkflowPage';
 import { EvaluationPage } from './components/pages/EvaluationPage';
 import { RoadEditorPage } from './components/pages/RoadEditorPage';
+import { PredictBuilderPage } from './components/pages/PredictBuilderPage';
 import { RoadNetworkOverview } from './components/RoadNetworkOverview';
 import { SegmentInspector } from './components/SegmentInspector';
 import { MicroscopicInspector } from './components/MicroscopicInspector';
@@ -33,6 +34,7 @@ const NAV_ITEMS = [
   { path: '/workflow', icon: '🔀', label: '工作流编辑', labelEn: 'Workflow' },
   { path: '/editor', icon: '✏️', label: '路径编辑', labelEn: 'Editor' },
   { path: '/evaluation', icon: '📊', label: '评估面板', labelEn: 'Evaluation' },
+  { path: '/predict-builder', icon: '🧠', label: '预测工作台', labelEn: 'Predict Builder' },
 ];
 
 // 仿真主页面（原单页面内容）
@@ -214,6 +216,7 @@ function AnimatedRoutes() {
           <Route path="/workflow" element={<WorkflowPage />} />
           <Route path="/editor" element={<RoadEditorPage />} />
           <Route path="/evaluation" element={<EvaluationPage />} />
+          <Route path="/predict-builder" element={<PredictBuilderPage />} />
         </Routes>
       </motion.div>
     </AnimatePresence>
