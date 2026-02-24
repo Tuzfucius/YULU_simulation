@@ -53,6 +53,12 @@ docker-compose up -d
 
 Open http://localhost:3000
 
+## Documentation & Mechanics
+
+For detailed information on the underlying physical models (IDM/Wiedemann 99 & MOBIL), environmental impact factors (weather, gradients), and the anomaly propagation mechanics, please refer to the dedicated documentation:
+
+👉 [**Simulation Mechanics**](./etc_sim/docs/simulation_mechanics.md)
+
 ## Project Structure
 
 ```
@@ -205,6 +211,12 @@ docker-compose up -d
 ```
 
 访问 http://localhost:3000
+
+## 项目文档与运算机制
+
+项目深度模拟了真实世界的交通流动态变化。有关**跟驰模型 (IDM/Wiedemann 99)、换道模型 (MOBIL)、环境影响机制（天气、坡度）、异常车辆行为及其冲击传播机制**的具体参数设定与算法公式，请参阅专门的详细说明文档：
+
+👉 [**《交通流模拟运算与机制》 (Simulation Mechanics)**](./etc_sim/docs/simulation_mechanics.md)
 
 ## 项目结构
 
