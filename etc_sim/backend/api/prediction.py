@@ -74,6 +74,11 @@ def _load_ml_dataset_from_file(file_path: Path,
     with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
+    # 如果这个文件本身就是一个直接提取好的 ml_dataset 数据集 (格式为 {"metadata": {...}, "samples": [...]})
+    if "samples" in data and "metadata" in data and isinstance(data["samples"], list):
+        logger.info(f"识别到这是一个独立的特征数据集文件，直接加载 ({len(data['samples'])} samples)")
+        return data
+
     ml_dataset = data.get("ml_dataset", {})
     samples = ml_dataset.get("samples", [])
 
@@ -155,8 +160,7 @@ async def train_model(request: TrainingRequest):
         if not combined_samples:
             raise HTTPException(
                 status_code=400, 
-                detail="所选文件中未找到有效的 ml_dataset 特征库。"
-                       "请确认文件中包含 etc_detection.transactions 数据（需要重新跑一次仿真）。"
+                detail="所选文件中未提取出有效的机器学习特征样本。请确认仿真数据包含有效的路段统计数据，或尝试重新生成数据集。"
             )
             
         final_dataset = {
