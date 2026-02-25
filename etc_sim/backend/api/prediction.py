@@ -192,6 +192,34 @@ async def train_model(request: TrainingRequest):
             logger.warning(f"模型保存失败: {save_err}")
             model_id = None
 
+        # 4. 提取关联的仿真测试上下文以便前端绘图
+        all_speeds = []
+        all_anomalies = []
+        source_files = metadata.get("source_files", [])
+        # 如果是直接从源仿真文件训练而不是 dataset
+        if not source_files and any(RESULTS_DIR.rglob(fname) for fname in request.file_names):
+            source_files = request.file_names
+            
+        for sf in source_files:
+            sf_path = RESULTS_DIR / sf / "data.json"
+            if not sf_path.exists():
+                sf_path = RESULTS_DIR / sf
+            if not sf_path.exists():
+                found = list(RESULTS_DIR.rglob(sf))
+                sf_path = found[0] if found else None
+            
+            if sf_path and sf_path.exists():
+                try:
+                    with open(sf_path, "r", encoding="utf-8") as f:
+                        sg_data = json.load(f)
+                        all_speeds.extend(sg_data.get("segment_speed_history", []))
+                        all_anomalies.extend(sg_data.get("anomaly_logs", []))
+                except Exception as e:
+                    logger.warning(f"无法读取源测试上下文 {sf_path}: {e}")
+
+        # 将评价详情转换为前端要求的 predict_results 格式
+        predict_results = result["metrics"].pop("test_details", [])
+
         # 提取关键指标并返回
         return {
             "status": "success",
@@ -199,6 +227,11 @@ async def train_model(request: TrainingRequest):
             "feature_importances": result["feature_importance"],
             "trained_samples": result["samples_trained"],
             "model_id": model_id,
+            "test_context": {
+                "ground_truth_anomalies": all_anomalies,
+                "predict_results": predict_results,
+                "segment_speed_history": all_speeds
+            }
         }
         
     except HTTPException:
@@ -213,19 +246,25 @@ async def train_model(request: TrainingRequest):
 # ============================================
 
 class EvaluationRequest(BaseModel):
-    file_name: str
+    file_name: str   # 可以是 dataset 名或仿真结果目录名
 
 @router.post("/evaluate")
 async def evaluate_on_file(request: EvaluationRequest):
     """
-    使用当前已经训练在内存中的模型，对另一份完整的仿真结果进行预测和测算
+    使用当前已加载到内存中的模型，对指定数据集或仿真结果进行预测评估。
+    同时返回 test_context 以供前端渲染大屏图表。
     """
     global current_predictor
     if current_predictor.model is None:
-        raise HTTPException(status_code=400, detail="模型尚未训练，请先进行训练。")
+        raise HTTPException(status_code=400, detail="模型尚未加载，请先训练或导入模型。")
         
     try:
-        file_path = RESULTS_DIR / request.file_name
+        # 尝试查找文件：先从 datasets/ 查，再从 simulations/ 查
+        file_path = DATASETS_DIR / (request.file_name if request.file_name.endswith('.json') else request.file_name + '.json')
+        if not file_path.exists():
+            file_path = RESULTS_DIR / request.file_name / "data.json"
+        if not file_path.exists():
+            file_path = RESULTS_DIR / request.file_name
         if not file_path.exists():
             found = list(RESULTS_DIR.rglob(request.file_name))
             file_path = found[0] if found else None
@@ -242,9 +281,45 @@ async def evaluate_on_file(request: EvaluationRequest):
             
         eval_result = current_predictor.evaluate_raw(X, y, info)
         
+        # 提取 test_context 用于前端大屏图表
+        predict_results = eval_result.pop("test_details", [])
+        
+        # 尝试获取源仿真的速度历史和异常日志
+        all_speeds = []
+        all_anomalies = []
+        metadata = ml_dataset.get("metadata", {})
+        source_files = metadata.get("source_files", [])
+        if not source_files:
+            source_files = [request.file_name]
+        
+        for sf in source_files:
+            sf_path = RESULTS_DIR / sf / "data.json"
+            if not sf_path.exists():
+                sf_path = RESULTS_DIR / sf
+            if not sf_path.exists():
+                found = list(RESULTS_DIR.rglob(sf))
+                sf_path = found[0] if found else None
+            if sf_path and sf_path.exists():
+                try:
+                    with open(sf_path, "r", encoding="utf-8") as f:
+                        sg_data = json.load(f)
+                        all_speeds.extend(sg_data.get("segment_speed_history", []))
+                        all_anomalies.extend(sg_data.get("anomaly_logs", []))
+                except Exception:
+                    pass
+        
         return {
             "status": "success",
-            "metrics": eval_result
+            "metrics": eval_result,
+            "feature_importances": dict(zip(
+                metadata.get("features", metadata.get("feature_names", [])),
+                current_predictor.model.feature_importances_.tolist()
+            )) if hasattr(current_predictor.model, 'feature_importances_') else {},
+            "test_context": {
+                "ground_truth_anomalies": all_anomalies,
+                "predict_results": predict_results,
+                "segment_speed_history": all_speeds
+            }
         }
         
     except HTTPException:
@@ -387,8 +462,7 @@ async def extract_dataset(request: ExtractDatasetRequest):
         if not combined_samples:
             raise HTTPException(
                 status_code=400,
-                detail="所选文件中未能提取有效的 ml_dataset 特征库。"
-                       "请确认历史文件中包含 etc_detection.transactions 数据。"
+                detail="所选文件中未能提取有效的机器学习特征样本。请确认历史文件中包含足够的流量历史数据。"
             )
 
         # 生成数据集名称

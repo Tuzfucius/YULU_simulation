@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useI18nStore } from '../../stores/i18nStore';
-import { PredictionHeatmap } from '../charts/PredictionHeatmap';
+import { HeatmapChart } from '../charts/HeatmapChart';
+import { TimelineChart } from '../charts/TimelineChart';
+import { ResidualChart } from '../charts/ResidualChart';
+import { DriftChart } from '../charts/DriftChart';
 
 interface FileInfo {
     name: string;
@@ -83,6 +86,15 @@ export function PredictBuilderPage() {
     const [loading, setLoading] = useState(false);
     const [trainingResult, setTrainingResult] = useState<any>(null);
 
+    // Section B2: 已保存模型导入 + 评估
+    interface ModelInfo { model_id: string; filename: string; size: number; created_at: number; }
+    const [savedModels, setSavedModels] = useState<ModelInfo[]>([]);
+    const [selectedModel, setSelectedModel] = useState('');
+    const [loadingModel, setLoadingModel] = useState(false);
+    const [loadedModelId, setLoadedModelId] = useState<string | null>(null);
+    const [evalDataset, setEvalDataset] = useState('');
+    const [evaluating, setEvaluating] = useState(false);
+
     // 获取历史仿真文件列表
     useEffect(() => {
         setFetchError(null);
@@ -100,6 +112,15 @@ export function PredictBuilderPage() {
             .catch(() => { });
     };
     useEffect(() => { refreshDatasets(); }, []);
+
+    // 获取已保存模型列表
+    const refreshModels = () => {
+        fetch('/api/prediction/models')
+            .then(res => res.json())
+            .then(data => { if (data.models) setSavedModels(data.models); })
+            .catch(() => { });
+    };
+    useEffect(() => { refreshModels(); }, []);
 
     const toggleFile = (filePath: string) => {
         setSelectedFiles(prev =>
@@ -168,6 +189,46 @@ export function PredictBuilderPage() {
         } finally {
             setLoading(false);
         }
+    };
+
+    // 加载已保存的模型
+    const handleLoadModel = async () => {
+        if (!selectedModel) return;
+        setLoadingModel(true);
+        try {
+            const res = await fetch('/api/prediction/load', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model_id: selectedModel }),
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                setLoadedModelId(selectedModel);
+            } else {
+                alert(data.detail || '模型加载失败');
+            }
+        } catch { alert('网络错误'); }
+        finally { setLoadingModel(false); }
+    };
+
+    // 用已加载的模型对数据集进行评估
+    const handleEvaluate = async () => {
+        if (!loadedModelId || !evalDataset) return;
+        setEvaluating(true);
+        try {
+            const res = await fetch('/api/prediction/evaluate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file_name: evalDataset }),
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                setTrainingResult(data);
+            } else {
+                alert(data.detail || '评估失败');
+            }
+        } catch { alert('网络错误'); }
+        finally { setEvaluating(false); }
     };
 
     const formatSize = (bytes: number) => {
@@ -411,6 +472,76 @@ export function PredictBuilderPage() {
                                     {loading && <span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" />}
                                     {lang === 'zh' ? (loading ? '正在训练...' : '🚀 开始拟合训练') : (loading ? 'Training...' : '🚀 Start Training')}
                                 </button>
+
+                                {/* 分隔线 — 或者直接导入已有模型 */}
+                                <div className="flex items-center gap-3 mt-6 mb-2">
+                                    <div className="flex-1 h-px bg-[var(--glass-border)]" />
+                                    <span className="text-xs text-[var(--text-muted)]">{lang === 'zh' ? '或导入已训练模型' : 'Or load saved model'}</span>
+                                    <div className="flex-1 h-px bg-[var(--glass-border)]" />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm text-[var(--text-secondary)] mb-1">
+                                        {lang === 'zh' ? '选择已保存模型' : 'Select Saved Model'}
+                                    </label>
+                                    <select
+                                        value={selectedModel}
+                                        onChange={(e) => { setSelectedModel(e.target.value); setLoadedModelId(null); }}
+                                        className="w-full bg-[rgba(0,0,0,0.2)] border border-[var(--glass-border)] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[var(--accent-purple)]"
+                                    >
+                                        <option value="">{lang === 'zh' ? '-- 无已保存模型 --' : '-- No saved models --'}</option>
+                                        {savedModels.map(m => (
+                                            <option key={m.model_id} value={m.model_id}>
+                                                📦 {m.model_id} ({formatSize(m.size)})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <button
+                                    onClick={handleLoadModel}
+                                    disabled={loadingModel || !selectedModel}
+                                    className="w-full py-2 bg-[var(--accent-purple)] text-white rounded-md text-sm font-medium hover:bg-purple-600 disabled:opacity-50 transition-all flex justify-center items-center gap-2"
+                                >
+                                    {loadingModel && <span className="animate-spin inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full" />}
+                                    {lang === 'zh' ? (loadingModel ? '正在加载...' : '📥 将模型加载到内存') : (loadingModel ? 'Loading...' : '📥 Load Model')}
+                                </button>
+
+                                {loadedModelId && (
+                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-xs text-green-400 bg-green-400/10 border border-green-400/30 rounded-md px-3 py-2">
+                                        ✅ 模型 <span className="font-mono">{loadedModelId}</span> 已就绪
+                                    </motion.div>
+                                )}
+
+                                {loadedModelId && (
+                                    <>
+                                        <div>
+                                            <label className="block text-sm text-[var(--text-secondary)] mb-1">
+                                                {lang === 'zh' ? '选择评估数据集' : 'Select Eval Dataset'}
+                                            </label>
+                                            <select
+                                                value={evalDataset}
+                                                onChange={(e) => setEvalDataset(e.target.value)}
+                                                className="w-full bg-[rgba(0,0,0,0.2)] border border-[var(--glass-border)] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[var(--accent-purple)]"
+                                            >
+                                                <option value="">{lang === 'zh' ? '-- 选择数据集 --' : '-- Select --'}</option>
+                                                {datasets.map(ds => (
+                                                    <option key={ds.name} value={ds.name}>
+                                                        📊 {ds.name} ({ds.meta?.total_samples || 0} 样本)
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <button
+                                            onClick={handleEvaluate}
+                                            disabled={evaluating || !evalDataset}
+                                            className="w-full py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-md text-sm font-medium hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 transition-all flex justify-center items-center gap-2"
+                                        >
+                                            {evaluating && <span className="animate-spin inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full" />}
+                                            {lang === 'zh' ? (evaluating ? '评估中...' : '🔍 运行评估') : (evaluating ? 'Evaluating...' : '🔍 Run Evaluation')}
+                                        </button>
+                                    </>
+                                )}
                             </div>
 
                             {/* 训练结果面板 */}
@@ -479,13 +610,90 @@ export function PredictBuilderPage() {
                             <span className="text-[var(--accent-red)]">■</span>
                             {lang === 'zh' ? 'C. 交互式评测大屏 (Evaluation Dashboard)' : 'C. Evaluation Dashboard'}
                         </h2>
-                        <div className="h-[400px] border border-[var(--glass-border)] rounded-lg bg-[rgba(0,0,0,0.1)] relative">
-                            {!trainingResult || !trainingResult.metrics?.test_details ? (
-                                <div className="absolute inset-0 flex items-center justify-center text-[var(--text-muted)]">
-                                    {lang === 'zh' ? '训练完成后渲染测试集验证结果...' : 'Waiting for test set validation results...'}
+                        <div className="flex flex-col gap-6">
+                            {!trainingResult || !trainingResult.test_context ? (
+                                <div className="h-[400px] border border-[var(--glass-border)] rounded-lg bg-[rgba(0,0,0,0.1)] flex items-center justify-center text-[var(--text-muted)]">
+                                    {lang === 'zh' ? '训练完成后渲染多维交互式结果...' : 'Waiting for multidimensional validation results...'}
                                 </div>
                             ) : (
-                                <PredictionHeatmap data={trainingResult.metrics.test_details} />
+                                (() => {
+                                    const { predict_results, ground_truth_anomalies, segment_speed_history } = trainingResult.test_context;
+
+                                    // 组装时间线
+                                    const timelineAlerts = predict_results.filter((p: any) => p.y_pred > 0).map((p: any) => ({
+                                        timestamp: p.timestamp, label: `预警: ${p.target_segment}`, type: 'alert', severity: p.y_pred === 3 ? 'critical' : 'medium'
+                                    }));
+                                    const timelineTruths = ground_truth_anomalies.map((gt: any) => ({
+                                        timestamp: gt.time, label: `真实异常 (类型 ${gt.type})`, type: 'truth'
+                                    }));
+
+                                    // 组装热力图 (预警分布)
+                                    const heatmapData = predict_results.map((p: any) => {
+                                        const match = p.target_segment.match(/\d+/g);
+                                        const pos = match ? parseInt(match[0], 10) : 0;
+                                        return { position: pos, time: Math.floor(p.timestamp / 60), intensity: p.y_pred ? (p.y_pred / 3) : 0 };
+                                    });
+
+                                    // 计算总体评价指标中的详细真假阳性
+                                    const confMatrix = trainingResult.metrics.confusion_matrix || [[0, 0], [0, 0]];
+                                    // 由于是多分类，简化取类总和（除对角线外的均视为误差等）
+                                    // 下面仅用来配合原有展示的占位变量，原预测工作台已在 B 区展示了宏观 P/R/F1
+
+                                    return (
+                                        <div className="space-y-6">
+                                            {/* 图表组 1：宏观时空评估 */}
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="rounded-xl border border-[var(--glass-border)] bg-[rgba(0,0,0,0.15)] p-4">
+                                                    <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2">
+                                                        <span>🗺️</span> 预警分布热力图
+                                                    </h3>
+                                                    <HeatmapChart
+                                                        data={heatmapData}
+                                                        maxPosition={6}
+                                                        timeBins={15}
+                                                        width={520}
+                                                        height={230}
+                                                        title=""
+                                                    />
+                                                </div>
+                                                <div className="rounded-xl border border-[var(--glass-border)] bg-[rgba(0,0,0,0.15)] p-4">
+                                                    <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2">
+                                                        <span>📈</span> 动作事件时间轴
+                                                    </h3>
+                                                    <TimelineChart
+                                                        alerts={timelineAlerts}
+                                                        truths={timelineTruths}
+                                                        duration={900}
+                                                        width={520}
+                                                        height={230}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* 图表组 2：微观差距分析 */}
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="rounded-xl border border-[var(--glass-border)] bg-[rgba(0,0,0,0.15)] p-4">
+                                                    <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2">
+                                                        <span>🔬</span> 残差拟合验证 (Residual Curve)
+                                                    </h3>
+                                                    <ResidualChart
+                                                        speedHistory={segment_speed_history}
+                                                        predictResults={predict_results}
+                                                    />
+                                                </div>
+                                                <div className="rounded-xl border border-[var(--glass-border)] bg-[rgba(0,0,0,0.15)] p-4">
+                                                    <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2">
+                                                        <span>🎯</span> 时空错位象限 (Drift Scatter)
+                                                    </h3>
+                                                    <DriftChart
+                                                        groundTruths={ground_truth_anomalies}
+                                                        predictResults={predict_results}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })()
                             )}
                         </div>
                     </section>

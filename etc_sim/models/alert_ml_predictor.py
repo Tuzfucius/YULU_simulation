@@ -158,7 +158,7 @@ class TimeSeriesPredictor:
             "recall_macro": float(np.mean(recall)),
             "f1_macro": float(np.mean(f1)),
             "confusion_matrix": conf_mat,
-            "classes": self.classes_,
+            "classes": [int(c) for c in self.classes_],
             # 带上详细的测试样本对战供前端呈现热力图或错报图
             "test_details": [
                 {
@@ -227,6 +227,6 @@ class TimeSeriesPredictor:
         self.feature_names = payload['feature_names']
         self.window_size = payload['window_size']
         self.num_features_per_step = payload['num_features_per_step']
-        self.classes_ = payload['classes_']
+        self.classes_ = [int(c) for c in payload['classes_']]
         logger.info(f"Model loaded from {filepath}")
 

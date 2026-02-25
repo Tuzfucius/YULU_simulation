@@ -14,7 +14,6 @@ import { ReplayPage } from './components/pages/ReplayPage';
 import { DashboardPage } from './components/pages/DashboardPage';
 import { ScenariosPage } from './components/pages/ScenariosPage';
 import { WorkflowPage } from './components/pages/WorkflowPage';
-import { EvaluationPage } from './components/pages/EvaluationPage';
 import { RoadEditorPage } from './components/pages/RoadEditorPage';
 import { PredictBuilderPage } from './components/pages/PredictBuilderPage';
 import { RoadNetworkOverview } from './components/RoadNetworkOverview';
@@ -33,8 +32,7 @@ const NAV_ITEMS = [
   { path: '/scenarios', icon: '🧪', label: '场景模板', labelEn: 'Scenarios' },
   { path: '/workflow', icon: '🔀', label: '工作流编辑', labelEn: 'Workflow' },
   { path: '/editor', icon: '✏️', label: '路径编辑', labelEn: 'Editor' },
-  { path: '/evaluation', icon: '📊', label: '评估面板', labelEn: 'Evaluation' },
-  { path: '/predict-builder', icon: '🧠', label: '预测工作台', labelEn: 'Predict Builder' },
+  { path: '/predict-builder', icon: '🧠', label: '时序预测工作台', labelEn: 'Predict Builder' },
 ];
 
 // 仿真主页面（原单页面内容）
@@ -215,7 +213,6 @@ function AnimatedRoutes() {
           <Route path="/scenarios" element={<ScenariosPage />} />
           <Route path="/workflow" element={<WorkflowPage />} />
           <Route path="/editor" element={<RoadEditorPage />} />
-          <Route path="/evaluation" element={<EvaluationPage />} />
           <Route path="/predict-builder" element={<PredictBuilderPage />} />
         </Routes>
       </motion.div>
