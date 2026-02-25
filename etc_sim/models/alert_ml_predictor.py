@@ -53,23 +53,25 @@ class TimeSeriesPredictor:
             if len(x_seq) != self.window_size:
                 continue # 数据维度不匹配，跳过
             
+            # 解析标签
+            y_label = None
+            y_seq = sample.get("Y_sequence", [])
+            if y_seq:
+                y_label = y_seq[-1]
+            elif "Y_label" in sample:
+                y_label = sample["Y_label"]
+            
+            if y_label is None:
+                continue
+                
             flat_x = self._flatten_sequence(x_seq)
             X_list.append(flat_x)
-            
-            # 解析标签 (Seq2Seq时, 树模型目前取 sequence 最后一个时刻的状态预测作为主标签)
-            y_seq = sample.get("Y_sequence", [])
-            if not y_seq:
-                continue
-            
-            # TODO: 对于真正的 Seq2Seq 输出，需要多输出树或深度模型(LSTM)。
-            # 当前基于 sklearn 的 Baseline，预测当前最后一步的 Y: y_seq[-1]
-            y_label = y_seq[-1] 
             y_list.append(y_label)
             
             info_list.append({
-                "sample_id": sample.get("sample_id"),
-                "timestamp": sample.get("timestamp"),
-                "target_segment": sample.get("target_segment"),
+                "sample_id": sample.get("sample_id", "unknown"),
+                "timestamp": sample.get("metadata", {}).get("time_end") or sample.get("timestamp"),
+                "target_segment": sample.get("metadata", {}).get("segment") or sample.get("target_segment"),
                 "y_seq": y_seq, # 完整真实序列保留作后续延迟分析
             })
 
@@ -111,7 +113,7 @@ class TimeSeriesPredictor:
         )
         
         self.model.fit(X_train, y_train)
-        self.classes_ = list(self.model.classes_)
+        self.classes_ = [int(x) for x in self.model.classes_]
 
         # 生成内部测试指标准备返回给前端
         evaluation_results = self.evaluate_raw(X_test, y_test, info_test)
