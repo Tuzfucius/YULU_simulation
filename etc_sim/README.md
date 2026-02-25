@@ -4,11 +4,29 @@
 
 ## 快速开始
 
-### 环境要求
-- **Node.js** 18+
-- **Python** 3.9+ (推荐使用带有 NumPy 1.x 的 Conda 环境)
+本项目包含了复杂的数值计算和机器学习依赖，推荐使用 **Conda** 构建纯净的虚拟环境予以隔离。我们在项目中提供了 `requirements.txt`。
 
-### Windows 用户
+### 1. 环境准备与依赖安装
+
+**① 创建并激活 Python 3.9 环境**
+```bash
+conda create -n low_numpy python=3.9 -y
+conda activate low_numpy
+```
+
+**② 安装后端核心依赖**
+```bash
+# 如果下载较慢，可追加 -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install -r requirements.txt
+```
+
+**③ Node.js 环境**
+确保你的系统已安装了 **Node.js (v18+)**。
+
+### 2. 项目启动
+
+#### Windows 一键启动
+本项目提供了一个一键启动脚本 `start.bat`，它会自动唤起 `low_numpy` 环境启动后端，并自动安装前台依赖及运行。
 ```batch
 双击运行 start.bat
 ```

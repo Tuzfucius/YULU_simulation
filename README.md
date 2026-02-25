@@ -16,6 +16,9 @@ A highway traffic simulation system based on IDM (Intelligent Driver Model) and 
 
 ## Quick Start
 
+> **Important**: This project involves complex machine learning and data processing dependencies. For detailed, step-by-step environment setup instructions (including **Conda** virtual environment creation and package installation), please refer to the dedicated deployment guide:
+> 👉 [**ETC Simulation Deployment & Environment Guide (etc_sim/README.md)**](./etc_sim/README.md)
+
 ### Option 1: Use One-Click Launcher (Recommended)
 
 ```bash
@@ -176,6 +179,10 @@ MIT
 | 可视化 | 11 种交互式图表及数据导出 |
 
 ## 快速开始
+
+> **重要提示**：本项目包含了复杂的数值计算和机器学习依赖模块，推荐使用 **Conda** 构建纯净的虚拟环境予以隔离。
+> 关于**如何从零构建 Conda 虚拟环境**以及详细的前后端架构依赖部署指引，请务必参阅子项目目录下的专属部署文档：
+> 👉 [**《ETC 仿真系统详细部署与环境搭建指南》 (etc_sim/README.md)**](./etc_sim/README.md)
 
 ### 方式 1: 使用一键启动脚本 (推荐)
 
