@@ -22,6 +22,10 @@ REM Activate low_numpy environment and start Backend
 echo [START] Starting Backend Service (env: low_numpy)...
 start "ETC Backend" cmd /k "cd /d %~dp0.. && conda run --no-capture-output -n low_numpy python -m uvicorn etc_sim.backend.main:app --host 0.0.0.0 --port 8000"
 
+REM Wait for backend to initialize (5 seconds)
+echo [WAIT] Waiting for backend to initialize (5s)...
+timeout /t 5 /nobreak > nul
+
 REM Go to frontend directory
 cd /d "%~dp0frontend"
 

@@ -60,15 +60,15 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
 
     useEffect(() => {
         fetch('/api/road-network/templates')
-            .then(res => res.json())
+            .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
             .then(setTemplates)
-            .catch(console.error);
+            .catch(err => console.warn('Failed to fetch templates (backend may be starting):', err));
 
         // Fetch custom files
         fetch('/api/custom-roads/')
-            .then(res => res.json())
+            .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
             .then((files: any[]) => setCustomFiles(files.map(f => f.filename)))
-            .catch(console.error);
+            .catch(err => console.warn('Failed to fetch custom roads:', err));
     }, []);
 
     useEffect(() => {
@@ -77,7 +77,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
 
     const updateConfig = async () => {
         try {
-            await fetch('/api/road-network/current', {
+            const res = await fetch('/api/road-network/current', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -87,8 +87,10 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
                     custom_file_path: selectedTemplate === 'custom' ? config.custom_file_path : null
                 })
             });
+            if (!res.ok) throw new Error(`Failed to update config: ${res.statusText}`);
 
             const previewRes = await fetch('/api/road-network/preview');
+            if (!previewRes.ok) throw new Error(`Failed to fetch preview: ${previewRes.statusText}`);
             const previewData = await previewRes.json();
             setPreview(previewData);
 

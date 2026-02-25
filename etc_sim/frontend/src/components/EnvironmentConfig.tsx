@@ -48,9 +48,9 @@ export const EnvironmentConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
   useEffect(() => {
     // 加载天气类型
     fetch('/api/environment/weather-types')
-      .then(res => res.json())
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(data => setWeatherTypes(data))
-      .catch(console.error);
+      .catch(err => console.warn('Failed to fetch weather types:', err));
   }, []);
 
   const handleWeatherChange = async (type: string) => {
