@@ -35,7 +35,8 @@ current_predictor = TimeSeriesPredictor()
 def _rebuild_ml_dataset(data: dict, 
                         step_seconds: float = 60.0, 
                         window_size_steps: int = 5,
-                        extra_features: List[str] = None) -> dict:
+                        extra_features: List[str] = None,
+                        custom_expressions: List[str] = None) -> dict:
     """
     从已保存的仿真结果 JSON 中重建 ml_dataset。
     利用前端导出的 segment_speed_history。
@@ -57,7 +58,8 @@ def _rebuild_ml_dataset(data: dict,
         segment_speed_history=segment_speed_history,
         anomaly_logs=anomaly_logs,
         config=config,
-        run_id="rebuilt"
+        run_id="rebuilt",
+        custom_expressions=custom_expressions
     )
     return dataset
 
@@ -66,7 +68,8 @@ def _load_ml_dataset_from_file(file_path: Path,
                                 step_seconds: float = 60.0,
                                 window_size_steps: int = 5,
                                 extra_features: List[str] = None,
-                                force_rebuild: bool = False) -> dict:
+                                force_rebuild: bool = False,
+                                custom_expressions: List[str] = None) -> dict:
     """
     从仿真结果 JSON 文件中加载或重建 ml_dataset。
     如果用户指定了自定义参数或额外特征，则强制重建。
@@ -83,7 +86,7 @@ def _load_ml_dataset_from_file(file_path: Path,
     samples = ml_dataset.get("samples", [])
 
     # 如果用户指定了自定义参数，强制重建
-    has_custom_params = (step_seconds != 60.0 or window_size_steps != 5 or bool(extra_features))
+    has_custom_params = (step_seconds != 60.0 or window_size_steps != 5 or bool(extra_features) or bool(custom_expressions))
     
     if samples and not has_custom_params and not force_rebuild:
         logger.info(f"直接使用已有 ml_dataset ({len(samples)} samples)")
@@ -92,7 +95,7 @@ def _load_ml_dataset_from_file(file_path: Path,
     # 需要重建
     reason = "自定义参数" if has_custom_params else ("缺少ml_dataset" if not samples else "强制重建")
     logger.info(f"正在重建 ml_dataset (原因: {reason})...")
-    ml_dataset = _rebuild_ml_dataset(data, step_seconds, window_size_steps, extra_features)
+    ml_dataset = _rebuild_ml_dataset(data, step_seconds, window_size_steps, extra_features, custom_expressions)
     rebuilt_samples = ml_dataset.get("samples", [])
 
     # 仅在默认参数且成功时回写缓存
@@ -182,12 +185,35 @@ async def train_model(request: TrainingRequest):
         if result.get("status") == "error":
              raise HTTPException(status_code=400, detail=result.get("message"))
         
-        # 3. 自动保存模型
-        model_id = f"model_{len(list(MODELS_DIR.glob('*.joblib'))) + 1}"
+        # 3. 自动保存模型（规范化命名 + meta.json 伴生）
+        from datetime import datetime
+        ds_stem = request.file_names[0].replace('.json', '') if request.file_names else 'unknown'
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        model_id = f"rf_{ds_stem}_{ts}"
         model_path = MODELS_DIR / f"{model_id}.joblib"
         try:
             current_predictor.save_model(str(model_path))
-            logger.info(f"模型已保存: {model_path}")
+            # 生成元数据伴生文件
+            meta = {
+                "model_id": model_id,
+                "created_at": datetime.now().isoformat(),
+                "source_datasets": request.file_names,
+                "source_simulations": source_files,
+                "model_type": request.model_type,
+                "hyperparameters": request.hyperparameters,
+                "metrics": {
+                    "accuracy": result["metrics"].get("accuracy"),
+                    "f1_macro": result["metrics"].get("f1_macro"),
+                    "precision_macro": result["metrics"].get("precision_macro"),
+                    "recall_macro": result["metrics"].get("recall_macro"),
+                },
+                "trained_samples": result["samples_trained"],
+                "validated_samples": result["samples_validated"],
+            }
+            meta_path = MODELS_DIR / f"{model_id}.meta.json"
+            with open(meta_path, "w", encoding="utf-8") as mf:
+                json.dump(meta, mf, indent=2, ensure_ascii=False)
+            logger.info(f"模型已保存: {model_path} (元数据: {meta_path})")
         except Exception as save_err:
             logger.warning(f"模型保存失败: {save_err}")
             model_id = None
@@ -335,16 +361,26 @@ async def evaluate_on_file(request: EvaluationRequest):
 
 @router.get("/models")
 async def list_models():
-    """列出所有已保存的模型"""
+    """列出所有已保存的模型，并读取伴生的 .meta.json 提供溯源信息"""
     models = []
-    for f in sorted(MODELS_DIR.glob("*.joblib")):
+    for f in sorted(MODELS_DIR.glob("*.joblib"), reverse=True):
         stat = f.stat()
-        models.append({
+        entry = {
             "model_id": f.stem,
             "filename": f.name,
             "size": stat.st_size,
             "created_at": stat.st_mtime,
-        })
+            "meta": None,
+        }
+        # 尝试读取元数据
+        meta_path = MODELS_DIR / f"{f.stem}.meta.json"
+        if meta_path.exists():
+            try:
+                with open(meta_path, "r", encoding="utf-8") as mf:
+                    entry["meta"] = json.load(mf)
+            except Exception:
+                pass
+        models.append(entry)
     return {"models": models}
 
 
@@ -426,6 +462,7 @@ class ExtractDatasetRequest(BaseModel):
     step_seconds: float = 60.0
     window_size_steps: int = 5
     selected_features: List[str] = []
+    custom_expressions: List[str] = []  # 用户自定义的派生特征表达式
 
 @router.post("/extract-dataset")
 async def extract_dataset(request: ExtractDatasetRequest):
@@ -453,6 +490,7 @@ async def extract_dataset(request: ExtractDatasetRequest):
                 window_size_steps=request.window_size_steps,
                 extra_features=request.selected_features or None,
                 force_rebuild=True,  # 提取时总是重建
+                custom_expressions=request.custom_expressions or None,
             )
 
             if not metadata and ml_dataset.get("metadata"):

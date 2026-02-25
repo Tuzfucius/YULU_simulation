@@ -262,7 +262,8 @@ class TimeSeriesFeatureExtractor:
                                    segment_speed_history: List[Dict[str, Any]], 
                                    anomaly_logs: List[Dict[str, Any]],
                                    config: Dict[str, Any],
-                                   run_id: str = "default_run") -> Dict[str, Any]:
+                                   run_id: str = "default_run",
+                                   custom_expressions: List[str] = None) -> Dict[str, Any]:
         """
         [新版] 直接利用前端引擎导出的 segment_speed_history 生成时空图特征序列。
         彻底代替依赖门架交易记录的旧方法。
@@ -314,6 +315,42 @@ class TimeSeriesFeatureExtractor:
         for ef in self.extra_features:
             if ef in self.EXTRA_FEATURES:
                 feature_cols.append(ef)
+
+        # 2.5 执行用户自定义派生特征表达式
+        custom_cols = []
+        if custom_expressions:
+            for expr in custom_expressions:
+                expr = expr.strip()
+                if not expr or '=' not in expr:
+                    continue
+                col_name, formula = expr.split('=', 1)
+                col_name = col_name.strip()
+                formula = formula.strip()
+                try:
+                    # 逐路段分组计算，这样 .shift() 和 .diff() 不会跨路段
+                    results = []
+                    for seg, grp in df_features.groupby('segment'):
+                        local_ns = {
+                            'avg_speed': grp['avg_speed'],
+                            'flow': grp['flow'],
+                            'density': grp['density'],
+                            'np': np, 'pd': pd,
+                        }
+                        for f in feature_cols:
+                            if f not in local_ns:
+                                local_ns[f] = grp[f]
+                        val = eval(formula, {"__builtins__": {}}, local_ns)
+                        grp = grp.copy()
+                        grp[col_name] = val
+                        results.append(grp)
+                    df_features = pd.concat(results, ignore_index=True)
+                    df_features[col_name] = df_features[col_name].fillna(0)
+                    custom_cols.append(col_name)
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"自定义表达式执行失败 '{expr}': {e}")
+        
+        feature_cols.extend(custom_cols)
                 
         # 3. 构造标注 Y (基于 anomaly_logs)
         gt_active_intervals = []
