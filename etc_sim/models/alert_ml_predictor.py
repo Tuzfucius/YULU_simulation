@@ -190,3 +190,41 @@ class TimeSeriesPredictor:
             "confidences": confidence_dict,
             "main_confidence": confidence_dict.get(pred_class, 0.0)
         }
+
+    def save_model(self, filepath: str):
+        """
+        保存模型到磁盘 (使用 joblib 序列化)
+        
+        Args:
+            filepath: 保存路径 (建议 .joblib 后缀)
+        """
+        import joblib
+        if self.model is None:
+            raise ValueError("No model to save. Please train first.")
+        
+        payload = {
+            'model': self.model,
+            'feature_names': self.feature_names,
+            'window_size': self.window_size,
+            'num_features_per_step': self.num_features_per_step,
+            'classes_': self.classes_,
+        }
+        joblib.dump(payload, filepath)
+        logger.info(f"Model saved to {filepath}")
+
+    def load_model(self, filepath: str):
+        """
+        从磁盘加载模型
+        
+        Args:
+            filepath: 模型文件路径
+        """
+        import joblib
+        payload = joblib.load(filepath)
+        self.model = payload['model']
+        self.feature_names = payload['feature_names']
+        self.window_size = payload['window_size']
+        self.num_features_per_step = payload['num_features_per_step']
+        self.classes_ = payload['classes_']
+        logger.info(f"Model loaded from {filepath}")
+

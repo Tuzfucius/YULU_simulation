@@ -13,15 +13,23 @@ class TimeSeriesFeatureExtractor:
     时序特征切片引擎
     将原始 ETC 流水按给定步长积分并提取衍生特征，最后配合 ground_truths 生成 seq2seq 数据集。
     """
+    # 所有可用特征定义
+    BASE_FEATURES = ['delta_t_mean', 'delta_t_std', 'avg_speed_out', 'flow_in', 'flow_out', 'flow_ratio']
+    EXTRA_FEATURES = ['speed_variance', 'occupancy', 'headway_mean']
+    ALL_FEATURES = BASE_FEATURES + EXTRA_FEATURES
+
     def __init__(self, 
                  step_seconds: float = 60.0, 
-                 window_size_steps: int = 5):
+                 window_size_steps: int = 5,
+                 extra_features: List[str] = None):
         """
         :param step_seconds: 切分步长 (如 60s)
         :param window_size_steps: 时间窗大小 (如 5，即包含过去的 5 步)
+        :param extra_features: 额外启用的特征列表, 可选: speed_variance, occupancy, headway_mean
         """
         self.step_seconds = step_seconds
         self.window_size_steps = window_size_steps
+        self.extra_features = extra_features or []
 
     def _pair_transactions(self, transactions: List[ETCTransaction]) -> pd.DataFrame:
         """
@@ -112,6 +120,30 @@ class TimeSeriesFeatureExtractor:
             stats['delta_t_mean'] = stats['delta_t_mean'].ffill().fillna(-1)
             stats['delta_t_std'] = stats['delta_t_std'].fillna(0)
             
+            # ===== 可选扩展特征 =====
+            if 'speed_variance' in self.extra_features:
+                # 区间速度方差 (反映速度离散程度，越大说明交通流越不稳定)
+                speed_var = seg_paired.groupby('time_bin', observed=False).agg(
+                    speed_variance=('speed_kmh', 'var')
+                ).reset_index()
+                stats = pd.merge(stats, speed_var, on='time_bin', how='left')
+                stats['speed_variance'] = stats['speed_variance'].fillna(0)
+            
+            if 'occupancy' in self.extra_features:
+                # 区间占有率估算 (车辆数 × 平均车长 / 区间长度)
+                avg_vehicle_length_km = 0.005  # 约5米
+                seg_length_km = abs(seg_paired['distance_km'].iloc[0]) if len(seg_paired) > 0 else 2.0
+                stats['occupancy'] = (stats['flow_out'] * avg_vehicle_length_km / max(seg_length_km, 0.1)).clip(0, 1)
+            
+            if 'headway_mean' in self.extra_features:
+                # 平均车头时距 (秒)，反映车辆间距紧密程度
+                headway = seg_paired.groupby('time_bin', observed=False).apply(
+                    lambda g: g['timestamp'].diff().mean() if len(g) > 1 else self.step_seconds,
+                    include_groups=False
+                ).reset_index(name='headway_mean')
+                stats = pd.merge(stats, headway, on='time_bin', how='left')
+                stats['headway_mean'] = stats['headway_mean'].fillna(self.step_seconds)
+            
             all_features.append(stats)
             
         if not all_features:
@@ -133,8 +165,11 @@ class TimeSeriesFeatureExtractor:
         if df_features.empty:
             return {"metadata": {}, "samples": []}
         
-        # 特征列定义
-        feature_cols = ['delta_t_mean', 'delta_t_std', 'avg_speed_out', 'flow_in', 'flow_out', 'flow_ratio']
+        # 特征列定义 (基础 + 用户选择的扩展特征)
+        feature_cols = list(self.BASE_FEATURES)
+        for ef in self.extra_features:
+            if ef in self.EXTRA_FEATURES:
+                feature_cols.append(ef)
         
         # 对 GroundTruth 建立索引便于快速查询
         gt_active_intervals = []

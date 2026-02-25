@@ -18,9 +18,9 @@ router = APIRouter()
 
 
 # 图表目录配置
-# BASE_DIR = etc_sim directory (e:\Project\yulu\etc_sim)
-BASE_DIR = Path(__file__).resolve().parents[2]
-OUTPUT_DIR = BASE_DIR / "output"
+# 统一数据根
+ETC_SIM_DIR = Path(__file__).resolve().parents[2]  # etc_sim/
+OUTPUT_DIR = ETC_SIM_DIR / "data" / "charts_output"
 CHARTS_DIR = OUTPUT_DIR / "charts"
 FAVORITES_DIR = OUTPUT_DIR / "favorites"
 
@@ -117,8 +117,8 @@ async def generate_charts(
     LATEST_BATCH_DIR = batch_dir
     
     # 4. 调用绘图脚本 (subprocess)
-    # Correct path to plotter.py: output_dir is etc_sim/output, so BASE_DIR is etc_sim
-    script_path = BASE_DIR / "backend" / "plotter.py"
+    # Correct path to plotter.py
+    script_path = ETC_SIM_DIR / "backend" / "plotter.py"
 
     # 尝试找到 low_numpy 环境的 python
     # 假设当前是 D:\Anaconda3\python.exe

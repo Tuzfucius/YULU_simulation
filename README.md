@@ -63,38 +63,42 @@ For detailed information on the underlying physical models (IDM/Wiedemann 99 & M
 
 ```
 etc_sim/
-├── data/                      # Persistent data storage
-│   ├── config/               # User configurations
-│   ├── results/              # Simulation results (JSON)
-│   ├── charts/               # Chart favorites
-│   └── layouts/              # Layout presets
+├── data/                          # 统一数据存储根目录
+│   ├── config/                   # 用户仿真参数配置 (JSON)
+│   ├── results/                  # 仿真结果 (含 ml_dataset)
+│   ├── datasets/                 # 已提取的训练数据集
+│   ├── models/                   # 已训练的 ML 模型 (.joblib)
+│   ├── road_map/                 # 自定义路网文件
+│   ├── charts/                   # 图表收藏
+│   ├── charts_output/            # 图表生成输出
+│   └── layouts/                  # 布局预设
 │
-├── frontend/                 # React + Vite frontend
-│   ├── src/
-│   │   ├── components/       # Reusable components
-│   │   ├── pages/          # Page components
-│   │   │   ├── ConfigPage.tsx    # Configuration
-│   │   │   ├── RunPage.tsx       # Simulation control
-│   │   │   ├── AnalysisPage.tsx  # 11 charts
-│   │   │   ├── ComparePage.tsx   # Result comparison
-│   │   │   ├── FavoritesPage.tsx # Chart favorites
-│   │   │   └── SettingsPage.tsx  # Settings
-│   │   ├── stores/         # Zustand state management
-│   │   ├── types/          # TypeScript definitions
-│   │   └── utils/          # Utility functions
-│   ├── Dockerfile
-│   └── package.json
+├── frontend/                     # React + Vite frontend
+│   └── src/
+│       ├── components/pages/     # 页面组件
+│       │   ├── SimControlPage    # 仿真控制
+│       │   ├── ReplayPage        # 俯视回放
+│       │   ├── AlertDashboard    # 预警仪表盘
+│       │   ├── ScenarioPage      # 场景模板
+│       │   ├── PredictBuilder    # 时序预测工作台
+│       │   └── ...
+│       └── stores/               # Zustand 状态管理
 │
-├── config/                  # Configuration modules
-├── core/                   # Core simulation engine
-├── models/                 # IDM, MOBIL, anomaly models
-├── road/                   # Road network
-├── simulation/             # Simulation engine
-├── utils/                  # Utility functions
-├── main.py                 # Python CLI entry point
-├── start.bat              # Windows launcher
-├── start.sh               # Linux/Mac launcher
-├── docker-compose.yml
+├── backend/                      # FastAPI 后端
+│   ├── api/                      # REST API 路由
+│   │   ├── prediction.py         # 预测/训练/数据集提取
+│   │   ├── files.py              # 文件浏览
+│   │   ├── charts.py             # 图表管理
+│   │   ├── custom_roads.py       # 路网编辑
+│   │   └── ...
+│   ├── core/                     # WebSocket 管理
+│   └── services/                 # 存储服务
+│
+├── simulation/                   # 仿真引擎 (IDM/MOBIL)
+├── models/                       # ML模型 (特征提取器/预测器)
+├── config/                       # 仿真参数模块
+├── road/                         # 路网模型
+├── start.bat                     # Windows 一键启动
 └── requirements.txt
 ```
 

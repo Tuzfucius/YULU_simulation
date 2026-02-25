@@ -551,6 +551,18 @@ class SimulationEngine:
                 'gate_stats': self.etc_detector.get_all_stats(),
                 'noise_events': self.etc_noise_events,
                 'noise_statistics': noise_stats,
+                'transactions': [
+                    {
+                        'vehicle_id': t.vehicle_id,
+                        'gate_id': t.gate_id,
+                        'gate_position_km': t.gate_position_km,
+                        'timestamp': t.timestamp,
+                        'lane': t.lane,
+                        'speed': t.speed,
+                        'status': t.status,
+                    }
+                    for t in self.etc_detector.transactions
+                ],
             },
             'environment': self.environment.get_status(),
             'rule_engine': {

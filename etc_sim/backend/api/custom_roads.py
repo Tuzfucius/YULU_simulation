@@ -20,7 +20,8 @@ router = APIRouter()
 #由于项目结构原因，我们需要定位到 output/road_map 目录
 # 假设 backend 在 etc_sim/backend，那么向上两级是 etc_sim，再平级是 output
 # 需要根据实际部署路径调整，这里使用相对路径推断
-BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "output" / "road_map"
+ETC_SIM_DIR = Path(__file__).resolve().parents[2]  # etc_sim/
+BASE_DIR = ETC_SIM_DIR / "data" / "road_map"
 
 # 确保目录存在
 if not BASE_DIR.exists():

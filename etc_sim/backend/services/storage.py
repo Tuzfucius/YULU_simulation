@@ -4,11 +4,26 @@
 
 import json
 import os
+import numpy as np
 from typing import Optional, Dict, Any
 from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """安全处理 numpy 类型的 JSON 编码器"""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        return super().default(obj)
 
 
 class StorageService:
@@ -78,7 +93,7 @@ class StorageService:
         }
         
         with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(results_data, f, indent=2, ensure_ascii=False)
+            json.dump(results_data, f, indent=2, ensure_ascii=False, cls=NumpyEncoder)
         
         return filepath
     

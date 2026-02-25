@@ -337,6 +337,19 @@ class WebSocketManager:
             results = engine.export_to_dict()
             stats = results.get('statistics', {})
             
+            # 持久化仿真结果到磁盘 (含 ml_dataset，供预测工作台训练使用)
+            saved_path = None
+            if self.storage_service:
+                sim_id = f"sim_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+                try:
+                    saved_path = self.storage_service.save_results(sim_id, results)
+                    logger.info(f"Simulation results saved to: {saved_path}")
+                    ml_samples = len(results.get('ml_dataset', {}).get('samples', []))
+                    await self._send_log(session, "INFO", f"仿真结果已保存: {sim_id}.json (ML样本数: {ml_samples})", "INFO")
+                except Exception as save_err:
+                    logger.error(f"Failed to save simulation results: {save_err}")
+                    await self._send_log(session, "WARN", f"仿真结果保存失败: {save_err}", "WARN")
+            
             session.is_running = False
             
             await self._send(session, {

@@ -22,10 +22,12 @@ import logging
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# 项目根目录
-PROJECT_ROOT = Path(__file__).resolve().parents[2]  # etc_sim 的上一级
-OUTPUT_DIR = PROJECT_ROOT / "output"
-SCRIPTS_DIR = PROJECT_ROOT / "etc_sim" / "scripts"
+# 统一数据根目录: etc_sim/data/
+ETC_SIM_DIR = Path(__file__).resolve().parents[2]   # etc_sim/
+DATA_ROOT = ETC_SIM_DIR / "data"
+OUTPUT_DIR = DATA_ROOT / "results"                  # 仿真结果
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+SCRIPTS_DIR = ETC_SIM_DIR / "scripts"
 
 
 # ============================================
