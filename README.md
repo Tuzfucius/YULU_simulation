@@ -65,13 +65,11 @@ For detailed information on the underlying physical models (IDM/Wiedemann 99 & M
 etc_sim/
 ├── data/                          # 统一数据存储根目录
 │   ├── config/                   # 用户仿真参数配置 (JSON)
-│   ├── results/                  # 仿真结果 (含 ml_dataset)
-│   ├── datasets/                 # 已提取的训练数据集
-│   ├── models/                   # 已训练的 ML 模型 (.joblib)
+│   ├── simulations/              # 每次仿真独立文件夹 (图表 + JSON数据)
+│   ├── datasets/                 # 机器学习: 提取的训练集
+│   ├── models/                   # 机器学习: 训练好的模型 (.joblib)
 │   ├── road_map/                 # 自定义路网文件
-│   ├── charts/                   # 图表收藏
-│   ├── charts_output/            # 图表生成输出
-│   └── layouts/                  # 布局预设
+│   └── layouts/                  # UI 布局预设
 │
 ├── frontend/                     # React + Vite frontend
 │   └── src/

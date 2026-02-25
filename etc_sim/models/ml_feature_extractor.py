@@ -14,7 +14,7 @@ class TimeSeriesFeatureExtractor:
     将原始 ETC 流水按给定步长积分并提取衍生特征，最后配合 ground_truths 生成 seq2seq 数据集。
     """
     # 所有可用特征定义
-    BASE_FEATURES = ['delta_t_mean', 'delta_t_std', 'avg_speed_out', 'flow_in', 'flow_out', 'flow_ratio']
+    BASE_FEATURES = ['flow', 'density', 'avg_speed']
     EXTRA_FEATURES = ['speed_variance', 'occupancy', 'headway_mean']
     ALL_FEATURES = BASE_FEATURES + EXTRA_FEATURES
 
@@ -257,3 +257,112 @@ class TimeSeriesFeatureExtractor:
             "samples": samples
         }
         return dataset
+
+    def build_dataset_from_history(self, 
+                                   segment_speed_history: List[Dict[str, Any]], 
+                                   anomaly_logs: List[Dict[str, Any]],
+                                   config: Dict[str, Any],
+                                   run_id: str = "default_run") -> Dict[str, Any]:
+        """
+        [新版] 直接利用前端引擎导出的 segment_speed_history 生成时空图特征序列。
+        彻底代替依赖门架交易记录的旧方法。
+        """
+        if not segment_speed_history:
+            return {"metadata": {}, "samples": []}
+            
+        df_raw = pd.DataFrame(segment_speed_history)
+        if 'time' not in df_raw.columns or 'segment' not in df_raw.columns:
+            return {"metadata": {}, "samples": []}
+            
+        # 1. 按照 step_seconds 重采样合并
+        df_raw['time_bin'] = (df_raw['time'] // self.step_seconds) * self.step_seconds
+        
+        df_grouped = df_raw.groupby(['segment', 'time_bin']).agg(
+            flow=('flow', 'mean'),             
+            density=('density', 'mean'),
+            avg_speed=('avg_speed', 'mean'),
+            vehicle_count_mean=('vehicle_count', 'mean')
+        ).reset_index()
+        
+        # 补全可能缺失的时序
+        all_features = []
+        for seg, group in df_grouped.groupby('segment'):
+            min_t, max_t = group['time_bin'].min(), group['time_bin'].max()
+            full_idx = pd.DataFrame({'time_bin': np.arange(min_t, max_t + self.step_seconds, self.step_seconds)})
+            merged = pd.merge(full_idx, group, on='time_bin', how='left')
+            merged['segment'] = seg
+            merged = merged.ffill().fillna(0)
+            all_features.append(merged)
+            
+        if not all_features:
+            return {"metadata": {}, "samples": []}
+            
+        df_features = pd.concat(all_features, ignore_index=True)
+        
+        # 2. 计算用户勾选的附加特征
+        if 'speed_variance' in self.extra_features:
+            df_features['speed_variance'] = df_features.groupby('segment')['avg_speed'].diff().abs().fillna(0)
+            
+        if 'occupancy' in self.extra_features:
+            max_density = config.get('num_lanes', 4) * 100
+            df_features['occupancy'] = (df_features['density'] / max_density).clip(0, 1)
+            
+        if 'headway_mean' in self.extra_features:
+            df_features['headway_mean'] = df_features['flow'].apply(lambda q: 3600 / max(q, 1))
+
+        feature_cols = list(self.BASE_FEATURES)
+        for ef in self.extra_features:
+            if ef in self.EXTRA_FEATURES:
+                feature_cols.append(ef)
+                
+        # 3. 构造标注 Y (基于 anomaly_logs)
+        gt_active_intervals = []
+        for log in anomaly_logs:
+            trigger_t = log.get('time', 0)
+            end_t = trigger_t + 600
+            gt_active_intervals.append({
+                'start': trigger_t,
+                'end': end_t,
+                'segment': log.get('segment', 0),
+                'type': log.get('type', 1)
+            })
+            
+        samples = []
+        
+        # 4. 滑动窗口切割序列
+        for seg, group in df_features.groupby('segment'):
+            group = group.sort_values('time_bin').reset_index(drop=True)
+            
+            for i in range(self.window_size_steps, len(group) + 1):
+                window_data = group.iloc[i - self.window_size_steps:i]
+                current_time = window_data.iloc[-1]['time_bin']
+                
+                x_seq = window_data[feature_cols].values.tolist()
+                
+                has_anomaly = any(
+                    a['segment'] == seg and 
+                    a['start'] <= current_time and 
+                    a['end'] >= current_time
+                    for a in gt_active_intervals
+                )
+                
+                samples.append({
+                    "X_sequence": x_seq,
+                    "Y_label": 1 if has_anomaly else 0,
+                    "metadata": {
+                        "segment": str(seg),
+                        "time_end": float(current_time),
+                        "run_id": run_id
+                    }
+                })
+                
+        return {
+            "metadata": {
+                "step_seconds": self.step_seconds,
+                "window_size_steps": self.window_size_steps,
+                "features": feature_cols,
+                "run_id": run_id,
+                "source": "segment_speed_history"
+            },
+            "samples": samples
+        }

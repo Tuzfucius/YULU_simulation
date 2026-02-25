@@ -35,12 +35,12 @@ class StorageService:
             "data"
         )
         self.config_dir = os.path.join(self.base_dir, "config")
-        self.results_dir = os.path.join(self.base_dir, "results")
+        self.simulations_dir = os.path.join(self.base_dir, "simulations")
         self.charts_dir = os.path.join(self.base_dir, "charts")
         self.layouts_dir = os.path.join(self.base_dir, "layouts")
         
         # 确保目录存在
-        for dir_path in [self.config_dir, self.results_dir, 
+        for dir_path in [self.config_dir, self.simulations_dir, 
                         self.charts_dir, self.layouts_dir]:
             os.makedirs(dir_path, exist_ok=True)
     
@@ -84,7 +84,9 @@ class StorageService:
     
     def save_results(self, simulation_id: str, results_data: dict) -> str:
         """保存仿真结果"""
-        filepath = os.path.join(self.results_dir, f"{simulation_id}.json")
+        sim_dir = os.path.join(self.simulations_dir, simulation_id)
+        os.makedirs(sim_dir, exist_ok=True)
+        filepath = os.path.join(sim_dir, "data.json")
         
         # 添加元数据
         results_data["_metadata"] = {
@@ -99,7 +101,7 @@ class StorageService:
     
     def load_results(self, simulation_id: str) -> Optional[dict]:
         """加载仿真结果"""
-        filepath = os.path.join(self.results_dir, f"{simulation_id}.json")
+        filepath = os.path.join(self.simulations_dir, simulation_id, "data.json")
         if os.path.exists(filepath):
             with open(filepath, 'r', encoding='utf-8') as f:
                 return json.load(f)
@@ -107,18 +109,22 @@ class StorageService:
     
     def delete_results(self, simulation_id: str) -> bool:
         """删除仿真结果"""
-        filepath = os.path.join(self.results_dir, f"{simulation_id}.json")
-        if os.path.exists(filepath):
-            os.remove(filepath)
+        import shutil
+        sim_dir = os.path.join(self.simulations_dir, simulation_id)
+        if os.path.exists(sim_dir):
+            shutil.rmtree(sim_dir)
             return True
         return False
     
     def list_results(self) -> list:
         """列出所有仿真结果"""
         results = []
-        for filename in os.listdir(self.results_dir):
-            if filename.endswith('.json'):
-                simulation_id = filename[:-5]
+        if not os.path.exists(self.simulations_dir):
+            return results
+        for dirname in os.listdir(self.simulations_dir):
+            sim_dir = os.path.join(self.simulations_dir, dirname)
+            if os.path.isdir(sim_dir) and os.path.exists(os.path.join(sim_dir, "data.json")):
+                simulation_id = dirname
                 result = self.load_results(simulation_id)
                 if result:
                     metadata = result.get("_metadata", {})
@@ -146,8 +152,9 @@ class StorageService:
                 rows = [[str(row.get(h, "")) for h in headers] for row in data]
                 
                 filepath = os.path.join(
-                    self.results_dir, 
-                    f"{simulation_id}_{data_type}.csv"
+                    self.simulations_dir, 
+                    simulation_id,
+                    f"{data_type}.csv"
                 )
                 
                 with open(filepath, 'w', encoding='utf-8') as f:

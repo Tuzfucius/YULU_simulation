@@ -216,7 +216,7 @@ export function PredictBuilderPage() {
                                                     : 'border-[var(--glass-border)] hover:bg-[rgba(255,255,255,0.05)]'
                                                     }`}
                                             >
-                                                <div className="font-medium truncate" title={file.name}>📄 {file.name}</div>
+                                                <div className="font-medium truncate" title={file.name}>📁 {file.name}</div>
                                                 <div className="text-[var(--text-muted)] mt-1 flex items-center gap-1.5">
                                                     <span>{formatSize(file.size)}</span>
                                                     <span>·</span>
@@ -273,8 +273,8 @@ export function PredictBuilderPage() {
                                         ].map(feat => (
                                             <label key={feat.id}
                                                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded border cursor-pointer text-xs transition-all ${selectedExtraFeatures.includes(feat.id)
-                                                        ? 'border-[var(--accent-green)] bg-[var(--accent-green)]/10 text-[var(--accent-green)]'
-                                                        : 'border-[var(--glass-border)] text-[var(--text-secondary)]'
+                                                    ? 'border-[var(--accent-green)] bg-[var(--accent-green)]/10 text-[var(--accent-green)]'
+                                                    : 'border-[var(--glass-border)] text-[var(--text-secondary)]'
                                                     }`}>
                                                 <input type="checkbox" checked={selectedExtraFeatures.includes(feat.id)}
                                                     onChange={() => setSelectedExtraFeatures(prev =>

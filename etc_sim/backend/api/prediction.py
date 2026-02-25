@@ -18,7 +18,7 @@ router = APIRouter(prefix="/prediction", tags=["prediction"])
 
 # 数据目录 (与 StorageService 保持一致)
 ETC_SIM_DIR = Path(__file__).resolve().parents[2]  # etc_sim/
-RESULTS_DIR = ETC_SIM_DIR / "data" / "results"
+RESULTS_DIR = ETC_SIM_DIR / "data" / "simulations"
 MODELS_DIR = ETC_SIM_DIR / "data" / "models"
 DATASETS_DIR = ETC_SIM_DIR / "data" / "datasets"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -32,63 +32,31 @@ current_predictor = TimeSeriesPredictor()
 # 数据集后处理：从原始仿真 JSON 重建 ml_dataset
 # ============================================
 
-def _reconstruct_transactions(data: dict) -> List[ETCTransaction]:
-    """从已保存的 JSON 中重建 ETCTransaction 列表"""
-    raw_list = data.get("etc_detection", {}).get("transactions", [])
-    transactions = []
-    for t in raw_list:
-        transactions.append(ETCTransaction(
-            vehicle_id=t["vehicle_id"],
-            gate_id=t["gate_id"],
-            gate_position_km=t["gate_position_km"],
-            timestamp=t["timestamp"],
-            lane=t["lane"],
-            speed=t["speed"],
-            status=t.get("status", "normal"),
-        ))
-    return transactions
-
-
-def _reconstruct_ground_truths(data: dict) -> List[GroundTruthEvent]:
-    """从已保存的 JSON 中重建 GroundTruthEvent 列表"""
-    anomaly_logs = data.get("anomaly_logs", [])
-    ground_truths = []
-    for log_entry in anomaly_logs:
-        gt = GroundTruthEvent(
-            vehicle_id=log_entry.get('id', -1),
-            anomaly_type=log_entry.get('type', 0),
-            trigger_time=log_entry.get('time', 0.0),
-            position_m=log_entry.get('pos_km', 0.0) * 1000.0,
-            segment_idx=log_entry.get('segment', 0),
-            min_speed_kmh=log_entry.get('min_speed', 0.0),
-        )
-        ground_truths.append(gt)
-    return ground_truths
-
-
 def _rebuild_ml_dataset(data: dict, 
                         step_seconds: float = 60.0, 
                         window_size_steps: int = 5,
                         extra_features: List[str] = None) -> dict:
     """
     从已保存的仿真结果 JSON 中重建 ml_dataset。
-    当文件中缺少 ml_dataset 或其为空时调用。
+    利用前端导出的 segment_speed_history。
     """
-    transactions = _reconstruct_transactions(data)
-    if not transactions:
-        logger.warning("无法重建 ml_dataset: 文件中缺少 etc_detection.transactions")
+    segment_speed_history = data.get("segment_speed_history", [])
+    if not segment_speed_history:
+        logger.warning("无法重建 ml_dataset: 文件中缺少 segment_speed_history")
         return {}
 
-    ground_truths = _reconstruct_ground_truths(data)
+    anomaly_logs = data.get("anomaly_logs", [])
+    config = data.get("config", {})
     
     extractor = TimeSeriesFeatureExtractor(
         step_seconds=step_seconds,
         window_size_steps=window_size_steps,
         extra_features=extra_features
     )
-    dataset = extractor.build_dataset(
-        transactions=transactions,
-        ground_truths=ground_truths,
+    dataset = extractor.build_dataset_from_history(
+        segment_speed_history=segment_speed_history,
+        anomaly_logs=anomaly_logs,
+        config=config,
         run_id="rebuilt"
     )
     return dataset
@@ -162,7 +130,9 @@ async def train_model(request: TrainingRequest):
             # 优先从 datasets/ 目录加载已提取的数据集
             file_path = DATASETS_DIR / fname
             if not file_path.exists():
-                file_path = RESULTS_DIR / fname
+                file_path = RESULTS_DIR / fname / "data.json"
+            if not file_path.exists():
+                file_path = RESULTS_DIR / fname # fallback for direct files
             if not file_path.exists():
                 found = list(RESULTS_DIR.rglob(fname))
                 file_path = found[0] if found else None
@@ -329,17 +299,19 @@ async def load_model(request: LoadModelRequest):
 
 @router.get("/results")
 async def list_simulation_results():
-    """列出 data/results/ 目录下的所有仿真结果文件"""
+    """列出 data/simulations/ 目录下的所有仿真结果文件夹"""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     files = []
-    for f in sorted(RESULTS_DIR.glob("*.json"), reverse=True):
-        stat = f.stat()
+    
+    # 查找所有 run_xxx/data.json
+    for json_file in sorted(RESULTS_DIR.glob("*/data.json"), reverse=True):
+        sim_dir = json_file.parent
+        stat = json_file.stat()
         # 快速提取元信息
         meta = {}
         try:
-            with open(f, "r", encoding="utf-8") as fp:
+            with open(json_file, "r", encoding="utf-8") as fp:
                 head = fp.read(3000)
-            # 尝试解析部分 JSON 提取 config/statistics
             data = json.loads(head) if head.rstrip().endswith('}') else None
             if data:
                 cfg = data.get("config", {})
@@ -355,8 +327,8 @@ async def list_simulation_results():
             pass
 
         files.append({
-            "name": f.name,
-            "path": f.name,
+            "name": sim_dir.name,  # 返回目录名 run_xxx
+            "path": sim_dir.name,
             "size": stat.st_size,
             "modified": stat.st_mtime,
             "meta": meta,
@@ -386,7 +358,9 @@ async def extract_dataset(request: ExtractDatasetRequest):
         metadata = {}
 
         for fname in request.file_names:
-            file_path = RESULTS_DIR / fname
+            file_path = RESULTS_DIR / fname / "data.json"
+            if not file_path.exists():
+                file_path = RESULTS_DIR / fname
             if not file_path.exists():
                 found = list(RESULTS_DIR.rglob(fname))
                 file_path = found[0] if found else None

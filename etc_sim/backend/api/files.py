@@ -25,7 +25,7 @@ router = APIRouter()
 # 统一数据根目录: etc_sim/data/
 ETC_SIM_DIR = Path(__file__).resolve().parents[2]   # etc_sim/
 DATA_ROOT = ETC_SIM_DIR / "data"
-OUTPUT_DIR = DATA_ROOT / "results"                  # 仿真结果
+OUTPUT_DIR = DATA_ROOT / "simulations"               # 仿真运行数据
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SCRIPTS_DIR = ETC_SIM_DIR / "scripts"
 

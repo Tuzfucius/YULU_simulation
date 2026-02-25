@@ -20,9 +20,11 @@ router = APIRouter()
 # 图表目录配置
 # 统一数据根
 ETC_SIM_DIR = Path(__file__).resolve().parents[2]  # etc_sim/
-OUTPUT_DIR = ETC_SIM_DIR / "data" / "charts_output"
-CHARTS_DIR = OUTPUT_DIR / "charts"
-FAVORITES_DIR = OUTPUT_DIR / "favorites"
+SIMULATIONS_DIR = ETC_SIM_DIR / "data" / "simulations"
+SIMULATIONS_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR = SIMULATIONS_DIR  # 向后兼容
+CHARTS_DIR = SIMULATIONS_DIR  # 图表从 run_xxx/ 子目录读取
+FAVORITES_DIR = ETC_SIM_DIR / "data" / "charts" / "favorites"
 
 # Global state for latest batch
 LATEST_BATCH_DIR = None
