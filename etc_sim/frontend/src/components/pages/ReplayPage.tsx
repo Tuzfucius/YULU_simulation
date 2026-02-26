@@ -28,6 +28,7 @@ import {
   filterFrameByRange,
   interpolateFrames,
   preloadVehicleImages,
+  type AnomalyLog,
 } from './replayRenderers';
 
 interface OutputFile {
@@ -87,6 +88,7 @@ export const ReplayPage: React.FC = () => {
     startKm: 0, endKm: 5, startTime: 0, endTime: 300,
   });
   const [rangeCollapsed, setRangeCollapsed] = useState(false);
+  const [anomalyLogs, setAnomalyLogs] = useState<AnomalyLog[]>([]);
 
   // 素材
   const vehicleImagesRef = useRef<VehicleImages | null>(null);
@@ -425,14 +427,14 @@ export const ReplayPage: React.FC = () => {
       }
       const filteredFrame = filterFrameByRange(renderTarget, localRange);
       const images = vehicleImagesRef.current || { cars: [], trucks: [], buses: [], special: [] };
-      renderLocalFrame(ctx, filteredFrame, localRange, opts, images);
+      renderLocalFrame(ctx, filteredFrame, localRange, opts, images, anomalyLogs);
     } else {
-      renderGlobalFrame(ctx, frame, opts);
+      renderGlobalFrame(ctx, frame, opts, anomalyLogs);
     }
   }, [
     frameBuffer, bufferOffset, totalFrames, viewOffset, zoomLevel,
     numLanes, roadLength, playbackSpeed, isEn, getFrame,
-    viewMode, localRange, currentIndex,
+    viewMode, localRange, currentIndex, anomalyLogs,
   ]);
 
   // ==================== 播放控制 ====================

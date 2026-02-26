@@ -75,6 +75,7 @@ export function renderGlobalFrame(
   ctx: CanvasRenderingContext2D,
   frame: TrajectoryFrame,
   opts: RenderOptions,
+  anomalyLogs: AnomalyLog[] = [],
 ): void {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
@@ -136,6 +137,12 @@ export function renderGlobalFrame(
     ctx.roundRect(x - vLen / 2, y - laneH * 0.25, vLen, laneH * 0.5, 3);
     ctx.fill();
     ctx.globalAlpha = 1;
+  }
+
+  // 绘制异常标记
+  if (anomalyLogs.length > 0) {
+    const toScreenX = (posM: number) => (posM - opts.viewOffset) / mpp;
+    renderAnomalyMarkers(ctx, anomalyLogs, frame.time, roadTop, laneH * opts.numLanes, toScreenX, w);
   }
 
   // HUD 信息
@@ -236,6 +243,7 @@ export function renderLocalFrame(
   range: LocalRange,
   opts: RenderOptions,
   images: VehicleImages,
+  anomalyLogs: AnomalyLog[] = [],
 ): void {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
@@ -353,6 +361,12 @@ export function renderLocalFrame(
     drawVehicleSprite(ctx, v, screenX, screenY, laneH, images, opts.zoomLevel);
   }
 
+  // 绘制异常标记
+  if (anomalyLogs.length > 0) {
+    const toScreenX = (posM: number) => ((posM - rangeStartM) / rangeLenM) * w;
+    renderAnomalyMarkers(ctx, anomalyLogs, frame.time, roadTop, totalRoadH, toScreenX, w);
+  }
+
   // HUD
   const filteredFrame = frame;
   const hudW = 380;
@@ -381,6 +395,76 @@ export function renderLocalFrame(
 
   // 图例
   drawLegend(ctx, w, opts.isEn, images);
+}
+
+// ==================== 异常事件标记 ====================
+
+export interface AnomalyLog {
+  time: number;
+  pos_km: number;
+  segment: number;
+  type: number;
+}
+
+/**
+ * 渲染异常事件标记 — 在道路上绘制红色脉冲圈
+ */
+export function renderAnomalyMarkers(
+  ctx: CanvasRenderingContext2D,
+  anomalyLogs: AnomalyLog[],
+  currentTime: number,
+  roadTop: number,
+  totalRoadH: number,
+  toScreenX: (posM: number) => number,
+  canvasW: number,
+): void {
+  const now = Date.now();
+
+  for (const log of anomalyLogs) {
+    // 只展示当前时间附近 ±200 秒内的事件
+    const dt = currentTime - log.time;
+    if (dt < -50 || dt > 200) continue;
+
+    const screenX = toScreenX(log.pos_km * 1000);
+    if (screenX < -20 || screenX > canvasW + 20) continue;
+
+    const centerY = roadTop + totalRoadH / 2;
+    const typeColor = log.type === 1 ? '#ef4444' : log.type === 2 ? '#f97316' : '#eab308';
+
+    // 脉冲动画
+    const pulse = Math.sin(now / 300 + log.time) * 0.3 + 0.7;
+    const radius = (dt < 0 ? 6 : Math.max(4, 12 - dt * 0.04)) * pulse;
+
+    ctx.save();
+    ctx.globalAlpha = dt < 0 ? 0.4 : Math.max(0.15, 0.8 - dt * 0.003);
+
+    // 外圈发光
+    ctx.beginPath();
+    ctx.arc(screenX, centerY, radius + 4, 0, Math.PI * 2);
+    ctx.strokeStyle = typeColor;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = typeColor;
+    ctx.shadowBlur = 10;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // 内圈实心
+    ctx.beginPath();
+    ctx.arc(screenX, centerY, radius, 0, Math.PI * 2);
+    ctx.fillStyle = typeColor;
+    ctx.fill();
+
+    // 标签
+    if (dt >= -10 && dt <= 30) {
+      ctx.font = '9px monospace';
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.fillText(`T${log.type}`, screenX, centerY - radius - 6);
+      ctx.textAlign = 'start';
+    }
+
+    ctx.restore();
+  }
 }
 
 // ==================== 辅助绘制函数 ====================
