@@ -8,6 +8,7 @@ import {
     SEGMENT_LENGTH_KM,
     NUM_SEGMENTS,
     SIMULATION_DT,
+    TRAJECTORY_SAMPLE_INTERVAL,
     VEHICLE_TYPE_CONFIG,
     DRIVER_STYLE_CONFIG,
     COLORS,
@@ -289,8 +290,8 @@ export class SimulationEngine {
             // 更新车辆
             this.updateVehicles();
 
-            // 记录轨迹（每10秒采样）
-            if (Math.floor(this.currentTime) % 10 === 0) {
+            // 记录轨迹（可配置采样间隔）
+            if (Math.floor(this.currentTime) % TRAJECTORY_SAMPLE_INTERVAL === 0) {
                 this.recordTrajectory();
                 // 触发一次轨迹向下采样，以供前端热更新
                 this.prepareTrajectorySamples();

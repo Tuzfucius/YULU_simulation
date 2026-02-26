@@ -13,6 +13,7 @@ export const LANE_WIDTH = 3.5;
 // --- 车辆目标 ---
 export const TOTAL_VEHICLES_TARGET = 1200;
 export const SIMULATION_DT = 1.0;
+export const TRAJECTORY_SAMPLE_INTERVAL = 2; // 轨迹采样间隔（秒），可调：1/2/5/10
 
 // --- 仿真时间计算 ---
 // 60km/h 跑完 ROAD_LENGTH_KM 所需时间（秒）
