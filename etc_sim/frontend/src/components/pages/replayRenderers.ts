@@ -663,6 +663,61 @@ function adjustBrightness(hex: string, amount: number): string {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
+// ==================== 进度条热力色带 ====================
+
+/**
+ * 渲染底部热力色带，反映全路段的速度分布
+ * 红色=拥堵(<30km/h)，黄色=缓慢(30-60km/h)，绿色=畅通(>60km/h)
+ */
+export function renderHeatStrip(
+  ctx: CanvasRenderingContext2D,
+  frame: TrajectoryFrame,
+  canvasW: number,
+  canvasH: number,
+  roadLengthM: number,
+): void {
+  const stripH = 8;
+  const stripY = canvasH - stripH; // 贴近底部
+  const numSegments = 100; // 将路段分为 100 段计算平均速度
+  const segmentLen = roadLengthM / numSegments;
+  const mpp = canvasW / roadLengthM;
+
+  // 统计每段的速度
+  const speedSums = new Float32Array(numSegments);
+  const counts = new Uint16Array(numSegments);
+
+  for (const v of frame.vehicles) {
+    const segIdx = Math.floor(v.x / segmentLen);
+    if (segIdx >= 0 && segIdx < numSegments) {
+      speedSums[segIdx] += v.speed * 3.6; // 转换为 km/h
+      counts[segIdx]++;
+    }
+  }
+
+  // 绘制
+  ctx.save();
+  for (let i = 0; i < numSegments; i++) {
+    const x = i * segmentLen * mpp;
+    const w = segmentLen * mpp;
+
+    if (counts[i] === 0) {
+      ctx.fillStyle = 'rgba(74, 85, 104, 0.4)'; // 空载状态
+    } else {
+      const avgSpeed = speedSums[i] / counts[i];
+      if (avgSpeed < 30) {
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.8)'; // Red - Congested
+      } else if (avgSpeed < 60) {
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.8)'; // Orange/Yellow - Slow
+      } else {
+        ctx.fillStyle = 'rgba(34, 197, 94, 0.8)'; // Green - Free flow
+      }
+    }
+    // 防止边框缝隙
+    ctx.fillRect(Math.floor(x), stripY, Math.ceil(w), stripH);
+  }
+  ctx.restore();
+}
+
 // ==================== 素材加载 ====================
 
 /** 素材路径映射 */

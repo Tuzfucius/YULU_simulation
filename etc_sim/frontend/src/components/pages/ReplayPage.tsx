@@ -29,6 +29,7 @@ import {
   interpolateFrames,
   preloadVehicleImages,
   renderMinimap,
+  renderHeatStrip,
   type AnomalyLog,
 } from './replayRenderers';
 
@@ -443,6 +444,9 @@ export const ReplayPage: React.FC = () => {
       const viewEndM = viewOffset + canvas.width * mpp;
       renderMinimap(ctx, frame, canvas.width, canvas.height, roadLength, viewStartM, viewEndM, isEn);
     }
+
+    // 渲染底部热力色带（两种模式都显示）
+    renderHeatStrip(ctx, frame, canvas.width, canvas.height, roadLength);
   }, [
     frameBuffer, bufferOffset, totalFrames, viewOffset, zoomLevel,
     numLanes, roadLength, playbackSpeed, isEn, getFrame,
