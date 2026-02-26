@@ -19,7 +19,7 @@ export const SimpleLineChart: React.FC<SimpleLineChartProps> = ({
 }) => {
     if (!data || data.length === 0) {
         return (
-            <div className="h-full flex items-center justify-center text-[#938F99]">
+            <div className="h-full flex items-center justify-center text-[var(--text-secondary)]">
                 No data available
             </div>
         );

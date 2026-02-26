@@ -16,7 +16,7 @@ export const TrajectoryChart: React.FC<TrajectoryChartProps> = ({ data }) => {
         if (active && payload && payload.length) {
             const d = payload[0].payload;
             return (
-                <div className="bg-[#2B2930] border border-white/10 rounded-lg p-2 text-xs text-[#E6E1E5]">
+                <div className="bg-[var(--glass-bg)] border border-white/10 rounded-lg p-2 text-xs text-[var(--text-primary)]">
                     <p>Time: {d.time.toFixed(1)}s</p>
                     <p>Pos: {(d.pos / 1000).toFixed(2)}km</p>
                     <p>Speed: {(d.speed * 3.6).toFixed(1)}km/h</p>
@@ -31,7 +31,7 @@ export const TrajectoryChart: React.FC<TrajectoryChartProps> = ({ data }) => {
 
     if (!data || data.length === 0) {
         return (
-            <div className="h-[300px] flex items-center justify-center text-[#938F99]">
+            <div className="h-[300px] flex items-center justify-center text-[var(--text-secondary)]">
                 No trajectory data available
             </div>
         );

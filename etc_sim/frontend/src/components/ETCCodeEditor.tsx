@@ -189,7 +189,7 @@ export function ETCCodeEditor() {
                 </div>
 
                 {/* 输出面板 */}
-                <div className="w-[40%] flex flex-col bg-[#0d1117]">
+                <div className="w-[40%] flex flex-col bg-[rgba(0,0,0,0.2)]">
                     <div className="px-3 py-2 border-b border-[var(--glass-border)] text-xs text-[var(--text-secondary)] font-medium">
                         📟 输出
                     </div>

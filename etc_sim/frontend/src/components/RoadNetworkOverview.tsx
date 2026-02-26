@@ -12,6 +12,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useSimStore } from '../stores/simStore';
+import { useI18nStore } from '../stores/i18nStore';
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -60,6 +61,7 @@ const PADDING = 40; // Canvas 内边距（像素）
 
 export const RoadNetworkOverview: React.FC = () => {
     const { config } = useSimStore();
+    const { t } = useI18nStore();
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [roadData, setRoadData] = useState<RoadData | null>(null);
     const [loading, setLoading] = useState(false);
@@ -75,7 +77,7 @@ export const RoadNetworkOverview: React.FC = () => {
             const data: RoadData = await res.json();
             setRoadData(data);
         } catch (e: any) {
-            setError('路网数据加载失败');
+            setError(t('roadOverview.loadFailed'));
             console.error(e);
         } finally {
             setLoading(false);
@@ -221,8 +223,8 @@ export const RoadNetworkOverview: React.FC = () => {
         ctx.font = '11px system-ui, sans-serif';
         ctx.fillStyle = COLORS.textPrimary;
         ctx.textAlign = 'center';
-        ctx.fillText('起点 0km', startPt.x, startPt.y - 14);
-        ctx.fillText(`终点 ${actualTotalKm.toFixed(2)}km`, endPt.x, endPt.y - 14);
+        ctx.fillText(t('roadOverview.startPoint'), startPt.x, startPt.y - 14);
+        ctx.fillText(t('roadOverview.endPoint').replace('{km}', actualTotalKm.toFixed(2)), endPt.x, endPt.y - 14);
 
         // ── ETC 门架 ─────────────────────────────────────────────────
         gantries.forEach((g, idx) => {
@@ -317,9 +319,9 @@ export const RoadNetworkOverview: React.FC = () => {
         ctx.textAlign = 'left';
 
         const items = [
-            { color: COLORS.road, label: '路网' },
-            { color: COLORS.gantryCircle, label: 'ETC 门架' },
-            { color: COLORS.milestone, label: '里程标注' },
+            { color: COLORS.road, label: t('roadOverview.legendRoad') },
+            { color: COLORS.gantryCircle, label: t('roadOverview.legendGantry') },
+            { color: COLORS.milestone, label: t('roadOverview.legendMilestone') },
         ];
         items.forEach((item, i) => {
             ctx.fillStyle = item.color;
@@ -367,18 +369,18 @@ export const RoadNetworkOverview: React.FC = () => {
                     </div>
                     <div>
                         <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                            路网全局预览
+                            {t('roadOverview.title')}
                         </h3>
                         <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
                             {config.customRoadPath}
                             {roadData?.meta?.total_length_km != null && (
-                                <span className="ml-2 text-[#D0BCFF]">
-                                    全长 {roadData.meta.total_length_km.toFixed(2)} km
+                                <span className="ml-2 text-[var(--accent-purple)]">
+                                    {t('roadOverview.totalLength').replace('{km}', roadData.meta.total_length_km.toFixed(2))}
                                 </span>
                             )}
                             {roadData?.gantries?.length != null && (
-                                <span className="ml-2 text-[#F2B8B5]">
-                                    · {roadData.gantries.length} 个 ETC 门架
+                                <span className="ml-2 text-[var(--accent-red)]">
+                                    {t('roadOverview.gantryCount').replace('{count}', roadData.gantries.length.toString())}
                                 </span>
                             )}
                         </p>
@@ -391,7 +393,7 @@ export const RoadNetworkOverview: React.FC = () => {
                         background: 'var(--surface-variant)',
                         color: 'var(--text-secondary)',
                     }}
-                    title="重新加载路网数据"
+                    title={t('roadOverview.reloadData')}
                 >
                     ↻
                 </button>
@@ -402,7 +404,7 @@ export const RoadNetworkOverview: React.FC = () => {
                 {loading && (
                     <div className="absolute inset-0 flex items-center justify-center"
                         style={{ background: '#1C1B2388', color: 'var(--text-tertiary)' }}>
-                        <span className="text-sm animate-pulse">⏳ 加载路网数据…</span>
+                        <span className="text-sm animate-pulse">{t('roadOverview.loadingData')}</span>
                     </div>
                 )}
                 {error && (

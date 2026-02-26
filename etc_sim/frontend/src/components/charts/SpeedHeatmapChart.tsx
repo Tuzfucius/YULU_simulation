@@ -40,7 +40,7 @@ export const SpeedHeatmapChart: React.FC<SpeedHeatmapProps> = ({ data, maxTime, 
 
     if (!data || data.length === 0) {
         return (
-            <div className="h-[220px] flex items-center justify-center text-[#938F99]">
+            <div className="h-[220px] flex items-center justify-center text-[var(--text-secondary)]">
                 No heatmap data available
             </div>
         );
@@ -49,17 +49,17 @@ export const SpeedHeatmapChart: React.FC<SpeedHeatmapProps> = ({ data, maxTime, 
     return (
         <div className="relative w-full h-[220px] select-none">
             {/* Labels */}
-            <div className="absolute left-0 top-0 h-full w-[30px] flex flex-col justify-between text-[10px] text-[#CAC4D0] py-2">
+            <div className="absolute left-0 top-0 h-full w-[30px] flex flex-col justify-between text-[10px] text-[var(--text-secondary)] py-2">
                 <span>{numSegments * 1}km</span>
                 <span>0km</span>
             </div>
-            <div className="absolute left-[30px] bottom-0 w-[calc(100%-30px)] flex justify-between text-[10px] text-[#CAC4D0] px-1">
+            <div className="absolute left-[30px] bottom-0 w-[calc(100%-30px)] flex justify-between text-[10px] text-[var(--text-secondary)] px-1">
                 <span>0m</span>
                 <span>{maxTime}m</span>
             </div>
 
             {/* Grid */}
-            <div className="absolute left-[30px] top-0 w-[calc(100%-30px)] h-[calc(100%-20px)] bg-[#36343B] overflow-hidden rounded-lg">
+            <div className="absolute left-[30px] top-0 w-[calc(100%-30px)] h-[calc(100%-20px)] bg-[var(--glass-bg)] border border-[var(--glass-border)] ml-1 overflow-hidden rounded-lg">
                 {processedData.map((cell, idx) => (
                     <div
                         key={idx}

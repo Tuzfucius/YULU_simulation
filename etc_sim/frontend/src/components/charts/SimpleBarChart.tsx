@@ -17,7 +17,7 @@ export const SimpleBarChart: React.FC<SimpleBarChartProps> = ({
 }) => {
     if (!data || data.length === 0) {
         return (
-            <div className="h-full flex items-center justify-center text-[#938F99]">
+            <div className="h-full flex items-center justify-center text-[var(--text-secondary)]">
                 No data available
             </div>
         );
@@ -32,10 +32,10 @@ export const SimpleBarChart: React.FC<SimpleBarChartProps> = ({
                     const percentage = (item.value / maxValue) * 100;
                     return (
                         <div key={index} className="flex items-center gap-3">
-                            <div className="w-24 text-right text-xs text-[#CAC4D0] truncate" title={item.name}>
+                            <div className="w-24 text-right text-xs text-[var(--text-secondary)] truncate" title={item.name}>
                                 {item.name}
                             </div>
-                            <div className="flex-1 bg-[#36343B] rounded-full h-6 relative overflow-hidden">
+                            <div className="flex-1 bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-full h-6 relative overflow-hidden">
                                 <div
                                     className="h-full rounded-full transition-all duration-500 flex items-center justify-end pr-2"
                                     style={{
@@ -51,7 +51,7 @@ export const SimpleBarChart: React.FC<SimpleBarChartProps> = ({
                                 </div>
                             </div>
                             {showValues && percentage <= 15 && (
-                                <div className="w-12 text-xs text-[#CAC4D0]">
+                                <div className="w-12 text-xs text-[var(--text-secondary)]">
                                     {item.value}
                                 </div>
                             )}

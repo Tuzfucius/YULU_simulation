@@ -83,7 +83,7 @@ export const ChartsPanel: React.FC = () => {
                     fetchCharts(true);
                 }, 3000);
             } else if (retryCountRef.current >= 20) {
-                setError('Charts generation timed out. Please check backend logs.');
+                setError(t('charts.generationTimeout'));
                 setLoading(false);
             }
 
@@ -94,7 +94,7 @@ export const ChartsPanel: React.FC = () => {
                 setRetryCount(retryCountRef.current);
                 setTimeout(() => fetchCharts(true), 3000);
             } else {
-                setError('Waiting for network or charts generation...');
+                setError(t('charts.waitingNetwork'));
                 setLoading(false);
             }
         }
@@ -249,7 +249,7 @@ export const ChartsPanel: React.FC = () => {
                         >
                             {/* 图片区域 */}
                             <div
-                                className="relative aspect-[16/10] bg-[#1C1B1F] cursor-pointer overflow-hidden"
+                                className="relative aspect-[16/10] bg-[rgba(0,0,0,0.1)] cursor-pointer overflow-hidden border border-[var(--glass-border)] rounded-lg"
                                 onClick={() => chart.available && openLightbox(chart)}
                             >
                                 {chart.available ? (

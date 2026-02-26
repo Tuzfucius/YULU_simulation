@@ -29,6 +29,7 @@ import { WorkflowNode } from '../workflow/WorkflowNode';
 import { NodePalette } from '../workflow/NodePalette';
 import { NodePropertiesPanel } from '../workflow/NodePropertiesPanel';
 import { useWorkflowStore, NODE_TYPE_CONFIGS } from '../../stores/workflowStore';
+import { useI18nStore } from '../../stores/i18nStore';
 
 // 自定义节点类型注册
 const nodeTypes = { workflowNode: WorkflowNode };
@@ -42,6 +43,7 @@ export function WorkflowPage() {
         workflowName, workflowDescription, setWorkflowMeta,
         canConnect,
     } = useWorkflowStore();
+    const { t } = useI18nStore();
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
@@ -69,7 +71,7 @@ export function WorkflowPage() {
                 params.targetHandle || null,
             );
             if (!valid) {
-                setStatusMsg('⚠️ 连接被拒绝：此输入端口已被占用，或产生重复连接');
+                setStatusMsg(t('workflow.connectionDenied'));
                 setTimeout(() => setStatusMsg(null), 3000);
                 return;
             }
@@ -127,7 +129,7 @@ export function WorkflowPage() {
     const saveToBackend = async () => {
         const rules = exportToRules();
         if (rules.length === 0) {
-            showStatus('⚠️ 画布中没有可导出的规则');
+            showStatus(t('workflow.noRulesToExport'));
             return;
         }
 
@@ -140,12 +142,12 @@ export function WorkflowPage() {
             });
             const data = await resp.json();
             if (data.success) {
-                showStatus(`✅ 已保存 ${data.data.imported_count} 条规则到后端`);
+                showStatus(t('workflow.savedRules').replace('{count}', data.data.imported_count));
             } else {
-                showStatus(`❌ 保存失败: ${data.detail || '未知错误'}`);
+                showStatus(`${t('workflow.saveFailed')}: ${data.detail || 'Unknown Error'}`);
             }
         } catch (err) {
-            showStatus(`❌ 网络错误: ${err}`);
+            showStatus(`${t('workflow.networkError')}: ${err}`);
         } finally {
             setIsLoading(false);
         }
@@ -158,12 +160,12 @@ export function WorkflowPage() {
             const data = await resp.json();
             if (data.success && data.data.length > 0) {
                 loadRules(data.data);
-                showStatus(`✅ 已加载 ${data.data.length} 条规则`);
+                showStatus(t('workflow.loadedRules').replace('{count}', data.data.length));
             } else {
-                showStatus('⚠️ 后端暂无规则');
+                showStatus(t('workflow.noRulesInBackend'));
             }
         } catch (err) {
-            showStatus(`❌ 加载失败: ${err}`);
+            showStatus(`${t('workflow.loadFailed')}: ${err}`);
         } finally {
             setIsLoading(false);
         }
@@ -176,10 +178,10 @@ export function WorkflowPage() {
             const data = await resp.json();
             if (data.success) {
                 loadRules(data.data);
-                showStatus(`✅ 已加载 ${data.data.length} 条默认规则`);
+                showStatus(t('workflow.loadedDefaultRules').replace('{count}', data.data.length));
             }
         } catch (err) {
-            showStatus(`❌ 重置失败: ${err}`);
+            showStatus(`${t('workflow.resetFailed')}: ${err}`);
         } finally {
             setIsLoading(false);
         }
@@ -194,7 +196,7 @@ export function WorkflowPage() {
         a.download = `workflow_${Date.now()}.json`;
         a.click();
         URL.revokeObjectURL(url);
-        showStatus(`✅ 已导出 ${rules.length} 条规则`);
+        showStatus(t('workflow.exportedRules').replace('{count}', rules.length));
     };
 
     const importJSON = () => {
@@ -210,10 +212,10 @@ export function WorkflowPage() {
                     const data = JSON.parse(ev.target?.result as string);
                     if (data.rules) {
                         loadRules(data.rules);
-                        showStatus(`✅ 已导入 ${data.rules.length} 条规则`);
+                        showStatus(t('workflow.importedRules').replace('{count}', data.rules.length));
                     }
                 } catch {
-                    showStatus('❌ JSON 格式无效');
+                    showStatus(t('workflow.invalidJson'));
                 }
             };
             reader.readAsText(file);
@@ -239,7 +241,7 @@ export function WorkflowPage() {
                             value={workflowName}
                             onChange={(e) => setWorkflowMeta(e.target.value, workflowDescription)}
                             className="text-sm font-medium bg-transparent border-none outline-none text-[var(--text-primary)] w-40"
-                            placeholder="工作流名称"
+                            placeholder={t('workflow.workflowName')}
                         />
                     </div>
 
@@ -249,40 +251,40 @@ export function WorkflowPage() {
                             disabled={isLoading}
                             className="text-[11px] px-3 py-1.5 rounded-md bg-[var(--accent-purple)]/15 text-[var(--accent-purple)] hover:bg-[var(--accent-purple)]/25 transition-colors disabled:opacity-50"
                         >
-                            载入默认
+                            {t('workflow.loadDefault')}
                         </button>
                         <button
                             onClick={loadFromBackend}
                             disabled={isLoading}
                             className="text-[11px] px-3 py-1.5 rounded-md bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] hover:bg-[var(--accent-blue)]/25 transition-colors disabled:opacity-50"
                         >
-                            从后端加载
+                            {t('workflow.loadFromBackend')}
                         </button>
                         <button
                             onClick={saveToBackend}
                             disabled={isLoading}
                             className="text-[11px] px-3 py-1.5 rounded-md bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors disabled:opacity-50"
                         >
-                            保存到后端
+                            {t('workflow.saveToBackend')}
                         </button>
                         <span className="w-px h-5 bg-[var(--glass-border)]" />
                         <button
                             onClick={importJSON}
                             className="text-[11px] px-2.5 py-1.5 rounded-md text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
                         >
-                            导入
+                            {t('common.import')}
                         </button>
                         <button
                             onClick={exportJSON}
                             className="text-[11px] px-2.5 py-1.5 rounded-md text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
                         >
-                            导出
+                            {t('common.export')}
                         </button>
                         <button
                             onClick={clearAll}
                             className="text-[11px] px-2.5 py-1.5 rounded-md text-red-400 hover:bg-red-500/10 transition-colors"
                         >
-                            清空
+                            {t('common.clear')}
                         </button>
                     </div>
                 </div>
