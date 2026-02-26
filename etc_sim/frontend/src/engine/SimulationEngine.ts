@@ -290,8 +290,9 @@ export class SimulationEngine {
             // 更新车辆
             this.updateVehicles();
 
-            // 记录轨迹（可配置采样间隔）
-            if (Math.floor(this.currentTime) % TRAJECTORY_SAMPLE_INTERVAL === 0) {
+            // 记录轨迹（可配置采样间隔，从运行时配置读取）
+            const sampleInterval = config.trajectorySampleInterval ?? TRAJECTORY_SAMPLE_INTERVAL;
+            if (Math.floor(this.currentTime) % sampleInterval === 0) {
                 this.recordTrajectory();
                 // 触发一次轨迹向下采样，以供前端热更新
                 this.prepareTrajectorySamples();

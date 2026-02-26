@@ -19,6 +19,7 @@ interface SimulationConfig {
     anomalyRatio: number;
     anomalyStartTime: number;
     simulationDt: number;
+    trajectorySampleInterval: number;
     maxSimulationTime: number;
 
     // Advanced Traffic Params
@@ -87,6 +88,7 @@ const defaultConfig: SimulationConfig = {
     anomalyRatio: 0.01, // Default lowered to 1% as requested
     anomalyStartTime: 200,
     simulationDt: 1.0,
+    trajectorySampleInterval: 2,
     maxSimulationTime: 3000,
 
     // Advanced defaults

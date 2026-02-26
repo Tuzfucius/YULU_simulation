@@ -238,14 +238,17 @@ class SimulationEngine:
                         setattr(v, last_gate_key, True)
                         self._process_etc_transaction(v, gate_id, gate.position_km)
         
-        for v in active_vehicles:
-            self.trajectory_data.append({
-                'id': v.id, 'pos': v.pos, 'time': self.current_time,
-                'lane': v.lane, 'speed': v.speed,
-                'anomaly_state': v.anomaly_state, 'anomaly_type': v.anomaly_type,
-                'vehicle_type': v.vehicle_type, 'driver_style': v.driver_style,
-                'is_affected': v.is_affected
-            })
+        # 轨迹采样（按配置的间隔记录）
+        sample_interval = self.config.trajectory_sample_interval if self.config else 2
+        if int(self.current_time) % sample_interval == 0:
+            for v in active_vehicles:
+                self.trajectory_data.append({
+                    'id': v.id, 'pos': v.pos, 'time': self.current_time,
+                    'lane': v.lane, 'speed': v.speed,
+                    'anomaly_state': v.anomaly_state, 'anomaly_type': v.anomaly_type,
+                    'vehicle_type': v.vehicle_type, 'driver_style': v.driver_style,
+                    'is_affected': v.is_affected
+                })
         
         segment_speeds = defaultdict(list)
         segment_densities = defaultdict(int)

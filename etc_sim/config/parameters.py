@@ -60,6 +60,9 @@ class SimulationConfig:
     # 异常影响范围
     impact_discover_dist: float = 150.0
     
+    # 轨迹采样间隔（秒）
+    trajectory_sample_interval: int = 2
+    
     @property
     def num_segments(self) -> int:
         """区间数量"""
@@ -104,6 +107,7 @@ class SimulationConfig:
             'phase_critical_density': self.phase_critical_density,
             'phase_transition_threshold': self.phase_transition_threshold,
             'impact_discover_dist': self.impact_discover_dist,
+            'trajectory_sample_interval': self.trajectory_sample_interval,
         }
     
     def to_json(self, filepath: str, indent: int = 2):

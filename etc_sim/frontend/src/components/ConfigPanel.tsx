@@ -365,6 +365,16 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) =>
                         unit="m"
                         disabled={disabled}
                     />
+                    <ParamInput
+                        label={isEn ? 'Trajectory Sample Interval' : '轨迹采样间隔'}
+                        value={config.trajectorySampleInterval ?? 2}
+                        onChange={(v) => setConfig({ trajectorySampleInterval: v })}
+                        min={1}
+                        max={10}
+                        step={1}
+                        unit="s"
+                        disabled={disabled}
+                    />
                 </Section>
 
                 {/* 新增：路网配置 */}

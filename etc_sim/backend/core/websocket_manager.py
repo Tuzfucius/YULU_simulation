@@ -246,6 +246,7 @@ class WebSocketManager:
             lane_change_retry_interval=config_data.get('laneChangeRetryInterval', 2.0),
             impact_threshold=config_data.get('impactThreshold', 0.90),
             impact_speed_ratio=config_data.get('impactSpeedRatio', 0.70),
+            trajectory_sample_interval=config_data.get('trajectorySampleInterval', 2),
             lane_coupling_dist=50.0,
             lane_coupling_factor=0.01,
             queue_speed_threshold=15.0,
