@@ -100,7 +100,7 @@ interface ConfigPanelProps {
 
 export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) => {
     const { config, setConfig, resetConfig } = useSimStore();
-    const { t } = useI18nStore();
+    const { t, lang } = useI18nStore();
 
     // 自定义路径激活时，禁用相关参数
     const isCustomRoad = !!config.customRoadPath;
@@ -366,7 +366,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) =>
                         disabled={disabled}
                     />
                     <ParamInput
-                        label={isEn ? 'Trajectory Sample Interval' : '轨迹采样间隔'}
+                        label={lang === 'en' ? 'Trajectory Sample Interval' : '轨迹采样间隔'}
                         value={config.trajectorySampleInterval ?? 2}
                         onChange={(v) => setConfig({ trajectorySampleInterval: v })}
                         min={1}
