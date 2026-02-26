@@ -220,7 +220,11 @@ async def evaluate_from_file(req: EvaluateFileRequest):
 
     # 从 anomaly_logs 构造 ground truths
     anomaly_logs = data.get('anomaly_logs', [])
-    trajectory_data = data.get('trajectory_data', [])
+    # 兼容新旧格式获取轨迹记录数
+    from etc_sim.backend.services.trajectory_storage import TrajectoryStorage
+    trajectory_count = len(data.get('trajectory_data', []))
+    if trajectory_count == 0:
+        trajectory_count = TrajectoryStorage.get_record_count(str(target.parent))
     config = data.get('config', {})
 
     ground_truths = []
@@ -245,9 +249,9 @@ async def evaluate_from_file(req: EvaluateFileRequest):
                 "true_positives": 0, "false_positives": 0, "false_negatives": 0,
                 "total_alerts": 0, "total_ground_truths": 0,
             },
-            "message": f"文件中无 anomaly_logs 数据 (trajectory_data: {len(trajectory_data)} 条)",
+            "message": f"文件中无 anomaly_logs 数据 (trajectory_data: {trajectory_count} 条)",
             "file_info": {
-                "trajectory_records": len(trajectory_data),
+                "trajectory_records": trajectory_count,
                 "anomaly_logs": len(anomaly_logs),
                 "config": config,
             },
@@ -301,7 +305,7 @@ async def evaluate_from_file(req: EvaluateFileRequest):
         "success": True,
         "data": result,
         "file_info": {
-            "trajectory_records": len(trajectory_data),
+            "trajectory_records": trajectory_count,
             "anomaly_logs": len(anomaly_logs),
             "config": config,
         },
