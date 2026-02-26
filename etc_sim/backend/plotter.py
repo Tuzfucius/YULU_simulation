@@ -124,6 +124,16 @@ class ChartGenerator:
     
     def generate_all(self, sim_data: Dict[str, Any]) -> List[str]:
         """生成所有图表"""
+        # 如果 trajectory_data 不在 sim_data 中，尝试从分离文件加载
+        if not sim_data.get('trajectory_data'):
+            try:
+                from etc_sim.backend.services.trajectory_storage import TrajectoryStorage
+                traj = TrajectoryStorage.load(str(self.output_dir))
+                if traj and traj.get('frames'):
+                    sim_data['trajectory_data'] = TrajectoryStorage.to_flat_trajectory(traj)
+            except Exception as e:
+                print(f"[信息] 未找到分离的轨迹文件: {e}")
+
         generated_files = []
         generated = []
         
