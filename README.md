@@ -1,324 +1,102 @@
-[English] | [简体中文](#简体中文)
+# ETC 交通仿真系统 (ETC Traffic Simulation)
 
-# ETC Traffic Simulation System
+高速公路 ETC 车流仿真、预警规则引擎与微观异常分析平台
 
-A highway traffic simulation system based on IDM (Intelligent Driver Model) and MOBIL lane-changing models.
+## 项目简介
 
-## Features
-
-| Module | Description |
-|--------|-------------|
-| IDM Car Following | Intelligent driver model with multiple vehicle types |
-| MOBIL Lane Change | Benefit-based lane change decisions |
-| Anomaly Simulation | Vehicle anomaly events (stationary, fluctuation) |
-| ETC Detection | ETC gantry detection effects |
-| Visualization | 11 interactive charts with export |
-
-## Quick Start
-
-> **Important**: This project involves complex machine learning and data processing dependencies. For detailed, step-by-step environment setup instructions (including **Conda** virtual environment creation and package installation), please refer to the dedicated deployment guide:
-> 👉 [**ETC Simulation Deployment & Environment Guide (etc_sim/README.md)**](./etc_sim/README.md)
-
-### Option 1: Use One-Click Launcher (Recommended)
-
-```bash
-# Windows
-cd etc_sim
-start.bat
-
-# Linux/Mac
-cd etc_sim
-chmod +x start.sh
-./start.sh
-```
-
-Select option [1] to start the frontend, then open http://localhost:3000
-
-### Option 2: Frontend + CLI Simulation
-
-```bash
-# Terminal 1: Start frontend
-cd etc_sim/frontend
-npm install
-npm run dev
-
-# Terminal 2: Run simulation
-cd etc_sim
-python main.py
-```
-
-### Option 3: Docker
-
-```bash
-cd etc_sim
-docker-compose up -d
-```
-
-Open http://localhost:3000
-
-## Documentation & Mechanics
-
-For detailed information on the underlying physical models (IDM/Wiedemann 99 & MOBIL), environmental impact factors (weather, gradients), and the anomaly propagation mechanics, please refer to the dedicated documentation:
-
-👉 [**Simulation Mechanics**](./etc_sim/docs/simulation_mechanics.md)
-
-## Project Structure
-
-```
-etc_sim/
-├── data/                          # 统一数据存储根目录
-│   ├── config/                   # 用户仿真参数配置 (JSON)
-│   ├── simulations/              # 每次仿真独立文件夹 (图表 + JSON数据)
-│   ├── datasets/                 # 机器学习: 提取的训练集
-│   ├── models/                   # 机器学习: 训练好的模型 (.joblib)
-│   ├── road_map/                 # 自定义路网文件
-│   └── layouts/                  # UI 布局预设
-│
-├── frontend/                     # React + Vite frontend
-│   └── src/
-│       ├── components/pages/     # 页面组件
-│       │   ├── SimControlPage    # 仿真控制
-│       │   ├── ReplayPage        # 俯视回放
-│       │   ├── AlertDashboard    # 预警仪表盘
-│       │   ├── ScenarioPage      # 场景模板
-│       │   ├── PredictBuilder    # 时序预测工作台
-│       │   └── ...
-│       └── stores/               # Zustand 状态管理
-│
-├── backend/                      # FastAPI 后端
-│   ├── api/                      # REST API 路由
-│   │   ├── prediction.py         # 预测/训练/数据集提取
-│   │   ├── files.py              # 文件浏览
-│   │   ├── charts.py             # 图表管理
-│   │   ├── custom_roads.py       # 路网编辑
-│   │   └── ...
-│   ├── core/                     # WebSocket 管理
-│   └── services/                 # 存储服务
-│
-├── simulation/                   # 仿真引擎 (IDM/MOBIL)
-├── models/                       # ML模型 (特征提取器/预测器)
-├── config/                       # 仿真参数模块
-├── road/                         # 路网模型
-├── start.bat                     # Windows 一键启动
-└── requirements.txt
-```
-
-## Pages
-
-| Page | Function |
-|------|----------|
-| **Config** | Set parameters, save/load JSON, presets |
-| **Run** | Start/pause/stop, progress bar, terminal |
-| **Analysis** | 11 charts, export PNG/CSV, favorites |
-| **Compare** | Overlay two results, diff stats |
-| **Favorites** | Save/manage chart configs |
-| **Settings** | Layout, theme, language |
-
-## Charts
-
-1. Speed Heatmap
-2. Trajectory Space-Time
-3. Anomaly Distribution
-4. Congestion Recovery
-5. Lane Change Analysis
-6. Vehicle Type Distribution
-7. Lane Distribution
-8. Safety Analysis (TTC)
-9. Cumulative Delay
-10. Fundamental Diagram
-11. ETC Performance
-
-## Python CLI Usage
-
-```bash
-# Default config
-python main.py
-
-# With config file
-python main.py config.json
-
-# Export config
-python main.py --json config.json
-```
-
-Results are saved to `data/results/sim_YYYYMMDD_HHMMSS.json`
-
-## Tech Stack
-
-- **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + ECharts
-- **Backend**: Python 3.13 + NumPy + Pandas
-- **State**: Zustand (persistent)
-- **Deployment**: Docker, static build
-
-## Requirements
-
-- Python 3.13+
-- Node.js 18+ (for frontend)
-- Docker (optional)
-
-## License
-
-MIT
+本项目是一个基于 IDM（智能驾驶员模型）和 MOBIL 换道模型的高速公路交通仿真系统。不仅支持多种车辆模型、气候与坡度影响，还囊括了可视化的事件预警规则引擎及基于 FastAPI + React 的现代化响应式界面。它能够精准模拟车辆在交通突发事件中的激波反应、延误与拥堵恢复表现。
 
 ---
 
-## 简体中文
+## 功能特性
 
-# ETC 交通仿真系统
+| 特点核心 | 详情描述 |
+| ------ | ------ |
+| 🚗 **实时仿真可视化** | Canvas 渲染道路、车辆和 ETC 门架，支持动态极速模式与自适应时间控制 |
+| 🔔 **智能预警规则引擎** | 可配置条件-动作规则，支持 9 种评估条件与 4 种输出动作 |
+| 🎨 **可视化工作流编辑器** | React Flow 拖拽式规则设计，并支持模型参数阈值优化网格搜索 |
+| 📊 **16种专业分析图表** | 时空图、基本图、拥堵恢复恢复过程图、车流微观画像等 |
+| ⚙️ **微观场景自定义** | 支持自定义车流构成、驾驶风格（普通/激进/保守），天气与长上坡效应 |
+| 交互式区间分析 | 交互式展示特定区间的速度、流量、密度趋势以及车辆轨迹散点图 |
 
-一个基于 IDM（智能驾驶员模型）和 MOBIL 换道模型的高速公路交通仿真系统。
-
-## 特性
-
-| 模块 | 描述 |
-|------|------|
-| IDM 跟驰 | 包含多种车型支持的智能驾驶员模型 |
-| MOBIL 换道 | 基于收益的换道策略决策 |
-| 异常模拟 | 模拟车辆异常事件（静止、波动） |
-| ETC 检测 | ETC 门架检测效果模拟 |
-| 可视化 | 11 种交互式图表及数据导出 |
+---
 
 ## 快速开始
 
-> **重要提示**：本项目包含了复杂的数值计算和机器学习依赖模块，推荐使用 **Conda** 构建纯净的虚拟环境予以隔离。
-> 关于**如何从零构建 Conda 虚拟环境**以及详细的前后端架构依赖部署指引，请务必参阅子项目目录下的专属部署文档：
-> 👉 [**《ETC 仿真系统详细部署与环境搭建指南》 (etc_sim/README.md)**](./etc_sim/README.md)
+本项目包含了大量科学计算和分析包（如 numpy、scipy、matplotlib、pandas 等）。推荐使用 **Conda** 进行环境隔离：
 
-### 方式 1: 使用一键启动脚本 (推荐)
+### 1. 自动启动（推荐）
 
+#### Windows 用户
+只需在项目根目录双击执行 `start.bat`。（或者在命令行运行 `cd etc_sim && start.bat`）。
+它会自动创建 `etc_sim` Conda 虚拟环境、拉取后端运行包、初始化前端模块依赖，并同步启动首尾服务。
+
+#### Linux / MacOS 用户
 ```bash
-# Windows
-cd etc_sim
-start.bat
-
-# Linux/Mac
 cd etc_sim
 chmod +x start.sh
 ./start.sh
 ```
 
-选择选项 [1] 启动前端，然后访问 http://localhost:3000
+### 2. 手动独立启动
 
-### 方式 2: 前端 + 命令行仿真
-
+**2.1 环境配置：**
 ```bash
-# 终端 1: 启动前端
+conda create -n etc_sim python=3.13 -y
+conda activate etc_sim
+pip install -r etc_sim/requirements.txt
+```
+
+**2.2 启动 FastAPI 后端：**
+```bash
+cd etc_sim
+python main.py
+# 或以 uvicorn 方式：uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**2.3 启动 Vite React 前端：**
+```bash
 cd etc_sim/frontend
 npm install
 npm run dev
-
-# 终端 2: 运行仿真
-cd etc_sim
-python main.py
 ```
+之后在浏览器中打开: `http://localhost:3000`
 
-### 方式 3: Docker
+---
 
-```bash
-cd etc_sim
-docker-compose up -d
-```
+## 预警规则引擎
 
-访问 http://localhost:3000
+引擎采用三层架构：`条件原子 → 规则组合 → 动作输出`。在前端的 `/workflow` 可视化工作流界面，您可以自由构建和拖拽您的告警链路。
 
-## 项目文档与运算机制
+预置规则包含例如：**拥堵检测、疑似事故预警、严重排队、ETC漏读异常、恶劣天气限速**。利用 `/evaluation` 页面，评估器将使用 F1 Score、Precision、Recall 等数据去匹配历史时空真值并优化最佳检视阈值。
 
-项目深度模拟了真实世界的交通流动态变化。有关**跟驰模型 (IDM/Wiedemann 99)、换道模型 (MOBIL)、环境影响机制（天气、坡度）、异常车辆行为及其冲击传播机制**的具体参数设定与算法公式，请参阅专门的详细说明文档：
+---
 
-👉 [**《交通流模拟运算与机制》 (Simulation Mechanics)**](./etc_sim/docs/simulation_mechanics.md)
+## 文档指引与系统架构
 
-## 项目结构
+详细系统内建指南与物理模型文档，已分类存放在 `docs/` 目录下。
 
-```
-etc_sim/
-├── data/                      # 持久化数据存储
-│   ├── config/               # 用户配置
-│   ├── results/              # 仿真结果 (JSON)
-│   ├── charts/               # 图表收藏
-│   └── layouts/              # 布局预设
-│
-├── frontend/                 # React + Vite 前端
-│   ├── src/
-│   │   ├── components/       # 可复用组件
-│   │   ├── pages/          # 页面组件
-│   │   │   ├── ConfigPage.tsx    # 参数配置
-│   │   │   ├── RunPage.tsx       # 仿真运行
-│   │   │   ├── AnalysisPage.tsx  # 11 种图表
-│   │   │   ├── ComparePage.tsx   # 结果对比
-│   │   │   ├── FavoritesPage.tsx # 图表收藏
-│   │   │   └── SettingsPage.tsx  # 设置页面
-│   │   ├── stores/         # Zustand 状态管理
-│   │   ├── types/          # TypeScript 类型定义
-│   │   └── utils/          # 工具函数
-│   ├── Dockerfile
-│   └── package.json
-│
-├── config/                  # 配置模块
-├── core/                   # 核心仿真引擎
-├── models/                 # IDM, MOBIL, 异常模型
-├── road/                   # 道路网络
-├── simulation/             # 仿真控制
-├── utils/                  # 工具函数
-├── main.py                 # Python 命令行接口入口
-├── start.bat              # Windows 启动脚本
-├── start.sh               # Linux/Mac 启动脚本
-├── docker-compose.yml
-└── requirements.txt
-```
+- 📖 **[API 及开发者指南 (Developer Guide)](./docs/developer_guide.md)**
+  涵盖项目配置约定、图表扩展、条件原子的编码修改方案以及系统各依赖组件结构与通信流。
+- ⚙️ **[仿真物理机制 (Simulation Mechanics)](./docs/simulation_mechanics.md)**
+  详细阐述 IDM 和 MOBIL 模型的底层运动学公式、动态边界检测算法原理，以及幽灵堵车（Phantom Traffic Jam）和天气干预系统的影响链路。
 
-## 页面功能
+| 目录结构概览 | |
+| --- | --- |
+| `docs/` | 详细底层算法解释与开发者开发约定 |
+| `etc_sim/backend/` | Python FastAPI 图表 API 与数据服务层 |
+| `etc_sim/frontend/` | React 界面、可视化图表集与 Zustand 管理 |
+| `etc_sim/models/` | 预警引擎、特征评估器、时空窗检测器 |
+| `etc_sim/simulation/` | IDM 跟驰模拟物理引擎 |
 
-| 页面 | 功能 |
-|------|----------|
-| **配置** | 参数设置、保存/加载 JSON、预设管理 |
-| **运行** | 启动/暂停/停止、进度展示、终端输出 |
-| **分析** | 11 种图表、导出 PNG/CSV、收藏夹 |
-| **对比** | 叠加两组结果进行对比、差异统计 |
-| **收藏** | 管理保存的图表配置 |
-| **设置** | 布局调整、主题色、语言设置 |
+---
 
-## 仿真图表
+## 结果导出形式
+- **UI 可视化**：分析面板提供 16 种图层预览
+- **JSON 支持**：`data/results/run_YYYYMMDD_HHMM.json` 保存每次参数运行的细节。
+- **CSV 输出**：可用于后续导入任何离线建模训练库进行分析。
 
-1. 速度热力图
-2. 轨迹时空图
-3. 异常分布图
-4. 拥堵恢复过程
-5. 换道分析
-6. 车辆类型分布
-7. 车道分布
-8. 安全性分析 (TTC)
-9. 累积延误
-10. 基本图 (Fundamental Diagram)
-11. ETC 性能表现
+---
 
-## Python 命令行用法
-
-```bash
-# 使用默认配置
-python main.py
-
-# 使用特定配置文件
-python main.py config.json
-
-# 导出默认配置
-python main.py --json config.json
-```
-
-仿真结果将保存至 `data/results/sim_YYYYMMDD_HHMMSS.json`
-
-## 技术栈
-
-- **前端**: React 18 + TypeScript + Vite + Tailwind CSS + ECharts
-- **后端**: Python 3.13 + NumPy + Pandas
-- **状态**: Zustand (持久化存储)
-- **部署**: Docker, 静态构建
-
-## 系统要求
-
-- Python 3.13+
-- Node.js 18+ (用于前端开发)
-- Docker (可选)
-
-## 开源协议
-
+**License**
 MIT

@@ -163,5 +163,5 @@ class MyAction(Action):
 
 ## 相关文档
 
-- [开发者指南](../../DEVELOPER.md) — 详细的开发指南
+- [开发者指南](../../docs/developer_guide.md) — 详细的开发指南
 - [API 文档](../../README.md#api-接口) — REST API 接口说明
