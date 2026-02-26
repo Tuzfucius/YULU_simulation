@@ -611,7 +611,7 @@ export const ReplayPage: React.FC = () => {
       )}
 
       {/* 右侧：回放 */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {/* 顶栏 */}
         <div className="h-14 flex items-center justify-between px-6 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md shrink-0">
           <div className="flex items-center gap-4">
@@ -622,8 +622,8 @@ export const ReplayPage: React.FC = () => {
               <button
                 onClick={() => handleModeSwitch('global')}
                 className={`px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === 'global'
-                    ? 'bg-[var(--accent-blue)] text-white'
-                    : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[rgba(255,255,255,0.05)]'
+                  ? 'bg-[var(--accent-blue)] text-white'
+                  : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[rgba(255,255,255,0.05)]'
                   }`}
               >
                 🌐 {isEn ? 'Global' : '全局回放'}
@@ -631,8 +631,8 @@ export const ReplayPage: React.FC = () => {
               <button
                 onClick={() => handleModeSwitch('local')}
                 className={`px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === 'local'
-                    ? 'bg-[var(--accent-blue)] text-white'
-                    : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[rgba(255,255,255,0.05)]'
+                  ? 'bg-[var(--accent-blue)] text-white'
+                  : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[rgba(255,255,255,0.05)]'
                   }`}
               >
                 🔍 {isEn ? 'Local' : '局部回放'}
@@ -674,7 +674,7 @@ export const ReplayPage: React.FC = () => {
         </div>
 
         {/* Canvas 区域 */}
-        <div ref={containerRef} className="flex-1 relative">
+        <div ref={containerRef} className="flex-1 relative min-h-0 overflow-hidden">
           {!isLoaded ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-[var(--text-muted)]">
               <div className="text-6xl mb-4">🛣️</div>
