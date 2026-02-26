@@ -125,7 +125,8 @@ export const ReplayPage: React.FC = () => {
       const data = await res.json();
       if (data.config && offset === 0) {
         setNumLanes(data.config.num_lanes || data.config.numLanes || 4);
-        setRoadLength(data.config.road_length || data.config.roadLength || 20000);
+        const rlKm = data.config.custom_road_length_km || data.config.road_length_km || data.config.roadLengthKm || 20;
+        setRoadLength(rlKm * 1000);
       }
       return data.frames || [];
     } catch {
@@ -153,12 +154,12 @@ export const ReplayPage: React.FC = () => {
 
       if (info.config) {
         setNumLanes(info.config.num_lanes || info.config.numLanes || 4);
-        const rl = info.config.road_length || info.config.roadLength || 20000;
-        setRoadLength(rl);
+        const rlKm = info.config.custom_road_length_km || info.config.road_length_km || info.config.roadLengthKm || 20;
+        setRoadLength(rlKm * 1000);
         // 初始化局部区间为道路的前 1/4
         setLocalRange(prev => ({
           ...prev,
-          endKm: Math.min(prev.endKm, rl / 1000),
+          endKm: Math.min(prev.endKm, rlKm),
         }));
       }
 

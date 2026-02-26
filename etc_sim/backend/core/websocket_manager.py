@@ -234,6 +234,8 @@ class WebSocketManager:
             segment_length_km=config_data.get('segmentLengthKm', 1),
             num_lanes=config_data.get('numLanes', 4),
             lane_width=config_data.get('laneWidth', 3.5),
+            custom_road_length_km=config_data.get('customRoadLengthKm'),
+            custom_gantry_positions=config_data.get('customGantryPositionsKm', []),
             total_vehicles=config_data.get('totalVehicles', 1200),
             simulation_dt=config_data.get('simulationDt', 1.0),
             max_simulation_time=config_data.get('maxSimulationTime', 3600),

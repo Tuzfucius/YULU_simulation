@@ -5,8 +5,8 @@
 
 import json
 import os
-from dataclasses import dataclass, asdict
-from typing import Optional
+from dataclasses import dataclass, asdict, field
+from typing import Optional, List
 from pathlib import Path
 
 
@@ -19,6 +19,10 @@ class SimulationConfig:
     segment_length_km: float = 2.0
     num_lanes: int = 4
     lane_width: float = 3.5
+    
+    # 自定义路网参数（若存在则覆盖上方道路参数）
+    custom_road_length_km: Optional[float] = None
+    custom_gantry_positions: List[float] = field(default_factory=list)
     
     # 仿真参数
     total_vehicles: int = 1200
@@ -85,6 +89,8 @@ class SimulationConfig:
             'segment_length_km': self.segment_length_km,
             'num_lanes': self.num_lanes,
             'lane_width': self.lane_width,
+            'custom_road_length_km': self.custom_road_length_km,
+            'custom_gantry_positions': self.custom_gantry_positions,
             'total_vehicles': self.total_vehicles,
             'simulation_dt': self.simulation_dt,
             'max_simulation_time': self.max_simulation_time,

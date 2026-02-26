@@ -89,10 +89,19 @@ class SimulationEngine:
         self._init_etc_gates()
     
     def _init_etc_gates(self):
-        """初始化ETC门架（每2公里一个）"""
-        road_length = self.config.road_length_km if self.config else 20.0
-        for gate_km in range(2, int(road_length), 2):
-            self.road_network.add_etc_gate("main", float(gate_km))
+        """初始化ETC门架（支持自定义非均匀间距）"""
+        if self.config and self.config.custom_gantry_positions:
+            # 如果配置中存在具体的自定义门架经纬/点位坐标数组，直接使用
+            for gate_km in self.config.custom_gantry_positions:
+                self.road_network.add_etc_gate("main", float(gate_km))
+        else:
+            # 回退：如果没有，按照 config 里面的 segment_length_km 去平均划分
+            road_length = self.config.road_length_km if self.config else 20.0
+            segment_length = self.config.segment_length_km if self.config else 2.0
+            pos = segment_length
+            while pos < road_length:
+                self.road_network.add_etc_gate("main", float(pos))
+                pos += segment_length
     
     def _process_etc_transaction(self, vehicle, gate_id: str, gate_position_km: float):
         """处理 ETC 交易，应用噪声注入并调用异常检测
@@ -543,6 +552,10 @@ class SimulationEngine:
                 'etc_alerts_count': len(self.etc_alerts),
                 'etc_transactions_count': len(self.etc_detector.transactions),
             },
+            'etcGates': [
+                {'position': float(gate.position_km) * 1000, 'segment': int(gate.id.replace('main_', ''))}
+                for gate in getattr(self.road_network.segments.get('main'), 'gates', [])
+            ],
             'anomaly_logs': results.anomaly_logs,
             'trajectory_data': [t.copy() for t in results.trajectory_data],
             'segment_speed_history': [s.copy() for s in results.segment_speed_history],

@@ -194,21 +194,40 @@ def _trajectory_to_frames(trajectory_data: list, config: dict = None) -> list:
         frame = {'time': t, 'vehicles': frame_map[t]}
         frames.append(frame)
 
-    # 注入 ETC 门架位置（每2km一个）
-    road_length = 20000
-    num_lanes = 4
-    if config:
-        road_length = config.get('road_length', config.get('roadLength', 20000))
-        num_lanes = config.get('num_lanes', config.get('numLanes', 4))
+    # 优先从顶层 data 读取已保存的实际门架
+    if 'etcGates' in data:
+        gates = data['etcGates']
+    else:
+        # 向后兼容：按照最新配置读取
+        road_length = 20000
+        gate_km = 2
+        if config:
+            # 优先读自定义长度，其次读普通长度
+            road_length_km = config.get('custom_road_length_km') or config.get('road_length_km') or config.get('roadLengthKm') or 20.0
+            road_length = float(road_length_km) * 1000
+            gate_km = config.get('segment_length_km') or config.get('segmentLengthKm') or 2.0
+            
+            # 如果存在自定义的不均匀点位，则采用
+            custom_gantries = config.get('custom_gantry_positions', [])
+            if custom_gantries:
+                gates = [{'position': float(g) * 1000, 'segment': i+1} for i, g in enumerate(custom_gantries)]
+            else:
+                gates = []
+                pos = gate_km * 1000
+                seg = 1
+                while pos < road_length:
+                    gates.append({'position': pos, 'segment': seg})
+                    pos += gate_km * 1000
+                    seg += 1
+        else:
+            gates = []
+            pos = gate_km * 1000
+            seg = 1
+            while pos < road_length:
+                gates.append({'position': pos, 'segment': seg})
+                pos += gate_km * 1000
+                seg += 1
 
-    gate_km = 2
-    gates = []
-    pos = gate_km * 1000
-    seg = 1
-    while pos < road_length:
-        gates.append({'position': pos, 'segment': seg})
-        pos += gate_km * 1000
-        seg += 1
     if gates and frames:
         for f in frames:
             f['etcGates'] = gates
@@ -249,19 +268,29 @@ def _msgpack_frames_to_api_frames(traj_data: dict, config: dict = None) -> list:
             })
         api_frames.append({'time': t, 'vehicles': vehicles})
 
-    # 注入 ETC 门架位置
+    # 优先从传入的额外 data 对象（在调用处改传整个 data以提取etcGates）或向后兼容计算
+    # 修改这里的参数签名不是好主意，我们依靠 config 来兼容还原
     road_length = 20000
-    if config:
-        road_length = config.get('road_length', config.get('road_length_km', 20) * 1000)
-
     gate_km = 2
     gates = []
-    pos = gate_km * 1000
-    seg = 1
-    while pos < road_length:
-        gates.append({'position': pos, 'segment': seg})
-        pos += gate_km * 1000
-        seg += 1
+    
+    if config:
+        road_length_km = config.get('custom_road_length_km') or config.get('road_length_km') or config.get('roadLengthKm') or 20.0
+        road_length = float(road_length_km) * 1000
+        gate_km = config.get('segment_length_km') or config.get('segmentLengthKm') or 2.0
+        
+        custom_gantries = config.get('custom_gantry_positions', [])
+        if custom_gantries:
+            gates = [{'position': float(g) * 1000, 'segment': i+1} for i, g in enumerate(custom_gantries)]
+            
+    if not gates:
+        pos = gate_km * 1000
+        seg = 1
+        while pos < road_length:
+            gates.append({'position': pos, 'segment': seg})
+            pos += gate_km * 1000
+            seg += 1
+
     if gates and api_frames:
         for f in api_frames:
             f['etcGates'] = gates
@@ -288,6 +317,10 @@ def _get_frames_for_file(target: Path) -> dict:
     if traj_data and traj_data.get('frames'):
         # 新格式：从 MessagePack 帧数据转换
         frames = _msgpack_frames_to_api_frames(traj_data, config)
+        # 向后兼容读取外层保存的 etcGates
+        if 'etcGates' in data and len(frames) > 0 and 'etcGates' not in frames[0]:
+            for f in frames:
+                f['etcGates'] = data['etcGates']
     elif 'trajectory_data' in data:
         # 旧格式：从 data.json 内嵌的 trajectory_data 转换
         frames = _trajectory_to_frames(data['trajectory_data'], config)
