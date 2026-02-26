@@ -76,32 +76,39 @@ export function renderGlobalFrame(
   frame: TrajectoryFrame,
   opts: RenderOptions,
   anomalyLogs: AnomalyLog[] = [],
+  trackedVehicleId: string | null = null,
 ): void {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
-  const laneH = 40 * opts.zoomLevel;
-  const roadTop = (h - laneH * opts.numLanes) / 2;
   const mpp = opts.roadLength / (w * opts.zoomLevel);
+  const laneH = 40;
+  const totalRoadH = laneH * opts.numLanes;
+  const roadTop = (h - totalRoadH) / 2;
 
-  // 背景
-  ctx.fillStyle = '#1a202c';
+  // 清空
+  ctx.fillStyle = '#1e1e24';
   ctx.fillRect(0, 0, w, h);
 
-  // 道路
-  ctx.fillStyle = COLORS.road;
-  ctx.fillRect(0, roadTop, w, laneH * opts.numLanes);
+  // 栅格背景
+  ctx.strokeStyle = '#2a2a35';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  const gridSpacing = 50 * opts.zoomLevel;
+  for (let x = -(opts.viewOffset / mpp) % gridSpacing; x <= w; x += gridSpacing) {
+    ctx.moveTo(x, 0); ctx.lineTo(x, h);
+  }
+  ctx.stroke();
+
+  // 道路底色
+  ctx.fillStyle = '#2d3748';
+  ctx.fillRect(0, roadTop, w, totalRoadH);
 
   // 车道线
-  for (let i = 0; i <= opts.numLanes; i++) {
+  ctx.strokeStyle = '#4a5568';
+  ctx.setLineDash([15, 15]);
+  for (let i = 1; i < opts.numLanes; i++) {
     const y = roadTop + i * laneH;
-    const isBorder = i === 0 || i === opts.numLanes;
-    ctx.strokeStyle = isBorder ? '#e2e8f0' : COLORS.laneMarking;
-    ctx.lineWidth = isBorder ? 3 : 1;
-    ctx.setLineDash(isBorder ? [] : [15, 10]);
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
   }
   ctx.setLineDash([]);
 
@@ -109,9 +116,9 @@ export function renderGlobalFrame(
   if (frame.etcGates) {
     for (const gate of frame.etcGates) {
       const x = (gate.position - opts.viewOffset) / mpp;
-      if (x < 0 || x > w) continue;
+      if (x < -20 || x > w + 20) continue;
       ctx.strokeStyle = COLORS.etcGate;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 4;
       ctx.beginPath();
       ctx.moveTo(x, roadTop - 15);
       ctx.lineTo(x, roadTop + laneH * opts.numLanes + 15);
@@ -126,13 +133,33 @@ export function renderGlobalFrame(
   for (const v of frame.vehicles) {
     const x = (v.x - opts.viewOffset) / mpp;
     if (x < -20 || x > w + 20) continue;
+
+    // 如果存在被跟踪车辆，未被跟踪的车辆变暗
+    if (trackedVehicleId && v.id !== trackedVehicleId) {
+      ctx.globalAlpha = 0.2;
+    } else {
+      ctx.globalAlpha = Math.max(0.4, Math.min(1, v.speed / 33));
+    }
+
     const y = roadTop + v.lane * laneH + laneH / 2;
     const vLen = (v.type === 'CAR' ? 4.5 : v.type === 'TRUCK' ? 12 : 10) / mpp;
+
+    // 跟踪高亮效果
+    if (trackedVehicleId === v.id) {
+      ctx.save();
+      ctx.shadowColor = '#fff';
+      ctx.shadowBlur = 15;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x - vLen / 2 - 2, y - laneH * 0.25 - 2, vLen + 4, laneH * 0.5 + 4);
+      ctx.restore();
+    }
+
     const color = v.anomaly >= 1
       ? [COLORS.anomaly1, COLORS.anomaly2, COLORS.anomaly3][v.anomaly - 1] || COLORS.anomaly1
       : v.type === 'TRUCK' ? COLORS.truck : v.type === 'BUS' ? COLORS.bus : COLORS.car;
     ctx.fillStyle = color;
-    ctx.globalAlpha = Math.max(0.4, Math.min(1, v.speed / 33));
+
     ctx.beginPath();
     ctx.roundRect(x - vLen / 2, y - laneH * 0.25, vLen, laneH * 0.5, 3);
     ctx.fill();
@@ -244,15 +271,17 @@ export function renderLocalFrame(
   opts: RenderOptions,
   images: VehicleImages,
   anomalyLogs: AnomalyLog[] = [],
+  trackedVehicleId: string | null = null,
 ): void {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
-  const laneH = 60 * opts.zoomLevel; // 局部模式车道更宽
-  const totalRoadH = laneH * opts.numLanes;
-  const roadTop = (h - totalRoadH) / 2;
   const rangeStartM = range.startKm * 1000;
   const rangeEndM = range.endKm * 1000;
   const rangeLenM = rangeEndM - rangeStartM;
+  const mpp = rangeLenM / w;
+  const laneH = 40 * opts.zoomLevel; // 局部模式车道更宽
+  const totalRoadH = laneH * opts.numLanes;
+  const roadTop = (h - totalRoadH) / 2;
 
   if (rangeLenM <= 0) return;
 
@@ -352,13 +381,32 @@ export function renderLocalFrame(
     }
   }
 
-  // 车辆（精美素材）
+  // 车辆（图片素材）
   for (const v of frame.vehicles) {
     const screenX = ((v.x - rangeStartM) / rangeLenM) * w;
-    if (screenX < -40 || screenX > w + 40) continue;
+    if (screenX < -50 || screenX > w + 50) continue;
+
+    // 渐变淡出未跟踪的车辆
+    if (trackedVehicleId && v.id !== trackedVehicleId) {
+      ctx.globalAlpha = 0.2;
+    }
+
     const screenY = roadTop + v.lane * laneH + laneH / 2;
 
+    // 高亮框
+    if (trackedVehicleId === v.id) {
+      const vLen = (v.type === 'CAR' ? 4.5 : v.type === 'TRUCK' ? 12 : 10) / mpp;
+      ctx.save();
+      ctx.shadowColor = '#fff';
+      ctx.shadowBlur = 15;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(screenX - vLen / 2 - 2, screenY - laneH * 0.25 - 2, vLen + 4, laneH * 0.5 + 4);
+      ctx.restore();
+    }
+
     drawVehicleSprite(ctx, v, screenX, screenY, laneH, images, opts.zoomLevel);
+    ctx.globalAlpha = 1;
   }
 
   // 绘制异常标记

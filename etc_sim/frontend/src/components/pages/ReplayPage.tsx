@@ -91,6 +91,7 @@ export const ReplayPage: React.FC = () => {
   });
   const [rangeCollapsed, setRangeCollapsed] = useState(false);
   const [anomalyLogs, setAnomalyLogs] = useState<AnomalyLog[]>([]);
+  const [trackedVehicleId, setTrackedVehicleId] = useState<string | null>(null);
 
   // 素材
   const vehicleImagesRef = useRef<VehicleImages | null>(null);
@@ -410,8 +411,24 @@ export const ReplayPage: React.FC = () => {
       return;
     }
 
+    // 自动追踪视角逻辑：如果跟踪了车辆，动态计算 viewOffset 使其居中（局部模式也受影响，因局部按 startKm 固定，可加特效跟随，但此时主要针对全局做视口移动）
+    let currentViewOffset = viewOffset;
+    if (trackedVehicleId) {
+      const v = frame.vehicles.find(v => v.id === trackedVehicleId);
+      if (v) {
+        if (viewMode === 'global') {
+          // 尝试让车辆保持在画布中心位置
+          const mppX = roadLength / (canvas.width * zoomLevel);
+          const targetOffset = v.x - (canvas.width * mppX) / 2;
+          // 平滑过渡
+          currentViewOffset = currentViewOffset + (targetOffset - currentViewOffset) * 0.1;
+          setViewOffset(currentViewOffset);
+        }
+      }
+    }
+
     const opts: RenderOptions = {
-      viewOffset, zoomLevel, numLanes, roadLength,
+      viewOffset: currentViewOffset, zoomLevel, numLanes, roadLength,
       playbackSpeed, isEn,
       frameIndex, totalFrames,
       bufferLength: frameBuffer.length,
@@ -429,14 +446,14 @@ export const ReplayPage: React.FC = () => {
       }
       const filteredFrame = filterFrameByRange(renderTarget, localRange);
       const images = vehicleImagesRef.current || { cars: [], trucks: [], buses: [], special: [] };
-      renderLocalFrame(ctx, filteredFrame, localRange, opts, images, anomalyLogs);
+      renderLocalFrame(ctx, filteredFrame, localRange, opts, images, anomalyLogs, trackedVehicleId);
 
       // 小地图（全局视角）
       const viewStartM = localRange.startKm * 1000;
       const viewEndM = localRange.endKm * 1000;
       renderMinimap(ctx, frame, canvas.width, canvas.height, roadLength, viewStartM, viewEndM, isEn);
     } else {
-      renderGlobalFrame(ctx, frame, opts, anomalyLogs);
+      renderGlobalFrame(ctx, frame, opts, anomalyLogs, trackedVehicleId);
 
       // 小地图（全局视口位置）
       const mpp = roadLength / (canvas.width * zoomLevel);
@@ -450,7 +467,7 @@ export const ReplayPage: React.FC = () => {
   }, [
     frameBuffer, bufferOffset, totalFrames, viewOffset, zoomLevel,
     numLanes, roadLength, playbackSpeed, isEn, getFrame,
-    viewMode, localRange, currentIndex, anomalyLogs,
+    viewMode, localRange, currentIndex, anomalyLogs, trackedVehicleId,
   ]);
 
   // ==================== 播放控制 ====================
@@ -528,6 +545,10 @@ export const ReplayPage: React.FC = () => {
             return idx > 0 ? SPEED_OPTIONS[idx - 1] : s;
           });
           break;
+        case 'Escape':
+          e.preventDefault();
+          setTrackedVehicleId(null);
+          break;
         case 'Tab':
           e.preventDefault();
           setViewMode(m => m === 'global' ? 'local' : 'global');
@@ -550,10 +571,57 @@ export const ReplayPage: React.FC = () => {
 
   useEffect(() => {
     const c = canvasRef.current; if (!c) return;
-    let drag = false, sx = 0, so = 0;
-    const md = (e: MouseEvent) => { drag = true; sx = e.clientX; so = viewOffset; };
-    const mm = (e: MouseEvent) => { if (!drag) return; setViewOffset(so - (e.clientX - sx) * roadLength / (c.width * zoomLevel)); };
-    const mu = () => { drag = false; };
+    let drag = false, sx = 0, so = 0, moved = false;
+    const md = (e: MouseEvent) => { drag = true; moved = false; sx = e.clientX; so = viewOffset; };
+    const mm = (e: MouseEvent) => {
+      if (!drag) return;
+      if (Math.abs(e.clientX - sx) > 5) moved = true;
+      setViewOffset(so - (e.clientX - sx) * roadLength / (c.width * zoomLevel));
+    };
+    const mu = (e: MouseEvent) => {
+      drag = false;
+      // Click detection for vehicle tracking
+      if (!moved) {
+        const frame = getFrame(Math.floor(currentIndex));
+        if (frame) {
+          const rect = c.getBoundingClientRect();
+          const cx = e.clientX - rect.left;
+          const cy = e.clientY - rect.top;
+
+          let mpp: number, startM: number, laneH: number, totalRoadH: number, roadTop: number;
+          if (viewMode === 'local') {
+            const rangeLenM = (localRange.endKm - localRange.startKm) * 1000;
+            startM = localRange.startKm * 1000;
+            mpp = rangeLenM / c.width;
+            laneH = 40 * zoomLevel;
+          } else {
+            mpp = roadLength / (c.width * zoomLevel);
+            startM = viewOffset;
+            laneH = 40;
+          }
+
+          totalRoadH = laneH * numLanes;
+          roadTop = (c.height - totalRoadH) / 2;
+
+          let clickedVehId: string | null = null;
+          for (let i = frame.vehicles.length - 1; i >= 0; i--) {
+            const v = frame.vehicles[i];
+            const vLen = (v.type === 'CAR' ? 4.5 : v.type === 'TRUCK' ? 12 : 10) / mpp;
+            const vx = (v.x - startM) / mpp;
+            const vy = roadTop + v.lane * laneH + laneH / 2;
+
+            // Simple bounding box hit test (with some padding for easier clicking)
+            const padding = 10;
+            if (cx >= vx - vLen / 2 - padding && cx <= vx + vLen / 2 + padding &&
+              cy >= vy - laneH * 0.25 - padding && cy <= vy + laneH * 0.25 + padding) {
+              clickedVehId = v.id;
+              break;
+            }
+          }
+          setTrackedVehicleId(current => current === clickedVehId ? null : clickedVehId);
+        }
+      }
+    };
     const wh = (e: WheelEvent) => {
       e.preventDefault();
       if (e.ctrlKey) setZoomLevel(z => Math.max(0.1, Math.min(10, z * (e.deltaY > 0 ? 0.9 : 1.1))));
@@ -562,7 +630,7 @@ export const ReplayPage: React.FC = () => {
     c.addEventListener('mousedown', md);
     c.addEventListener('mousemove', mm);
     c.addEventListener('mouseup', mu);
-    c.addEventListener('mouseleave', mu);
+    c.addEventListener('mouseleave', () => drag = false);
     c.addEventListener('wheel', wh, { passive: false });
     return () => {
       c.removeEventListener('mousedown', md);
