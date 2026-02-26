@@ -153,6 +153,65 @@ export function renderGlobalFrame(
   );
 }
 
+// ==================== 帧插值 ====================
+
+/**
+ * 在两帧之间进行线性插值，生成平滑的中间帧。
+ * 用于提升局部回放的视觉流畅度。
+ *
+ * @param frameA 前一帧
+ * @param frameB 后一帧
+ * @param t 插值因子 [0, 1]，0 = frameA，1 = frameB
+ * @returns 插值后的中间帧
+ */
+export function interpolateFrames(
+  frameA: TrajectoryFrame,
+  frameB: TrajectoryFrame,
+  t: number,
+): TrajectoryFrame {
+  // 构建 B 帧的车辆索引
+  const bMap = new Map<number, VehicleData>();
+  for (const v of frameB.vehicles) {
+    bMap.set(v.id, v);
+  }
+
+  const interpolated: VehicleData[] = [];
+
+  for (const vA of frameA.vehicles) {
+    const vB = bMap.get(vA.id);
+    if (vB) {
+      // 两帧都有该车辆 — 线性插值
+      interpolated.push({
+        id: vA.id,
+        x: vA.x + (vB.x - vA.x) * t,
+        lane: t < 0.5 ? vA.lane : vB.lane, // 车道取离当前更近的帧
+        speed: vA.speed + (vB.speed - vA.speed) * t,
+        type: vA.type,
+        anomaly: t < 0.5 ? vA.anomaly : vB.anomaly,
+      });
+    } else {
+      // 仅在 A 帧中存在（车辆即将离开），逐渐淡出
+      if (t < 0.8) {
+        interpolated.push(vA);
+      }
+    }
+  }
+
+  // B 帧中新出现的车辆（A 帧中不存在）
+  const aIds = new Set(frameA.vehicles.map(v => v.id));
+  for (const vB of frameB.vehicles) {
+    if (!aIds.has(vB.id) && t > 0.2) {
+      interpolated.push(vB);
+    }
+  }
+
+  return {
+    time: frameA.time + (frameB.time - frameA.time) * t,
+    vehicles: interpolated,
+    etcGates: frameA.etcGates,
+  };
+}
+
 // ==================== 局部模式渲染 ====================
 
 /**
