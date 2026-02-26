@@ -1,24 +1,33 @@
 /**
- * 2D 道路俯视图回放页面 — 大文件优化版
+ * 2D 道路俯视图回放页面 — 双模式版
+ * 
+ * 模式：
+ * - 全局模式：整条道路概览，使用色块表示车辆（原有功能）
+ * - 局部模式：用户指定路段和时间区间，使用精美像素素材渲染车辆
  * 
  * 优化：
  * - 分块加载：先获取文件元信息（总帧数），再按需分批获取帧数据
  * - 滑动窗口缓冲：内存中仅保留当前帧 ±BUFFER_SIZE 帧
  * - 预取机制：播放到缓冲区边界时自动预取下一批
- * - 加载进度条：显示已加载帧/总帧比例
- * - 兼容小文件直接加载和手动导入
+ * - 素材预加载：挂载时异步加载所有车辆 PNG 素材
+ * 
+ * 车辆素材: Kenney Pixel Car Pack (CC0) — www.kenney.nl
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useI18nStore } from '../../stores/i18nStore';
-
-interface TrajectoryFrame {
-  time: number;
-  vehicles: {
-    id: number; x: number; lane: number; speed: number; type: string; anomaly: number;
-  }[];
-  etcGates?: { position: number; segment: number }[];
-}
+import { RangeSelector } from './RangeSelector';
+import {
+  type TrajectoryFrame,
+  type LocalRange,
+  type VehicleImages,
+  type RenderOptions,
+  renderGlobalFrame,
+  renderLocalFrame,
+  renderLoadingPlaceholder,
+  filterFrameByRange,
+  preloadVehicleImages,
+} from './replayRenderers';
 
 interface OutputFile {
   name: string;
@@ -29,17 +38,10 @@ interface OutputFile {
   meta?: Record<string, any>;
 }
 
-const COLORS = {
-  road: '#2d3748', laneMarking: '#a0aec0',
-  car: '#60a5fa', truck: '#f59e0b', bus: '#34d399',
-  anomaly1: '#ef4444', anomaly2: '#f97316', anomaly3: '#eab308',
-  etcGate: '#a78bfa',
-};
-const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4, 8];
+type ViewMode = 'global' | 'local';
 
-/** 每次从后端拉取的帧数 */
+const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4, 8];
 const CHUNK_SIZE = 500;
-/** 预加载触发阈值：距离缓冲区边界不足此值时触发预取 */
 const PREFETCH_THRESHOLD = 100;
 
 export const ReplayPage: React.FC = () => {
@@ -50,11 +52,11 @@ export const ReplayPage: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number>(0);
 
-  // 帧缓冲管理
+  // ==================== 帧缓冲管理 ====================
   const [frameBuffer, setFrameBuffer] = useState<TrajectoryFrame[]>([]);
-  const [bufferOffset, setBufferOffset] = useState(0); // frameBuffer[0] 对应的全局帧索引
+  const [bufferOffset, setBufferOffset] = useState(0);
   const [totalFrames, setTotalFrames] = useState(0);
-  const [currentIndex, setCurrentIndex] = useState(0); // 全局帧索引
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -72,15 +74,36 @@ export const ReplayPage: React.FC = () => {
 
   // 分块加载状态
   const [loadingChunk, setLoadingChunk] = useState(false);
-  const [loadProgress, setLoadProgress] = useState(0); // 0-1
+  const [loadProgress, setLoadProgress] = useState(0);
   const [currentFilePath, setCurrentFilePath] = useState('');
 
   // 防止重复预取
   const fetchingRef = useRef(false);
 
+  // ==================== 双模式状态 ====================
+  const [viewMode, setViewMode] = useState<ViewMode>('global');
+  const [localRange, setLocalRange] = useState<LocalRange>({
+    startKm: 0, endKm: 5, startTime: 0, endTime: 300,
+  });
+  const [rangeCollapsed, setRangeCollapsed] = useState(false);
+
+  // 素材
+  const vehicleImagesRef = useRef<VehicleImages | null>(null);
+  const [imagesLoaded, setImagesLoaded] = useState(false);
+
+  // ==================== 素材预加载 ====================
+  useEffect(() => {
+    preloadVehicleImages().then(imgs => {
+      vehicleImagesRef.current = imgs;
+      setImagesLoaded(true);
+    }).catch(() => {
+      // 素材加载失败不阻塞使用，局部模式会回退为色块
+      setImagesLoaded(true);
+    });
+  }, []);
+
   // ==================== 帧缓冲管理 ====================
 
-  /** 根据全局索引获取对应的缓冲区帧 */
   const getFrame = useCallback((globalIndex: number): TrajectoryFrame | null => {
     const localIndex = globalIndex - bufferOffset;
     if (localIndex >= 0 && localIndex < frameBuffer.length) {
@@ -89,7 +112,6 @@ export const ReplayPage: React.FC = () => {
     return null;
   }, [frameBuffer, bufferOffset]);
 
-  /** 分块从后端加载帧数据 */
   const fetchChunk = useCallback(async (filePath: string, offset: number, limit: number = CHUNK_SIZE): Promise<TrajectoryFrame[]> => {
     try {
       const res = await fetch(`/api/files/output-file-chunk?path=${encodeURIComponent(filePath)}&offset=${offset}&limit=${limit}`);
@@ -105,20 +127,17 @@ export const ReplayPage: React.FC = () => {
     }
   }, []);
 
-  /** 初始加载文件：获取 info + 首批帧 */
   const loadFileChunked = useCallback(async (file: OutputFile) => {
     setLoadingFile(file.path);
     setLoadingChunk(true);
     setLoadProgress(0);
 
     try {
-      // 1. 获取文件元信息
       const infoRes = await fetch(`/api/files/output-file-info?path=${encodeURIComponent(file.path)}`);
       if (!infoRes.ok) throw new Error('无法获取文件信息');
       const info = await infoRes.json();
 
       if (info.total_frames === 0) {
-        // 回退到直接加载
         await loadFileDirectly(file);
         return;
       }
@@ -128,10 +147,15 @@ export const ReplayPage: React.FC = () => {
 
       if (info.config) {
         setNumLanes(info.config.num_lanes || info.config.numLanes || 4);
-        setRoadLength(info.config.road_length || info.config.roadLength || 20000);
+        const rl = info.config.road_length || info.config.roadLength || 20000;
+        setRoadLength(rl);
+        // 初始化局部区间为道路的前 1/4
+        setLocalRange(prev => ({
+          ...prev,
+          endKm: Math.min(prev.endKm, rl / 1000),
+        }));
       }
 
-      // 2. 加载首批帧
       const firstChunk = await fetchChunk(file.path, 0, CHUNK_SIZE);
       if (firstChunk.length === 0) throw new Error('无帧数据');
 
@@ -142,6 +166,12 @@ export const ReplayPage: React.FC = () => {
       setLoadedFileName(file.name);
       setLoadProgress(Math.min(1, firstChunk.length / info.total_frames));
 
+      // 初始化时间范围
+      if (firstChunk.length > 0) {
+        const maxT = firstChunk[firstChunk.length - 1]?.time || 300;
+        setLocalRange(prev => ({ ...prev, endTime: Math.min(prev.endTime, maxT) }));
+      }
+
     } catch (err) {
       alert(isEn ? 'Failed to load' : `加载失败: ${err}`);
     } finally {
@@ -150,7 +180,6 @@ export const ReplayPage: React.FC = () => {
     }
   }, [isEn, fetchChunk]);
 
-  /** 小文件回退方案 */
   const loadFileDirectly = useCallback(async (file: OutputFile) => {
     try {
       const res = await fetch(`/api/files/output-file?path=${encodeURIComponent(file.path)}`);
@@ -167,21 +196,18 @@ export const ReplayPage: React.FC = () => {
     setLoadingChunk(false);
   }, [isEn]);
 
-  /** 预取：当播放接近缓冲区边界时自动加载更多帧 */
   const prefetchIfNeeded = useCallback(async (globalIndex: number) => {
     if (!currentFilePath || fetchingRef.current) return;
 
     const localIndex = globalIndex - bufferOffset;
     const distanceToEnd = frameBuffer.length - localIndex;
 
-    // 向前预取
     if (distanceToEnd < PREFETCH_THRESHOLD && bufferOffset + frameBuffer.length < totalFrames) {
       fetchingRef.current = true;
       const nextOffset = bufferOffset + frameBuffer.length;
       const newFrames = await fetchChunk(currentFilePath, nextOffset, CHUNK_SIZE);
       if (newFrames.length > 0) {
         setFrameBuffer(prev => {
-          // 追加新帧，如果缓冲区过大则裁剪前面的帧
           const combined = [...prev, ...newFrames];
           const MAX_BUFFER = CHUNK_SIZE * 4;
           if (combined.length > MAX_BUFFER) {
@@ -196,7 +222,6 @@ export const ReplayPage: React.FC = () => {
       fetchingRef.current = false;
     }
 
-    // 向后预取（快退时）
     if (localIndex < PREFETCH_THRESHOLD && bufferOffset > 0) {
       fetchingRef.current = true;
       const prevOffset = Math.max(0, bufferOffset - CHUNK_SIZE);
@@ -246,7 +271,6 @@ export const ReplayPage: React.FC = () => {
         setRoadLength(data.config.road_length || data.config.roadLength || 20000);
       }
     } else if (data.trajectory_data) {
-      // 前端转换 trajectory_data 为帧（小文件）
       frames = trajectoryToFrames(data.trajectory_data, data.config);
       if (data.config) {
         setNumLanes(data.config.num_lanes || data.config.numLanes || 4);
@@ -260,7 +284,6 @@ export const ReplayPage: React.FC = () => {
     setLoadProgress(1);
   };
 
-  /** 前端轨迹转帧（用于手动导入的小文件） */
   const trajectoryToFrames = (trajectoryData: any[], _config?: any): TrajectoryFrame[] => {
     const frameMap = new Map<number, TrajectoryFrame>();
     for (const entry of trajectoryData) {
@@ -310,7 +333,6 @@ export const ReplayPage: React.FC = () => {
   const handleFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
 
-    // 大文件提示
     if (file.size > 50 * 1024 * 1024) {
       alert(isEn ? 'File too large. Please use server-side files.' : '文件过大（>50MB），请使用服务端加载');
       return;
@@ -337,67 +359,71 @@ export const ReplayPage: React.FC = () => {
     reader.readAsText(file);
   }, [isEn]);
 
-  // ==================== Canvas 渲染 ====================
+  // ==================== 局部模式：帧索引映射 ====================
 
-  const renderFrame = useCallback((frameIndex: number) => {
-    const canvas = canvasRef.current; if (!canvas || totalFrames === 0) return;
-    const ctx = canvas.getContext('2d'); if (!ctx) return;
-    const frame = getFrame(frameIndex);
-    if (!frame) {
-      // 帧未在缓冲区中 — 显示加载提示
-      const w = canvas.width, h = canvas.height;
-      ctx.fillStyle = '#1a202c'; ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = '#e2e8f0'; ctx.font = '16px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(isEn ? 'Loading frames...' : '正在加载帧数据...', w / 2, h / 2);
-      ctx.textAlign = 'start';
-      return;
-    }
+  /** 获取局部模式下有效的帧索引范围 */
+  const localFrameRange = useMemo(() => {
+    if (viewMode !== 'local' || frameBuffer.length === 0) return null;
 
-    const w = canvas.width, h = canvas.height;
-    const laneH = 40 * zoomLevel;
-    const roadTop = (h - laneH * numLanes) / 2;
-    const mpp = roadLength / (w * zoomLevel);
+    let startIdx = -1;
+    let endIdx = -1;
 
-    ctx.fillStyle = '#1a202c'; ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = COLORS.road; ctx.fillRect(0, roadTop, w, laneH * numLanes);
-    for (let i = 0; i <= numLanes; i++) {
-      const y = roadTop + i * laneH;
-      ctx.strokeStyle = i === 0 || i === numLanes ? '#e2e8f0' : COLORS.laneMarking;
-      ctx.lineWidth = i === 0 || i === numLanes ? 3 : 1;
-      ctx.setLineDash(i === 0 || i === numLanes ? [] : [15, 10]);
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-    }
-    ctx.setLineDash([]);
-
-    if (frame.etcGates) {
-      for (const gate of frame.etcGates) {
-        const x = (gate.position - viewOffset) / mpp;
-        if (x < 0 || x > w) continue;
-        ctx.strokeStyle = COLORS.etcGate; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.moveTo(x, roadTop - 15); ctx.lineTo(x, roadTop + laneH * numLanes + 15); ctx.stroke();
-        ctx.fillStyle = COLORS.etcGate; ctx.font = '11px monospace';
-        ctx.fillText(`G${gate.segment}`, x - 8, roadTop - 20);
+    for (let i = 0; i < frameBuffer.length; i++) {
+      const t = frameBuffer[i].time;
+      if (t >= localRange.startTime && startIdx === -1) {
+        startIdx = i + bufferOffset;
+      }
+      if (t <= localRange.endTime) {
+        endIdx = i + bufferOffset;
       }
     }
 
-    for (const v of frame.vehicles) {
-      const x = (v.x - viewOffset) / mpp;
-      if (x < -20 || x > w + 20) continue;
-      const y = roadTop + v.lane * laneH + laneH / 2;
-      const vLen = (v.type === 'CAR' ? 4.5 : v.type === 'TRUCK' ? 12 : 10) / mpp;
-      let color = v.anomaly >= 1 ? [COLORS.anomaly1, COLORS.anomaly2, COLORS.anomaly3][v.anomaly - 1] || COLORS.anomaly1
-        : v.type === 'TRUCK' ? COLORS.truck : v.type === 'BUS' ? COLORS.bus : COLORS.car;
-      ctx.fillStyle = color;
-      ctx.globalAlpha = Math.max(0.4, Math.min(1, v.speed / 33));
-      ctx.beginPath(); ctx.roundRect(x - vLen / 2, y - laneH * 0.25, vLen, laneH * 0.5, 3); ctx.fill();
-      ctx.globalAlpha = 1;
+    if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) return null;
+    return { start: startIdx, end: endIdx };
+  }, [viewMode, frameBuffer, bufferOffset, localRange.startTime, localRange.endTime]);
+
+  /** 局部模式下当前区间的车辆数 */
+  const localVehicleCount = useMemo(() => {
+    if (viewMode !== 'local') return undefined;
+    const frame = getFrame(Math.floor(currentIndex));
+    if (!frame) return 0;
+    const filtered = filterFrameByRange(frame, localRange);
+    return filtered.vehicles.length;
+  }, [viewMode, currentIndex, getFrame, localRange]);
+
+  // ==================== Canvas 渲染 ====================
+
+  const renderFrame = useCallback((frameIndex: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas || totalFrames === 0) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const frame = getFrame(frameIndex);
+
+    if (!frame) {
+      renderLoadingPlaceholder(ctx, isEn);
+      return;
     }
 
-    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(10, 10, 320, 45);
-    ctx.fillStyle = '#e2e8f0'; ctx.font = '12px monospace';
-    ctx.fillText(`${isEn ? 'T' : '时间'}: ${frame.time.toFixed(1)}s | ${isEn ? 'F' : '帧'}: ${frameIndex + 1}/${totalFrames} | ${isEn ? 'V' : '车'}: ${frame.vehicles.length}`, 20, 28);
-    ctx.fillText(`${playbackSpeed}x | ${isEn ? 'Zoom' : '缩放'}: ${zoomLevel.toFixed(1)}x | ${isEn ? 'Buf' : '缓冲'}: ${frameBuffer.length}`, 20, 46);
-  }, [frameBuffer, bufferOffset, totalFrames, viewOffset, zoomLevel, numLanes, roadLength, playbackSpeed, isEn, getFrame]);
+    const opts: RenderOptions = {
+      viewOffset, zoomLevel, numLanes, roadLength,
+      playbackSpeed, isEn,
+      frameIndex, totalFrames,
+      bufferLength: frameBuffer.length,
+    };
+
+    if (viewMode === 'local') {
+      const filteredFrame = filterFrameByRange(frame, localRange);
+      const images = vehicleImagesRef.current || { cars: [], trucks: [], buses: [], special: [] };
+      renderLocalFrame(ctx, filteredFrame, localRange, opts, images);
+    } else {
+      renderGlobalFrame(ctx, frame, opts);
+    }
+  }, [
+    frameBuffer, bufferOffset, totalFrames, viewOffset, zoomLevel,
+    numLanes, roadLength, playbackSpeed, isEn, getFrame,
+    viewMode, localRange,
+  ]);
 
   // ==================== 播放控制 ====================
 
@@ -408,14 +434,24 @@ export const ReplayPage: React.FC = () => {
       const dt = (now - prev) / 1000; prev = now;
       setCurrentIndex(p => {
         const n = p + dt * playbackSpeed * 2;
-        if (n >= totalFrames) { setIsPlaying(false); return totalFrames - 1; }
+        const maxIdx = totalFrames - 1;
+
+        // 局部模式：时间超出区间时停止
+        if (viewMode === 'local' && localFrameRange) {
+          if (n >= localFrameRange.end) {
+            setIsPlaying(false);
+            return localFrameRange.end;
+          }
+        }
+
+        if (n >= maxIdx) { setIsPlaying(false); return maxIdx; }
         return n;
       });
       animFrameRef.current = requestAnimationFrame(animate);
     };
     animFrameRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animFrameRef.current);
-  }, [isPlaying, totalFrames, playbackSpeed]);
+  }, [isPlaying, totalFrames, playbackSpeed, viewMode, localFrameRange]);
 
   // 渲染 + 预取
   useEffect(() => {
@@ -425,16 +461,31 @@ export const ReplayPage: React.FC = () => {
   }, [currentIndex, renderFrame, prefetchIfNeeded]);
 
   useEffect(() => {
-    const resize = () => { if (canvasRef.current && containerRef.current) { canvasRef.current.width = containerRef.current.clientWidth; canvasRef.current.height = containerRef.current.clientHeight; renderFrame(Math.floor(currentIndex)); } };
-    resize(); window.addEventListener('resize', resize); return () => window.removeEventListener('resize', resize);
+    const resize = () => {
+      if (canvasRef.current && containerRef.current) {
+        canvasRef.current.width = containerRef.current.clientWidth;
+        canvasRef.current.height = containerRef.current.clientHeight;
+        renderFrame(Math.floor(currentIndex));
+      }
+    };
+    resize();
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
   }, [currentIndex, renderFrame]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
-      switch (e.key) { case ' ': e.preventDefault(); setIsPlaying(p => !p); break; case 'ArrowRight': setCurrentIndex(i => Math.min(i + 1, totalFrames - 1)); break; case 'ArrowLeft': setCurrentIndex(i => Math.max(i - 1, 0)); break; case '+': case '=': setZoomLevel(z => Math.min(z * 1.2, 10)); break; case '-': setZoomLevel(z => Math.max(z / 1.2, 0.1)); break; }
+      switch (e.key) {
+        case ' ': e.preventDefault(); setIsPlaying(p => !p); break;
+        case 'ArrowRight': setCurrentIndex(i => Math.min(i + 1, totalFrames - 1)); break;
+        case 'ArrowLeft': setCurrentIndex(i => Math.max(i - 1, 0)); break;
+        case '+': case '=': setZoomLevel(z => Math.min(z * 1.2, 10)); break;
+        case '-': setZoomLevel(z => Math.max(z / 1.2, 0.1)); break;
+      }
     };
-    window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
   }, [totalFrames]);
 
   useEffect(() => {
@@ -443,16 +494,43 @@ export const ReplayPage: React.FC = () => {
     const md = (e: MouseEvent) => { drag = true; sx = e.clientX; so = viewOffset; };
     const mm = (e: MouseEvent) => { if (!drag) return; setViewOffset(so - (e.clientX - sx) * roadLength / (c.width * zoomLevel)); };
     const mu = () => { drag = false; };
-    const wh = (e: WheelEvent) => { e.preventDefault(); if (e.ctrlKey) setZoomLevel(z => Math.max(0.1, Math.min(10, z * (e.deltaY > 0 ? 0.9 : 1.1)))); else setViewOffset(v => v + e.deltaY * roadLength / (c.width * zoomLevel) * 0.5); };
-    c.addEventListener('mousedown', md); c.addEventListener('mousemove', mm); c.addEventListener('mouseup', mu); c.addEventListener('mouseleave', mu);
+    const wh = (e: WheelEvent) => {
+      e.preventDefault();
+      if (e.ctrlKey) setZoomLevel(z => Math.max(0.1, Math.min(10, z * (e.deltaY > 0 ? 0.9 : 1.1))));
+      else setViewOffset(v => v + e.deltaY * roadLength / (c.width * zoomLevel) * 0.5);
+    };
+    c.addEventListener('mousedown', md);
+    c.addEventListener('mousemove', mm);
+    c.addEventListener('mouseup', mu);
+    c.addEventListener('mouseleave', mu);
     c.addEventListener('wheel', wh, { passive: false });
-    return () => { c.removeEventListener('mousedown', md); c.removeEventListener('mousemove', mm); c.removeEventListener('mouseup', mu); c.removeEventListener('mouseleave', mu); c.removeEventListener('wheel', wh); };
+    return () => {
+      c.removeEventListener('mousedown', md);
+      c.removeEventListener('mousemove', mm);
+      c.removeEventListener('mouseup', mu);
+      c.removeEventListener('mouseleave', mu);
+      c.removeEventListener('wheel', wh);
+    };
   }, [viewOffset, zoomLevel, roadLength]);
+
+  // ==================== 模式切换 ====================
+
+  const handleModeSwitch = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    if (mode === 'local' && localFrameRange) {
+      // 切换到局部模式时，跳到区间起点
+      setCurrentIndex(localFrameRange.start);
+    }
+  }, [localFrameRange]);
 
   // ==================== 工具函数 ====================
 
   const fmtSize = (b: number) => b < 1024 ? `${b}B` : b < 1048576 ? `${(b / 1024).toFixed(1)}KB` : `${(b / 1048576).toFixed(1)}MB`;
-  const fmtTime = (iso: string) => { try { return new Date(iso).toLocaleString(isEn ? 'en-US' : 'zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return iso; } };
+  const fmtTime = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleString(isEn ? 'en-US' : 'zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch { return iso; }
+  };
 
   const renderMeta = (meta?: Record<string, any>) => {
     if (!meta || Object.keys(meta).length === 0) return null;
@@ -472,6 +550,12 @@ export const ReplayPage: React.FC = () => {
       </div>
     );
   };
+
+  // ==================== 最大时间 ====================
+  const maxTime = useMemo(() => {
+    if (frameBuffer.length === 0) return 300;
+    return frameBuffer[frameBuffer.length - 1]?.time || 300;
+  }, [frameBuffer]);
 
   // ==================== JSX ====================
 
@@ -528,26 +612,68 @@ export const ReplayPage: React.FC = () => {
 
       {/* 右侧：回放 */}
       <div className="flex-1 flex flex-col">
+        {/* 顶栏 */}
         <div className="h-14 flex items-center justify-between px-6 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md shrink-0">
           <div className="flex items-center gap-4">
             {!showHistory && <button onClick={() => setShowHistory(true)} className="text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)]">📂</button>}
-            <h2 className="text-lg font-medium text-[var(--text-primary)]">🛣️ {isEn ? 'Replay' : '俯视回放'}</h2>
+
+            {/* 模式切换 Tab */}
+            <div className="flex rounded-lg overflow-hidden border border-[var(--glass-border)]">
+              <button
+                onClick={() => handleModeSwitch('global')}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === 'global'
+                    ? 'bg-[var(--accent-blue)] text-white'
+                    : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[rgba(255,255,255,0.05)]'
+                  }`}
+              >
+                🌐 {isEn ? 'Global' : '全局回放'}
+              </button>
+              <button
+                onClick={() => handleModeSwitch('local')}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === 'local'
+                    ? 'bg-[var(--accent-blue)] text-white'
+                    : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[rgba(255,255,255,0.05)]'
+                  }`}
+              >
+                🔍 {isEn ? 'Local' : '局部回放'}
+              </button>
+            </div>
+
             {loadedFileName && <span className="text-xs text-[var(--text-muted)] font-mono">{loadedFileName}</span>}
             {loadingChunk && <span className="text-xs text-[var(--accent-blue)] animate-pulse">⏳ {isEn ? 'Processing...' : '处理中...'}</span>}
+            {viewMode === 'local' && !imagesLoaded && (
+              <span className="text-[10px] text-[var(--text-muted)] animate-pulse">
+                {isEn ? 'Loading assets...' : '加载素材中...'}
+              </span>
+            )}
           </div>
           {isLoaded && (
             <div className="flex items-center gap-3">
-              <button onClick={() => setCurrentIndex(0)} className="text-lg hover:opacity-80">⏮</button>
+              <button onClick={() => {
+                if (viewMode === 'local' && localFrameRange) {
+                  setCurrentIndex(localFrameRange.start);
+                } else {
+                  setCurrentIndex(0);
+                }
+              }} className="text-lg hover:opacity-80">⏮</button>
               <button onClick={() => setCurrentIndex(i => Math.max(0, i - 10))} className="text-lg hover:opacity-80">⏪</button>
               <button onClick={() => setIsPlaying(!isPlaying)} className="w-10 h-10 rounded-full bg-[var(--accent-blue)] text-white flex items-center justify-center text-xl hover:opacity-90">{isPlaying ? '⏸' : '▶'}</button>
               <button onClick={() => setCurrentIndex(i => Math.min(totalFrames - 1, i + 10))} className="text-lg hover:opacity-80">⏩</button>
-              <button onClick={() => setCurrentIndex(totalFrames - 1)} className="text-lg hover:opacity-80">⏭</button>
+              <button onClick={() => {
+                if (viewMode === 'local' && localFrameRange) {
+                  setCurrentIndex(localFrameRange.end);
+                } else {
+                  setCurrentIndex(totalFrames - 1);
+                }
+              }} className="text-lg hover:opacity-80">⏭</button>
               <select value={playbackSpeed} onChange={e => setPlaybackSpeed(Number(e.target.value))} className="px-2 py-1 text-sm rounded bg-[var(--glass-bg)] border border-[var(--glass-border)] text-[var(--text-primary)]">
                 {SPEED_OPTIONS.map(s => <option key={s} value={s}>{s}x</option>)}
               </select>
             </div>
           )}
         </div>
+
+        {/* Canvas 区域 */}
         <div ref={containerRef} className="flex-1 relative">
           {!isLoaded ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-[var(--text-muted)]">
@@ -559,9 +685,24 @@ export const ReplayPage: React.FC = () => {
             <canvas ref={canvasRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
           )}
         </div>
+
+        {/* 局部模式：区间选择器 */}
+        {isLoaded && viewMode === 'local' && (
+          <RangeSelector
+            range={localRange}
+            onChange={setLocalRange}
+            maxKm={roadLength / 1000}
+            maxTime={maxTime}
+            vehicleCount={localVehicleCount}
+            isEn={isEn}
+            collapsed={rangeCollapsed}
+            onToggleCollapse={() => setRangeCollapsed(c => !c)}
+          />
+        )}
+
+        {/* 底部进度条 */}
         {isLoaded && (
           <div className="flex flex-col border-t border-[var(--glass-border)] bg-[var(--glass-bg)] shrink-0">
-            {/* 加载进度条 */}
             {loadProgress < 1 && (
               <div className="h-1 bg-[var(--glass-border)]">
                 <div className="h-full bg-[var(--accent-blue)] transition-all duration-300" style={{ width: `${loadProgress * 100}%` }} />
