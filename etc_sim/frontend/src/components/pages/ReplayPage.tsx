@@ -26,6 +26,7 @@ import {
   renderLocalFrame,
   renderLoadingPlaceholder,
   filterFrameByRange,
+  interpolateFrames,
   preloadVehicleImages,
 } from './replayRenderers';
 
@@ -413,7 +414,16 @@ export const ReplayPage: React.FC = () => {
     };
 
     if (viewMode === 'local') {
-      const filteredFrame = filterFrameByRange(frame, localRange);
+      // 局部模式：帧间插值实现平滑过渡
+      const t = currentIndex - Math.floor(currentIndex); // 小数部分作为插值因子
+      const nextFrame = getFrame(frameIndex + 1);
+      let renderTarget: TrajectoryFrame;
+      if (nextFrame && t > 0.01) {
+        renderTarget = interpolateFrames(frame, nextFrame, t);
+      } else {
+        renderTarget = frame;
+      }
+      const filteredFrame = filterFrameByRange(renderTarget, localRange);
       const images = vehicleImagesRef.current || { cars: [], trucks: [], buses: [], special: [] };
       renderLocalFrame(ctx, filteredFrame, localRange, opts, images);
     } else {
@@ -422,7 +432,7 @@ export const ReplayPage: React.FC = () => {
   }, [
     frameBuffer, bufferOffset, totalFrames, viewOffset, zoomLevel,
     numLanes, roadLength, playbackSpeed, isEn, getFrame,
-    viewMode, localRange,
+    viewMode, localRange, currentIndex,
   ]);
 
   // ==================== 播放控制 ====================
