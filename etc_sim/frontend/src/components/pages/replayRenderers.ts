@@ -467,6 +467,65 @@ export function renderAnomalyMarkers(
   }
 }
 
+// ==================== 小地图导航 ====================
+
+/**
+ * 渲染右下角小地图，展示全路段缩略图及当前视口范围
+ */
+export function renderMinimap(
+  ctx: CanvasRenderingContext2D,
+  frame: TrajectoryFrame,
+  canvasW: number,
+  canvasH: number,
+  roadLengthM: number,
+  viewStartM: number,
+  viewEndM: number,
+  isEn: boolean,
+): void {
+  const mapW = 300;
+  const mapH = 40;
+  const mapX = canvasW - mapW - 20;
+  const mapY = canvasH - mapH - 20;
+
+  ctx.save();
+
+  // 背景板
+  ctx.fillStyle = 'rgba(15, 23, 36, 0.8)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(mapX, mapY, mapW, mapH, 6);
+  ctx.fill();
+  ctx.stroke();
+
+  // 车辆散点
+  const mpp = roadLengthM / mapW;
+  ctx.fillStyle = 'rgba(96, 165, 250, 0.6)'; // 淡蓝色
+  for (const v of frame.vehicles) {
+    const x = Math.max(0, Math.min(mapW, v.x / mpp));
+    ctx.fillRect(mapX + x, mapY + 8 + (v.lane * 24 / 4), 1.5, 1.5);
+  }
+
+  // 视口框
+  const startX = Math.max(0, viewStartM / mpp);
+  const endX = Math.min(mapW, viewEndM / mpp);
+  const viewW = Math.max(2, endX - startX); // 最小宽度保证可见
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(mapX + startX, mapY, viewW, mapH);
+  ctx.strokeRect(mapX + startX, mapY, viewW, mapH);
+
+  // 标签
+  ctx.font = '10px sans-serif';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.textAlign = 'right';
+  ctx.fillText(isEn ? 'Minimap' : '缩略导航', mapX + mapW - 6, mapY - 6);
+
+  ctx.restore();
+}
+
 // ==================== 辅助绘制函数 ====================
 
 /**

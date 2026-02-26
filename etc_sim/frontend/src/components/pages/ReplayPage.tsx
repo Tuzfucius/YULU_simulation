@@ -28,6 +28,7 @@ import {
   filterFrameByRange,
   interpolateFrames,
   preloadVehicleImages,
+  renderMinimap,
   type AnomalyLog,
 } from './replayRenderers';
 
@@ -428,8 +429,19 @@ export const ReplayPage: React.FC = () => {
       const filteredFrame = filterFrameByRange(renderTarget, localRange);
       const images = vehicleImagesRef.current || { cars: [], trucks: [], buses: [], special: [] };
       renderLocalFrame(ctx, filteredFrame, localRange, opts, images, anomalyLogs);
+
+      // 小地图（全局视角）
+      const viewStartM = localRange.startKm * 1000;
+      const viewEndM = localRange.endKm * 1000;
+      renderMinimap(ctx, frame, canvas.width, canvas.height, roadLength, viewStartM, viewEndM, isEn);
     } else {
       renderGlobalFrame(ctx, frame, opts, anomalyLogs);
+
+      // 小地图（全局视口位置）
+      const mpp = roadLength / (canvas.width * zoomLevel);
+      const viewStartM = viewOffset;
+      const viewEndM = viewOffset + canvas.width * mpp;
+      renderMinimap(ctx, frame, canvas.width, canvas.height, roadLength, viewStartM, viewEndM, isEn);
     }
   }, [
     frameBuffer, bufferOffset, totalFrames, viewOffset, zoomLevel,
