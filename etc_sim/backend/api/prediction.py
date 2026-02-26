@@ -418,8 +418,13 @@ async def list_simulation_results():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     files = []
     
-    # 查找所有 run_xxx/data.json
-    for json_file in sorted(RESULTS_DIR.glob("*/data.json"), reverse=True):
+    # 查找所有仿真结果目录（兼容新旧格式）
+    for sim_dir in sorted(RESULTS_DIR.iterdir(), reverse=True):
+        if not sim_dir.is_dir():
+            continue
+        json_file = sim_dir / "data.json"
+        if not json_file.exists():
+            continue
         sim_dir = json_file.parent
         stat = json_file.stat()
         # 快速提取元信息

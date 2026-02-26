@@ -531,6 +531,7 @@ class SimulationEngine:
         noise_stats = self.etc_noise_simulator.get_statistics()
         
         return {
+            'trajectory_version': 1,  # 标记轨迹数据格式版本，storage.py 保存时会升级为 v2
             'config': self.config.to_dict() if self.config else {},
             'statistics': {
                 'total_vehicles': len(results.finished_vehicles),
