@@ -488,15 +488,47 @@ export const ReplayPage: React.FC = () => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
       switch (e.key) {
         case ' ': e.preventDefault(); setIsPlaying(p => !p); break;
-        case 'ArrowRight': setCurrentIndex(i => Math.min(i + 1, totalFrames - 1)); break;
-        case 'ArrowLeft': setCurrentIndex(i => Math.max(i - 1, 0)); break;
+        case 'ArrowRight':
+          e.preventDefault();
+          setCurrentIndex(i => Math.min(i + (e.shiftKey ? 10 : 1), totalFrames - 1));
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          setCurrentIndex(i => Math.max(i - (e.shiftKey ? 10 : 1), 0));
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          setPlaybackSpeed(s => {
+            const idx = SPEED_OPTIONS.indexOf(s);
+            return idx < SPEED_OPTIONS.length - 1 ? SPEED_OPTIONS[idx + 1] : s;
+          });
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          setPlaybackSpeed(s => {
+            const idx = SPEED_OPTIONS.indexOf(s);
+            return idx > 0 ? SPEED_OPTIONS[idx - 1] : s;
+          });
+          break;
+        case 'Tab':
+          e.preventDefault();
+          setViewMode(m => m === 'global' ? 'local' : 'global');
+          break;
+        case 'Home':
+          e.preventDefault();
+          setCurrentIndex(viewMode === 'local' && localFrameRange ? localFrameRange.start : 0);
+          break;
+        case 'End':
+          e.preventDefault();
+          setCurrentIndex(viewMode === 'local' && localFrameRange ? localFrameRange.end : totalFrames - 1);
+          break;
         case '+': case '=': setZoomLevel(z => Math.min(z * 1.2, 10)); break;
         case '-': setZoomLevel(z => Math.max(z / 1.2, 0.1)); break;
       }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [totalFrames]);
+  }, [totalFrames, viewMode, localFrameRange]);
 
   useEffect(() => {
     const c = canvasRef.current; if (!c) return;
