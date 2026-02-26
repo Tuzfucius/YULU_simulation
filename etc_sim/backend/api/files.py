@@ -19,6 +19,8 @@ import tempfile
 import datetime
 import logging
 
+from etc_sim.backend.services.trajectory_storage import TrajectoryStorage
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -218,8 +220,57 @@ def _trajectory_to_frames(trajectory_data: list, config: dict = None) -> list:
 _frame_cache: dict = {}  # {file_path: {'frames': [...], 'config': {...}, 'ts': mtime}}
 
 
+def _msgpack_frames_to_api_frames(traj_data: dict, config: dict = None) -> list:
+    """
+    将 TrajectoryStorage 帧格式转为回放 API 帧格式。
+    输入: {frames: [{t, v: [[id, pos, lane, speed, anomaly_type, flags], ...]}, ...], vehicle_meta: {...}}
+    输出: [{time, vehicles: [{id, x, lane, speed, type, anomaly}], etcGates: [...]}]
+    """
+    from etc_sim.backend.services.trajectory_storage import _decode_flags
+
+    frames = traj_data.get('frames', [])
+    vehicle_meta = traj_data.get('vehicle_meta', {})
+    api_frames = []
+
+    for frame in frames:
+        t = frame.get('t', 0)
+        vehicles = []
+        for v_arr in frame.get('v', []):
+            vid = v_arr[0]
+            vid_str = str(vid)
+            meta = vehicle_meta.get(vid_str, {})
+            vehicles.append({
+                'id': vid,
+                'x': v_arr[1],
+                'lane': v_arr[2],
+                'speed': v_arr[3],
+                'type': meta.get('type', 'CAR'),
+                'anomaly': v_arr[4] if len(v_arr) > 4 else 0,
+            })
+        api_frames.append({'time': t, 'vehicles': vehicles})
+
+    # 注入 ETC 门架位置
+    road_length = 20000
+    if config:
+        road_length = config.get('road_length', config.get('road_length_km', 20) * 1000)
+
+    gate_km = 2
+    gates = []
+    pos = gate_km * 1000
+    seg = 1
+    while pos < road_length:
+        gates.append({'position': pos, 'segment': seg})
+        pos += gate_km * 1000
+        seg += 1
+    if gates and api_frames:
+        for f in api_frames:
+            f['etcGates'] = gates
+
+    return api_frames
+
+
 def _get_frames_for_file(target: Path) -> dict:
-    """获取文件对应的帧数据（带缓存）"""
+    """获取文件对应的帧数据（带缓存，兼容新旧格式）"""
     global _frame_cache
     mtime = target.stat().st_mtime
     cache_key = str(target)
@@ -227,16 +278,22 @@ def _get_frames_for_file(target: Path) -> dict:
     if cache_key in _frame_cache and _frame_cache[cache_key]['ts'] == mtime:
         return _frame_cache[cache_key]
     
+    # 优先尝试从同目录的 trajectory.msgpack 加载
+    sim_dir = str(target.parent)
+    traj_data = TrajectoryStorage.load(sim_dir)
+    
     data = json.loads(target.read_text(encoding="utf-8"))
     config = data.get('config', {})
     
-    # 尝试多种数据格式
-    if 'trajectory_data' in data:
+    if traj_data and traj_data.get('frames'):
+        # 新格式：从 MessagePack 帧数据转换
+        frames = _msgpack_frames_to_api_frames(traj_data, config)
+    elif 'trajectory_data' in data:
+        # 旧格式：从 data.json 内嵌的 trajectory_data 转换
         frames = _trajectory_to_frames(data['trajectory_data'], config)
     elif 'frames' in data:
         frames = data['frames']
     elif isinstance(data, list):
-        # 整个文件就是帧数组
         frames = data
     else:
         frames = []
