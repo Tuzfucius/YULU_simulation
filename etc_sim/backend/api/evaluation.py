@@ -11,6 +11,7 @@ import logging
 from etc_sim.models.alert_evaluator import (
     AlertEvaluator, GroundTruthEvent, EvaluationMetrics,
     extract_ground_truths_from_engine, extract_alert_events_from_engine,
+    compute_gantry_stats,
 )
 from etc_sim.models.alert_optimizer import (
     AlertOptimizer, suggest_param_ranges, ParamRange
@@ -153,17 +154,35 @@ async def run_evaluation_with_params(config: EvaluationConfigModel):
         _last_ground_truths, _last_alert_events
     )
 
+    # 从上一次评估结果中读取 segment_boundaries 和 total_vehicles
+    prev = _last_evaluation or {}
+    segment_boundaries = prev.get('segment_boundaries', [])
+    total_vehicles = prev.get('total_vehicles', 0)
+    tn = max(total_vehicles - metrics.true_positives - metrics.false_positives - metrics.false_negatives, 0)
+    metrics.true_negatives = tn
+
+    gantry_stats = compute_gantry_stats(
+        _last_ground_truths, _last_alert_events, matches, segment_boundaries
+    ) if segment_boundaries else []
+
     result = {
         "precision": metrics.precision,
         "recall": metrics.recall,
         "f1_score": metrics.f1_score,
+        "specificity": round(metrics.specificity, 4),
+        "mcc": round(metrics.mcc, 4),
+        "fpr": round(metrics.fpr, 4),
         "detection_delay_avg": metrics.mean_detection_delay_s,
         "detection_delay_max": getattr(metrics, 'max_detection_delay_s', 0),
         "true_positives": metrics.true_positives,
         "false_positives": metrics.false_positives,
         "false_negatives": metrics.false_negatives,
+        "true_negatives": tn,
         "total_alerts": metrics.total_alerts,
         "total_ground_truths": metrics.total_ground_truths,
+        "total_vehicles": total_vehicles,
+        "segment_boundaries": segment_boundaries,
+        "gantry_stats": gantry_stats,
         "match_details": [
             {
                 "alert_time": m.alert_event.timestamp if m.alert_event else 0,
@@ -226,6 +245,8 @@ async def evaluate_from_file(req: EvaluateFileRequest):
     if trajectory_count == 0:
         trajectory_count = TrajectoryStorage.get_record_count(str(target.parent))
     config = data.get('config', {})
+    segment_boundaries = config.get('segment_boundaries', [])
+    total_vehicles = int(config.get('total_vehicles', 0))
 
     ground_truths = []
     for log in anomaly_logs:
@@ -245,9 +266,14 @@ async def evaluate_from_file(req: EvaluateFileRequest):
             "success": True,
             "data": {
                 "precision": 0, "recall": 0, "f1_score": 0,
+                "specificity": 0, "mcc": 0, "fpr": 0,
                 "detection_delay_avg": 0, "detection_delay_max": 0,
                 "true_positives": 0, "false_positives": 0, "false_negatives": 0,
+                "true_negatives": total_vehicles,
                 "total_alerts": 0, "total_ground_truths": 0,
+                "total_vehicles": total_vehicles,
+                "segment_boundaries": segment_boundaries,
+                "gantry_stats": [],
             },
             "message": f"文件中无 anomaly_logs 数据 (trajectory_data: {trajectory_count} 条)",
             "file_info": {
@@ -269,17 +295,31 @@ async def evaluate_from_file(req: EvaluateFileRequest):
         _last_ground_truths, _last_alert_events
     )
 
+    tn = max(total_vehicles - metrics.true_positives - metrics.false_positives - metrics.false_negatives, 0)
+    metrics.true_negatives = tn
+
+    gantry_stats = compute_gantry_stats(
+        _last_ground_truths, _last_alert_events, matches, segment_boundaries
+    ) if segment_boundaries else []
+
     result = {
         "precision": metrics.precision,
         "recall": metrics.recall,
         "f1_score": metrics.f1_score,
+        "specificity": round(metrics.specificity, 4),
+        "mcc": round(metrics.mcc, 4),
+        "fpr": round(metrics.fpr, 4),
         "detection_delay_avg": metrics.mean_detection_delay_s,
         "detection_delay_max": getattr(metrics, 'max_detection_delay_s', 0),
         "true_positives": metrics.true_positives,
         "false_positives": metrics.false_positives,
         "false_negatives": metrics.false_negatives,
+        "true_negatives": tn,
         "total_alerts": metrics.total_alerts,
         "total_ground_truths": metrics.total_ground_truths,
+        "total_vehicles": total_vehicles,
+        "segment_boundaries": segment_boundaries,
+        "gantry_stats": gantry_stats,
         "match_details": [
             {
                 "alert_time": m.alert_event.timestamp if m.alert_event else 0,

@@ -61,6 +61,7 @@ class EvaluationMetrics:
     true_positives: int = 0
     false_positives: int = 0
     false_negatives: int = 0
+    true_negatives: int = 0      # 需由外部根据总车辆数设置
 
     mean_detection_delay_s: float = 0.0
     median_detection_delay_s: float = 0.0
@@ -87,6 +88,32 @@ class EvaluationMetrics:
             return 0.0
         return 2 * p * r / (p + r)
 
+    @property
+    def specificity(self) -> float:
+        """特异性 = TN / (TN + FP)"""
+        if self.true_negatives + self.false_positives == 0:
+            return 0.0
+        return self.true_negatives / (self.true_negatives + self.false_positives)
+
+    @property
+    def fpr(self) -> float:
+        """假阳率 = FP / (FP + TN)"""
+        if self.false_positives + self.true_negatives == 0:
+            return 0.0
+        return self.false_positives / (self.false_positives + self.true_negatives)
+
+    @property
+    def mcc(self) -> float:
+        """Matthews 相关系数，范围 [-1, 1]，1 为完美分类"""
+        tp = self.true_positives
+        fp = self.false_positives
+        fn = self.false_negatives
+        tn = self.true_negatives
+        denom = ((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)) ** 0.5
+        if denom == 0:
+            return 0.0
+        return (tp * tn - fp * fn) / denom
+
     def to_dict(self) -> dict:
         return {
             'total_ground_truths': self.total_ground_truths,
@@ -94,9 +121,13 @@ class EvaluationMetrics:
             'true_positives': self.true_positives,
             'false_positives': self.false_positives,
             'false_negatives': self.false_negatives,
+            'true_negatives': self.true_negatives,
             'precision': round(self.precision, 4),
             'recall': round(self.recall, 4),
             'f1_score': round(self.f1_score, 4),
+            'specificity': round(self.specificity, 4),
+            'fpr': round(self.fpr, 4),
+            'mcc': round(self.mcc, 4),
             'mean_detection_delay_s': round(self.mean_detection_delay_s, 2),
             'median_detection_delay_s': round(self.median_detection_delay_s, 2),
             'max_detection_delay_s': round(self.max_detection_delay_s, 2),
@@ -266,6 +297,92 @@ class AlertEvaluator:
         )
 
         return metrics, matches, cat_metrics
+
+
+def compute_gantry_stats(
+    ground_truths: List[GroundTruthEvent],
+    alert_events: List['AlertEvent'],
+    matches: List[MatchResult],
+    segment_boundaries: List[float],
+) -> List[Dict]:
+    """
+    按门架区间聚合评估统计。
+
+    Args:
+        ground_truths:      真实异常事件列表
+        alert_events:       预警事件列表
+        matches:            评估匹配结果列表
+        segment_boundaries: 区间边界 km 列表，例如 [0, 3.44, 7.94, 8.28, 9.47]
+
+    Returns:
+        每个区间的统计字典列表
+    """
+    if not segment_boundaries or len(segment_boundaries) < 2:
+        return []
+
+    n_segments = len(segment_boundaries) - 1
+
+    # 统计每个区间的 GT 数（直接用 segment_idx 字段）
+    gt_by_seg: Dict[int, int] = defaultdict(int)
+    for gt in ground_truths:
+        seg = getattr(gt, 'segment_idx', None)
+        if seg is not None and 0 <= seg < n_segments:
+            gt_by_seg[seg] += 1
+
+    # 将 alert_events 按位置分配到对应区间
+    def _pos_to_seg(pos_km: float) -> int:
+        for i in range(n_segments):
+            if segment_boundaries[i] <= pos_km < segment_boundaries[i + 1]:
+                return i
+        # 超出末端归入最后一个区间
+        return n_segments - 1
+
+    alert_by_seg: Dict[int, int] = defaultdict(int)
+    for alert in alert_events:
+        if alert.position_km is not None:
+            seg = _pos_to_seg(alert.position_km)
+        else:
+            continue
+        alert_by_seg[seg] += 1
+
+    # 统计每个区间的 TP / FN
+    tp_by_seg: Dict[int, int] = defaultdict(int)
+    fn_by_seg: Dict[int, int] = defaultdict(int)
+    for m in matches:
+        seg = getattr(m.ground_truth, 'segment_idx', None)
+        if seg is None or not (0 <= seg < n_segments):
+            continue
+        if m.matched:
+            tp_by_seg[seg] += 1
+        else:
+            fn_by_seg[seg] += 1
+
+    # 组装结果
+    result = []
+    for i in range(n_segments):
+        start_km = round(segment_boundaries[i], 3)
+        end_km = round(segment_boundaries[i + 1], 3)
+        gt_count = gt_by_seg[i]
+        alert_count = alert_by_seg[i]
+        matched = tp_by_seg[i]
+        fn = fn_by_seg[i]
+        fp = max(alert_count - matched, 0)
+        detection_rate = matched / gt_count if gt_count > 0 else 0.0
+
+        result.append({
+            'segment_id': i,
+            'label': f'区间{i} ({start_km}~{end_km}km)',
+            'start_km': start_km,
+            'end_km': end_km,
+            'ground_truth_count': gt_count,
+            'alert_count': alert_count,
+            'matched_count': matched,
+            'false_positive_count': fp,
+            'false_negative_count': fn,
+            'detection_rate': round(detection_rate, 4),
+        })
+
+    return result
 
 
 def extract_ground_truths_from_engine(engine) -> List[GroundTruthEvent]:
