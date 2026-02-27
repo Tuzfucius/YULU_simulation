@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useI18nStore } from '../../stores/i18nStore';
 import { HeatmapChart } from '../charts/HeatmapChart';
 import { TimelineChart } from '../charts/TimelineChart';
 import { ResidualChart } from '../charts/ResidualChart';
 import { DriftChart } from '../charts/DriftChart';
+import { ContextMenu, type ContextMenuState } from '../charts/ContextMenu';
 
 interface FileInfo {
     name: string;
@@ -98,6 +99,12 @@ export function PredictBuilderPage() {
     const [customExpressions, setCustomExpressions] = useState('');
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+    // 右键菜单 & 重命名
+    const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+    const [renamingId, setRenamingId] = useState<{ type: 'model' | 'dataset'; id: string } | null>(null);
+    const [renameValue, setRenameValue] = useState('');
+    const renameInputRef = useRef<HTMLInputElement>(null);
+
     // 获取历史仿真文件列表
     useEffect(() => {
         setFetchError(null);
@@ -124,6 +131,102 @@ export function PredictBuilderPage() {
             .catch(() => { });
     };
     useEffect(() => { refreshModels(); }, []);
+
+    // ==================== 右键菜单逻辑 ====================
+
+    const showCtxMenu = useCallback((e: React.MouseEvent, items: ContextMenuState['items']) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenu({ x: e.clientX, y: e.clientY, items });
+    }, []);
+
+    /** 提交重命名 */
+    const submitRename = useCallback(async () => {
+        if (!renamingId || !renameValue.trim()) { setRenamingId(null); return; }
+        const { type, id } = renamingId;
+        const url = type === 'model'
+            ? `/api/prediction/models/${encodeURIComponent(id)}/rename`
+            : `/api/prediction/datasets/${encodeURIComponent(id)}/rename`;
+        try {
+            const res = await fetch(url, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ new_name: renameValue.trim() }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                type === 'model' ? refreshModels() : refreshDatasets();
+            } else {
+                alert(data.detail || '重命名失败');
+            }
+        } catch { alert('网络错误'); }
+        setRenamingId(null);
+    }, [renamingId, renameValue]);
+
+    /** 删除项目 */
+    const deleteItem = useCallback(async (type: 'model' | 'dataset', id: string, label: string) => {
+        if (!confirm(`确认删除 "${label}"？此操作不可恢复。`)) return;
+        const url = type === 'model'
+            ? `/api/prediction/models/${encodeURIComponent(id)}`
+            : `/api/prediction/datasets/${encodeURIComponent(id)}`;
+        try {
+            const res = await fetch(url, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) {
+                type === 'model' ? refreshModels() : refreshDatasets();
+            } else {
+                alert(data.detail || '删除失败');
+            }
+        } catch { alert('网络错误'); }
+    }, []);
+
+    /** 打开文件资源管理器 */
+    const openFolder = useCallback(async (type: 'model' | 'dataset', id: string) => {
+        const url = type === 'model'
+            ? `/api/prediction/models/${encodeURIComponent(id)}/open-folder`
+            : `/api/prediction/datasets/${encodeURIComponent(id)}/open-folder`;
+        try { await fetch(url, { method: 'POST' }); } catch { /* 后端未启动 */ }
+    }, []);
+
+    /** 构建模型右键菜单项 */
+    const modelCtxItems = useCallback((model_id: string) => [
+        {
+            label: '重命名',
+            icon: '✏️',
+            onClick: () => { setRenamingId({ type: 'model', id: model_id }); setRenameValue(model_id); setTimeout(() => renameInputRef.current?.focus(), 50); },
+        },
+        {
+            label: '打开文件夹',
+            icon: '📂',
+            onClick: () => openFolder('model', model_id),
+        },
+        {
+            label: '删除',
+            icon: '🗑️',
+            danger: true,
+            onClick: () => deleteItem('model', model_id, model_id),
+        },
+    ], [openFolder, deleteItem]);
+
+    /** 构建数据集右键菜单项 */
+    const datasetCtxItems = useCallback((ds_name: string) => [
+        {
+            label: '重命名',
+            icon: '✏️',
+            onClick: () => { setRenamingId({ type: 'dataset', id: ds_name }); setRenameValue(ds_name); setTimeout(() => renameInputRef.current?.focus(), 50); },
+        },
+        {
+            label: '打开文件夹',
+            icon: '📂',
+            onClick: () => openFolder('dataset', ds_name),
+        },
+        {
+            label: '删除',
+            icon: '🗑️',
+            danger: true,
+            onClick: () => deleteItem('dataset', ds_name, ds_name),
+        },
+    ], [openFolder, deleteItem]);
 
     const toggleFile = (filePath: string) => {
         setSelectedFiles(prev =>
@@ -273,12 +376,26 @@ export function PredictBuilderPage() {
                                         const isSelected = selectedModel === m.model_id;
                                         const f1 = m.meta?.metrics?.f1_macro;
                                         const srcDs = m.meta?.source_datasets || [];
+                                        const isRenaming = renamingId?.type === 'model' && renamingId.id === m.model_id;
                                         return (
                                             <div key={m.model_id}
-                                                onClick={() => { setSelectedModel(m.model_id); setLoadedModelId(null); }}
+                                                onClick={() => { if (!isRenaming) { setSelectedModel(m.model_id); setLoadedModelId(null); } }}
+                                                onContextMenu={e => showCtxMenu(e, modelCtxItems(m.model_id))}
                                                 className={`p-2 rounded-md cursor-pointer transition-all text-[11px] border ${isSelected ? 'border-[var(--accent-purple)] bg-[var(--accent-purple)]/10' : 'border-transparent hover:bg-[rgba(255,255,255,0.04)]'
-                                                    }`}>
-                                                <div className="font-medium truncate" title={m.model_id}>🌲 {m.model_id}</div>
+                                                    } group`}>
+                                                {isRenaming ? (
+                                                    <input
+                                                        ref={renameInputRef}
+                                                        value={renameValue}
+                                                        onChange={e => setRenameValue(e.target.value)}
+                                                        onBlur={submitRename}
+                                                        onKeyDown={e => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenamingId(null); }}
+                                                        className="w-full bg-[rgba(0,0,0,0.3)] border border-[var(--accent-purple)] rounded px-1.5 py-0.5 text-[11px] outline-none"
+                                                        onClick={e => e.stopPropagation()}
+                                                    />
+                                                ) : (
+                                                    <div className="font-medium truncate" title={m.model_id}>🌲 {m.model_id}</div>
+                                                )}
                                                 <div className="text-[var(--text-muted)] mt-0.5 flex gap-2">
                                                     <span>{formatSize(m.size)}</span>
                                                     {f1 !== undefined && <span className="text-green-400">F1:{(f1 * 100).toFixed(0)}%</span>}
@@ -302,16 +419,29 @@ export function PredictBuilderPage() {
                                 <div className="space-y-1.5">
                                     {datasets.length === 0 && <div className="text-[10px] text-[var(--text-muted)] py-2">暂无数据集</div>}
                                     {datasets.map(ds => {
-                                        // 检查是否被当前选中的模型关联
                                         const activeModel = savedModels.find(m => m.model_id === selectedModel);
                                         const isLinked = activeModel?.meta?.source_datasets?.some(s => s.replace('.json', '') === ds.name) || false;
+                                        const isRenaming = renamingId?.type === 'dataset' && renamingId.id === ds.name;
                                         return (
                                             <div key={ds.name}
-                                                onClick={() => { setSelectedDataset(ds.name); setEvalDataset(ds.name); }}
+                                                onClick={() => { if (!isRenaming) { setSelectedDataset(ds.name); setEvalDataset(ds.name); } }}
+                                                onContextMenu={e => showCtxMenu(e, datasetCtxItems(ds.name))}
                                                 className={`p-2 rounded-md cursor-pointer transition-all text-[11px] border ${isLinked ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)]/10 ring-1 ring-[var(--accent-blue)]/30'
                                                     : (selectedDataset === ds.name ? 'border-[var(--accent-blue)]/50 bg-[rgba(255,255,255,0.04)]' : 'border-transparent hover:bg-[rgba(255,255,255,0.04)]')
                                                     }`}>
-                                                <div className="font-medium truncate">📊 {ds.name}</div>
+                                                {isRenaming ? (
+                                                    <input
+                                                        ref={renameInputRef}
+                                                        value={renameValue}
+                                                        onChange={e => setRenameValue(e.target.value)}
+                                                        onBlur={submitRename}
+                                                        onKeyDown={e => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenamingId(null); }}
+                                                        className="w-full bg-[rgba(0,0,0,0.3)] border border-[var(--accent-blue)] rounded px-1.5 py-0.5 text-[11px] outline-none"
+                                                        onClick={e => e.stopPropagation()}
+                                                    />
+                                                ) : (
+                                                    <div className="font-medium truncate">📊 {ds.name}</div>
+                                                )}
                                                 <div className="text-[var(--text-muted)] mt-0.5">
                                                     {ds.meta?.total_samples || 0} 样本
                                                     {isLinked && <span className="text-[var(--accent-blue)] ml-1">← 关联</span>}
@@ -798,6 +928,9 @@ export function PredictBuilderPage() {
                     </div>
                 </div>
             </div>
+
+            {/* 右键菜单 */}
+            <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
         </div>
     );
 }

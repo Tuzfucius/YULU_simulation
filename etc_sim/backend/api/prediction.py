@@ -586,3 +586,138 @@ async def list_datasets():
         })
 
     return {"datasets": datasets}
+
+
+# ============================================
+# 文件管理 API（重命名 / 删除 / 打开文件夹）
+# ============================================
+
+import subprocess
+import platform
+
+
+def _open_folder_in_explorer(path: Path):
+    """在系统文件资源管理器中打开指定路径"""
+    folder = path if path.is_dir() else path.parent
+    sys = platform.system()
+    if sys == 'Windows':
+        subprocess.Popen(['explorer', str(folder)])
+    elif sys == 'Darwin':
+        subprocess.Popen(['open', str(folder)])
+    else:
+        subprocess.Popen(['xdg-open', str(folder)])
+
+
+# --- 模型管理 ---
+
+@router.delete("/models/{model_id}")
+async def delete_model(model_id: str):
+    """删除指定模型文件及其元数据"""
+    model_path = MODELS_DIR / f"{model_id}.joblib"
+    meta_path = MODELS_DIR / f"{model_id}.meta.json"
+    if not model_path.exists():
+        raise HTTPException(status_code=404, detail=f"模型不存在: {model_id}")
+    try:
+        model_path.unlink()
+        if meta_path.exists():
+            meta_path.unlink()
+        return {"success": True, "message": f"模型 {model_id} 已删除"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"删除失败: {e}")
+
+
+class RenameRequest(BaseModel):
+    new_name: str
+
+
+@router.put("/models/{model_id}/rename")
+async def rename_model(model_id: str, request: RenameRequest):
+    """重命名模型文件（同步更新 meta.json 中的 model_id）"""
+    src = MODELS_DIR / f"{model_id}.joblib"
+    src_meta = MODELS_DIR / f"{model_id}.meta.json"
+    new_name = request.new_name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="新名称不能为空")
+    if '/' in new_name or '\\' in new_name:
+        raise HTTPException(status_code=400, detail="名称中不能包含路径分隔符")
+    if not src.exists():
+        raise HTTPException(status_code=404, detail=f"模型不存在: {model_id}")
+    dst = MODELS_DIR / f"{new_name}.joblib"
+    if dst.exists():
+        raise HTTPException(status_code=409, detail=f"名称已存在: {new_name}")
+    try:
+        src.rename(dst)
+        dst_meta = MODELS_DIR / f"{new_name}.meta.json"
+        if src_meta.exists():
+            # 更新 meta 中的 model_id 字段
+            with open(src_meta, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+            meta['model_id'] = new_name
+            with open(dst_meta, 'w', encoding='utf-8') as f:
+                json.dump(meta, f, indent=2, ensure_ascii=False)
+            src_meta.unlink()
+        return {"success": True, "new_model_id": new_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"重命名失败: {e}")
+
+
+@router.post("/models/{model_id}/open-folder")
+async def open_model_folder(model_id: str):
+    """在文件资源管理器中显示该模型所在目录"""
+    model_path = MODELS_DIR / f"{model_id}.joblib"
+    if not model_path.exists():
+        raise HTTPException(status_code=404, detail=f"模型不存在: {model_id}")
+    try:
+        _open_folder_in_explorer(model_path)
+        return {"success": True, "folder": str(MODELS_DIR)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"打开文件夹失败: {e}")
+
+
+# --- 数据集管理 ---
+
+@router.delete("/datasets/{dataset_name}")
+async def delete_dataset(dataset_name: str):
+    """删除指定数据集文件"""
+    path = DATASETS_DIR / f"{dataset_name}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"数据集不存在: {dataset_name}")
+    try:
+        path.unlink()
+        return {"success": True, "message": f"数据集 {dataset_name} 已删除"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"删除失败: {e}")
+
+
+@router.put("/datasets/{dataset_name}/rename")
+async def rename_dataset(dataset_name: str, request: RenameRequest):
+    """重命名数据集 JSON 文件"""
+    src = DATASETS_DIR / f"{dataset_name}.json"
+    new_name = request.new_name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="新名称不能为空")
+    if '/' in new_name or '\\' in new_name:
+        raise HTTPException(status_code=400, detail="名称中不能包含路径分隔符")
+    if not src.exists():
+        raise HTTPException(status_code=404, detail=f"数据集不存在: {dataset_name}")
+    dst = DATASETS_DIR / f"{new_name}.json"
+    if dst.exists():
+        raise HTTPException(status_code=409, detail=f"名称已存在: {new_name}")
+    try:
+        src.rename(dst)
+        return {"success": True, "new_name": new_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"重命名失败: {e}")
+
+
+@router.post("/datasets/{dataset_name}/open-folder")
+async def open_dataset_folder(dataset_name: str):
+    """在文件资源管理器中显示该数据集所在目录"""
+    path = DATASETS_DIR / f"{dataset_name}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"数据集不存在: {dataset_name}")
+    try:
+        _open_folder_in_explorer(path)
+        return {"success": True, "folder": str(DATASETS_DIR)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"打开文件夹失败: {e}")
