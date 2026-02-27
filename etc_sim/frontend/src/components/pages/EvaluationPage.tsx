@@ -1,35 +1,42 @@
 /**
- * 评估页面 — 增强版（支持文件导入）
+ * 评估页面 — 增强版
  *
- * 包含：
- *  - 核心指标卡片（P/R/F1/漏报/延迟）
- *  - 文件选择面板（从 output 目录选择 data.json 导入评估）
- *  - 参数调节面板（时间窗口 / 距离窗口滑块）
- *  - 混淆矩阵
- *  - 时间线图表
- *  - 热力图
- *  - 参数敏感性图
+ * 保留所有原有图表，新增：
+ *  - 仿真概况信息卡
+ *  - 强化混淆矩阵（四格热图 + TN + MCC/Specificity）
+ *  - 门架区间评估统计（GantryStatsPanel）
+ *  - 按异常类型可视化柱状图
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { TimelineChart } from '../charts/TimelineChart';
 import { HeatmapChart } from '../charts/HeatmapChart';
 import { SensitivityChart } from '../charts/SensitivityChart';
+import { GantryStatsPanel, type GantryStat } from '../charts/GantryStatsPanel';
 
 const API_BASE = '/api/evaluation';
 const FILES_API = '/api/files';
+
+// ==================== 类型定义 ====================
 
 interface EvalMetrics {
     precision: number;
     recall: number;
     f1_score: number;
+    specificity?: number;
+    mcc?: number;
+    fpr?: number;
     detection_delay_avg: number;
     detection_delay_max: number;
     true_positives: number;
     false_positives: number;
     false_negatives: number;
+    true_negatives?: number;
     total_alerts: number;
     total_ground_truths: number;
+    total_vehicles?: number;
+    segment_boundaries?: number[];
+    gantry_stats?: GantryStat[];
     match_details?: any[];
     type_metrics?: Record<string, any>;
 }
@@ -49,6 +56,40 @@ const DEFAULT_METRICS: EvalMetrics = {
     true_positives: 0, false_positives: 0, false_negatives: 0,
     total_alerts: 0, total_ground_truths: 0,
 };
+
+// ==================== 辅助组件 ====================
+
+/** 混淆矩阵单格 */
+function CMCell({ value, label, colorClass, bgClass }: {
+    value: number | string;
+    label: string;
+    colorClass: string;
+    bgClass: string;
+}) {
+    return (
+        <div className={`rounded-xl p-4 flex flex-col items-center justify-center gap-1 ${bgClass}`}>
+            <span className={`text-3xl font-bold font-mono ${colorClass}`}>{value}</span>
+            <span className="text-[10px] text-[var(--text-muted)]">{label}</span>
+        </div>
+    );
+}
+
+/** 小型指标卡片 */
+function MiniMetric({ label, value, color }: { label: string; value: string; color?: string }) {
+    return (
+        <div className="rounded-lg border border-[var(--glass-border)] p-3 text-center bg-[rgba(255,255,255,0.02)]">
+            <p className="text-[9px] text-[var(--text-muted)] mb-0.5">{label}</p>
+            <p className="text-sm font-bold font-mono" style={{ color: color || 'var(--text-primary)' }}>{value}</p>
+        </div>
+    );
+}
+
+/** 异常类型名称 */
+const ANOMALY_TYPE_NAMES: Record<string, string> = {
+    '1': '停车', '2': '缓行（短）', '3': '缓行（长）',
+};
+
+// ==================== 主页面 ====================
 
 export function EvaluationPage() {
     const [metrics, setMetrics] = useState<EvalMetrics>(DEFAULT_METRICS);
@@ -76,7 +117,6 @@ export function EvaluationPage() {
             const res = await fetch(`${FILES_API}/output-files`);
             if (res.ok) {
                 const data = await res.json();
-                // 只显示 JSON 文件
                 setOutputFiles((data.files || []).filter((f: OutputFile) => f.extension === '.json'));
             }
         } catch { /* 后端未启动 */ }
@@ -128,7 +168,6 @@ export function EvaluationPage() {
     }, [timeWindow, distWindow]);
 
     const runEvaluation = useCallback(async () => {
-        // 如果已选择文件，使用文件评估
         if (selectedFile) {
             await evaluateFromFile(selectedFile);
             return;
@@ -141,8 +180,8 @@ export function EvaluationPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    time_window: timeWindow,
-                    distance_window: distWindow,
+                    time_window_s: timeWindow,
+                    distance_window_km: distWindow,
                 }),
             });
             const data = await resp.json();
@@ -216,10 +255,16 @@ export function EvaluationPage() {
     }));
 
     const f1Color = metrics.f1_score >= 0.7 ? '#22c55e' : metrics.f1_score >= 0.4 ? '#f59e0b' : '#ef4444';
+    const tn = metrics.true_negatives ?? 'N/A';
+    const mcc = metrics.mcc !== undefined ? metrics.mcc.toFixed(3) : '-';
+    const specificity = metrics.specificity !== undefined ? `${(metrics.specificity * 100).toFixed(1)}%` : '-';
+
+    // 按异常类型柱状图数据
+    const typeMetricsEntries = Object.entries(metrics.type_metrics || {});
 
     return (
         <div className="flex h-full bg-[var(--bg-base)]">
-            {/* 左侧文件选择面板 */}
+            {/* ===== 左侧文件选择面板 ===== */}
             {showFilePanel && (
                 <div className="w-72 flex flex-col border-r border-[var(--glass-border)] bg-[var(--glass-bg)] shrink-0">
                     <div className="px-4 py-3 border-b border-[var(--glass-border)] flex items-center justify-between">
@@ -273,20 +318,22 @@ export function EvaluationPage() {
                         )}
                     </div>
 
-                    {/* 文件信息摘要 */}
+                    {/* 文件数据摘要 */}
                     {fileInfo && (
                         <div className="p-3 border-t border-[var(--glass-border)] bg-[rgba(0,0,0,0.1)]">
                             <p className="text-[10px] font-medium text-[var(--text-secondary)] mb-1">📊 文件数据摘要</p>
                             <div className="grid grid-cols-2 gap-1 text-[9px] text-[var(--text-muted)]">
                                 <span>轨迹记录: {fileInfo.trajectory_records?.toLocaleString()}</span>
                                 <span>异常日志: {fileInfo.anomaly_logs}</span>
+                                {fileInfo.config?.total_vehicles && <span>总车辆: {fileInfo.config.total_vehicles}</span>}
+                                {fileInfo.config?.num_segments && <span>门架区间: {fileInfo.config.num_segments}</span>}
                             </div>
                         </div>
                     )}
                 </div>
             )}
 
-            {/* 右侧主内容 */}
+            {/* ===== 右侧主内容 ===== */}
             <div className="flex-1 flex flex-col overflow-y-auto scrollbar-thin">
                 {/* 顶部工具栏 */}
                 <div className="h-12 flex items-center justify-between px-4 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md shrink-0 sticky top-0 z-10">
@@ -315,8 +362,31 @@ export function EvaluationPage() {
                     </div>
                 </div>
 
-                <div className="p-6 space-y-6 max-w-[1200px] mx-auto w-full">
-                    {/* ===== 指标卡片 ===== */}
+                <div className="p-6 space-y-6 max-w-[1400px] mx-auto w-full">
+
+                    {/* ===== §1 仿真概况信息卡 ===== */}
+                    {(metrics.total_vehicles || fileInfo) && (
+                        <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md p-4">
+                            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">🚗 仿真概况</h3>
+                            <div className="grid grid-cols-6 gap-3">
+                                {[
+                                    { label: '总车辆数', val: metrics.total_vehicles?.toLocaleString() ?? fileInfo?.config?.total_vehicles ?? '-', color: 'var(--accent-blue)' },
+                                    { label: '门架区间数', val: fileInfo?.config?.num_segments ?? (metrics.segment_boundaries ? metrics.segment_boundaries.length - 1 : '-'), color: 'var(--text-primary)' },
+                                    { label: '真实异常数', val: metrics.total_ground_truths || '-', color: '#ef4444' },
+                                    { label: '预警触发数', val: metrics.total_alerts || '-', color: '#f59e0b' },
+                                    { label: '成功匹配(TP)', val: metrics.true_positives || '-', color: '#22c55e' },
+                                    { label: '路段长度', val: fileInfo?.config?.road_length_km ? `${fileInfo.config.road_length_km} km` : '-', color: 'var(--text-secondary)' },
+                                ].map(({ label, val, color }) => (
+                                    <div key={label} className="rounded-lg bg-[rgba(255,255,255,0.03)] border border-[var(--glass-border)]/50 p-3 text-center">
+                                        <p className="text-[9px] text-[var(--text-muted)] mb-1">{label}</p>
+                                        <p className="text-lg font-bold font-mono" style={{ color }}>{val}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ===== §2 核心指标卡片 ===== */}
                     <div className="grid grid-cols-5 gap-3">
                         {[
                             { label: 'Precision', val: metrics.precision, fmt: (v: number) => `${(v * 100).toFixed(1)}%` },
@@ -335,7 +405,7 @@ export function EvaluationPage() {
                         ))}
                     </div>
 
-                    {/* ===== 参数调节 / 混淆矩阵 ===== */}
+                    {/* ===== §3 参数调节 + 强化混淆矩阵 ===== */}
                     <div className="grid grid-cols-2 gap-4">
                         {/* 参数调节面板 */}
                         <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md p-4">
@@ -362,59 +432,29 @@ export function EvaluationPage() {
                                     />
                                 </div>
                                 <p className="text-[10px] text-[var(--text-muted)]">
-                                    调整参数后点击"运行评估"以更新结果
+                                    调整参数后点击「运行评估」以更新结果
                                 </p>
                             </div>
                         </div>
 
-                        {/* 混淆矩阵 */}
+                        {/* 强化混淆矩阵 */}
                         <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md p-4">
-                            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">🔢 混淆矩阵</h3>
-                            <table className="w-full text-xs">
-                                <thead>
-                                    <tr>
-                                        <th className="text-left text-[var(--text-muted)] pb-2"></th>
-                                        <th className="text-center text-[var(--text-muted)] pb-2">预测为异常</th>
-                                        <th className="text-center text-[var(--text-muted)] pb-2">预测为正常</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td className="text-[var(--text-secondary)] py-2">实际异常</td>
-                                        <td className="text-center">
-                                            <span className="inline-block px-3 py-1 rounded bg-green-500/15 text-green-400 font-mono font-bold">
-                                                {metrics.true_positives}
-                                            </span>
-                                        </td>
-                                        <td className="text-center">
-                                            <span className="inline-block px-3 py-1 rounded bg-red-500/15 text-red-400 font-mono font-bold">
-                                                {metrics.false_negatives}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td className="text-[var(--text-secondary)] py-2">实际正常</td>
-                                        <td className="text-center">
-                                            <span className="inline-block px-3 py-1 rounded bg-yellow-500/15 text-yellow-400 font-mono font-bold">
-                                                {metrics.false_positives}
-                                            </span>
-                                        </td>
-                                        <td className="text-center">
-                                            <span className="inline-block px-3 py-1 rounded bg-[rgba(255,255,255,0.05)] text-[var(--text-muted)] font-mono">
-                                                N/A
-                                            </span>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                            <div className="flex gap-4 mt-3 text-[10px] text-[var(--text-muted)]">
-                                <span>总预警: {metrics.total_alerts}</span>
-                                <span>总真值: {metrics.total_ground_truths}</span>
+                            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">🔢 混淆矩阵 & 扩展指标</h3>
+                            <div className="grid grid-cols-2 gap-2 mb-3">
+                                <CMCell value={metrics.true_positives} label="TP · 正确检测" colorClass="text-green-400" bgClass="bg-green-500/10 border border-green-500/20 rounded-lg" />
+                                <CMCell value={metrics.false_negatives} label="FN · 漏报" colorClass="text-red-400" bgClass="bg-red-500/10 border border-red-500/20 rounded-lg" />
+                                <CMCell value={metrics.false_positives} label="FP · 误报" colorClass="text-yellow-400" bgClass="bg-yellow-500/10 border border-yellow-500/20 rounded-lg" />
+                                <CMCell value={tn} label="TN · 正确无报" colorClass="text-[var(--text-secondary)]" bgClass="bg-[rgba(255,255,255,0.04)] border border-[var(--glass-border)] rounded-lg" />
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                                <MiniMetric label="MCC" value={mcc} color={Number(mcc) > 0.5 ? '#22c55e' : Number(mcc) > 0.2 ? '#f59e0b' : '#ef4444'} />
+                                <MiniMetric label="Specificity" value={specificity} />
+                                <MiniMetric label="FPR" value={metrics.fpr !== undefined ? `${(metrics.fpr * 100).toFixed(1)}%` : '-'} color="#f59e0b" />
                             </div>
                         </div>
                     </div>
 
-                    {/* ===== 可视化图表 ===== */}
+                    {/* ===== §4 可视化图表（原有） ===== */}
                     <div className="grid grid-cols-2 gap-4">
                         <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md p-4">
                             <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">📈 事件时间线</h3>
@@ -440,7 +480,7 @@ export function EvaluationPage() {
                         </div>
                     </div>
 
-                    {/* 敏感性分析 */}
+                    {/* 敏感性分析（原有） */}
                     <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md p-4">
                         <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">📐 参数敏感性分析</h3>
                         <div className="flex justify-center">
@@ -454,29 +494,76 @@ export function EvaluationPage() {
                         </div>
                     </div>
 
-                    {/* 按异常类型指标 */}
-                    {metrics.type_metrics && Object.keys(metrics.type_metrics).length > 0 && (
+                    {/* ===== §5 门架区间评估 ===== */}
+                    <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md p-4">
+                        <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">🛣️ 门架区间评估统计</h3>
+                        <GantryStatsPanel
+                            stats={metrics.gantry_stats || []}
+                            segmentBoundaries={metrics.segment_boundaries}
+                        />
+                    </div>
+
+                    {/* ===== §6 按异常类型可视化 ===== */}
+                    {typeMetricsEntries.length > 0 && (
                         <div className="rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md p-4">
-                            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">📋 按异常类型指标</h3>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-xs">
+                            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">📋 按异常类型评估</h3>
+                            <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${typeMetricsEntries.length}, 1fr)` }}>
+                                {typeMetricsEntries.map(([typeKey, m]: [string, any]) => {
+                                    const typeName = ANOMALY_TYPE_NAMES[typeKey] || `类型${typeKey}`;
+                                    const bars = [
+                                        { key: 'Precision', val: m.precision ?? 0, color: 'var(--accent-blue)' },
+                                        { key: 'Recall', val: m.recall ?? 0, color: '#22c55e' },
+                                        { key: 'F1', val: m.f1_score ?? 0, color: '#f59e0b' },
+                                    ];
+                                    return (
+                                        <div key={typeKey} className="rounded-lg border border-[var(--glass-border)]/50 bg-[rgba(255,255,255,0.02)] p-3">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <span className="text-xs font-medium text-[var(--text-primary)]">{typeName}</span>
+                                                <span className="text-[9px] text-[var(--text-muted)] bg-[rgba(255,255,255,0.06)] px-2 py-0.5 rounded">
+                                                    {m.count ?? 0} 辆
+                                                </span>
+                                            </div>
+                                            <div className="space-y-2">
+                                                {bars.map(({ key, val, color }) => (
+                                                    <div key={key}>
+                                                        <div className="flex justify-between text-[9px] text-[var(--text-muted)] mb-0.5">
+                                                            <span>{key}</span>
+                                                            <span className="font-mono" style={{ color }}>{(val * 100).toFixed(1)}%</span>
+                                                        </div>
+                                                        <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.08)] overflow-hidden">
+                                                            <div
+                                                                className="h-full rounded-full transition-all duration-700"
+                                                                style={{ width: `${Math.min(val * 100, 100)}%`, background: color }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* 原有纯文字表格（保留，作为数据参考） */}
+                            <div className="mt-4 overflow-x-auto">
+                                <table className="w-full text-xs text-[var(--text-muted)]">
                                     <thead>
-                                        <tr className="text-[var(--text-muted)] border-b border-[var(--glass-border)]">
-                                            <th className="text-left py-2 px-2">类型</th>
-                                            <th className="text-center py-2 px-2">Precision</th>
-                                            <th className="text-center py-2 px-2">Recall</th>
-                                            <th className="text-center py-2 px-2">F1</th>
-                                            <th className="text-center py-2 px-2">数量</th>
+                                        <tr className="border-b border-[var(--glass-border)]">
+                                            <th className="text-left py-1.5 px-2">类型</th>
+                                            <th className="text-center py-1.5 px-2">Precision</th>
+                                            <th className="text-center py-1.5 px-2">Recall</th>
+                                            <th className="text-center py-1.5 px-2">F1</th>
+                                            <th className="text-center py-1.5 px-2">数量</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {Object.entries(metrics.type_metrics).map(([type, m]: [string, any]) => (
-                                            <tr key={type} className="border-b border-[var(--glass-border)]/50">
-                                                <td className="py-2 px-2 text-[var(--text-secondary)]">{type}</td>
-                                                <td className="text-center py-2 px-2 font-mono">{(m.precision * 100).toFixed(1)}%</td>
-                                                <td className="text-center py-2 px-2 font-mono">{(m.recall * 100).toFixed(1)}%</td>
-                                                <td className="text-center py-2 px-2 font-mono font-bold">{m.f1_score?.toFixed(3) || '-'}</td>
-                                                <td className="text-center py-2 px-2 font-mono">{m.count || '-'}</td>
+                                        {typeMetricsEntries.map(([type, m]: [string, any]) => (
+                                            <tr key={type} className="border-b border-[var(--glass-border)]/30">
+                                                <td className="py-1.5 px-2">{ANOMALY_TYPE_NAMES[type] || `类型${type}`}</td>
+                                                <td className="text-center py-1.5 px-2 font-mono">{(m.precision * 100).toFixed(1)}%</td>
+                                                <td className="text-center py-1.5 px-2 font-mono">{(m.recall * 100).toFixed(1)}%</td>
+                                                <td className="text-center py-1.5 px-2 font-mono font-bold">{m.f1_score?.toFixed(3) || '-'}</td>
+                                                <td className="text-center py-1.5 px-2 font-mono">{m.count || '-'}</td>
                                             </tr>
                                         ))}
                                     </tbody>
