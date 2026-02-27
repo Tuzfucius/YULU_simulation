@@ -369,7 +369,10 @@ export function PredictBuilderPage() {
                         <div className="flex-1 overflow-y-auto p-3 space-y-4">
                             {/* --- 已保存模型 --- */}
                             <div>
-                                <h3 className="text-xs text-[var(--text-muted)] uppercase tracking-wider mb-2 flex items-center gap-1.5">📦 {lang === 'zh' ? '已保存模型' : 'Saved Models'}</h3>
+                                <h3 className="text-xs text-[var(--text-muted)] uppercase tracking-wider mb-2 flex items-center justify-between">
+                                    <span className="flex items-center gap-1.5">📦 {lang === 'zh' ? '已保存模型' : 'Saved Models'}</span>
+                                    <button onClick={refreshModels} title="刷新" className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] px-1 transition-colors">🔄</button>
+                                </h3>
                                 <div className="space-y-1.5">
                                     {savedModels.length === 0 && <div className="text-[10px] text-[var(--text-muted)] py-2">暂无已保存模型</div>}
                                     {savedModels.map(m => {
@@ -415,7 +418,10 @@ export function PredictBuilderPage() {
 
                             {/* --- 已提取数据集 --- */}
                             <div>
-                                <h3 className="text-xs text-[var(--text-muted)] uppercase tracking-wider mb-2 flex items-center gap-1.5">📊 {lang === 'zh' ? '已提取数据集' : 'Datasets'}</h3>
+                                <h3 className="text-xs text-[var(--text-muted)] uppercase tracking-wider mb-2 flex items-center justify-between">
+                                    <span className="flex items-center gap-1.5">📊 {lang === 'zh' ? '已提取数据集' : 'Datasets'}</span>
+                                    <button onClick={refreshDatasets} title="刷新" className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] px-1 transition-colors">🔄</button>
+                                </h3>
                                 <div className="space-y-1.5">
                                     {datasets.length === 0 && <div className="text-[10px] text-[var(--text-muted)] py-2">暂无数据集</div>}
                                     {datasets.map(ds => {
