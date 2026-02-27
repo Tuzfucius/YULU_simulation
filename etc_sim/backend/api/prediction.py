@@ -599,10 +599,10 @@ import platform
 def _open_folder_in_explorer(path: Path):
     """在系统文件资源管理器中打开指定路径"""
     folder = path if path.is_dir() else path.parent
-    sys = platform.system()
-    if sys == 'Windows':
+    os_name = platform.system()
+    if os_name == 'Windows':
         subprocess.Popen(['explorer', str(folder)])
-    elif sys == 'Darwin':
+    elif os_name == 'Darwin':
         subprocess.Popen(['open', str(folder)])
     else:
         subprocess.Popen(['xdg-open', str(folder)])
