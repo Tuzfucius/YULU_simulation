@@ -201,6 +201,17 @@ async def reset_to_defaults():
     }
 
 
+# ==================== 规则同步（供仿真引擎使用） ====================
+
+@router.get("/workflows/active-rules")
+async def get_active_rules():
+    """获取当前所有规则的序列化数据（供仿真引擎启动时加载）"""
+    return {
+        "success": True,
+        "data": [r.to_dict() for r in _standalone_engine.rules]
+    }
+
+
 # ==================== 引擎状态 ====================
 
 @router.get("/engine/status")

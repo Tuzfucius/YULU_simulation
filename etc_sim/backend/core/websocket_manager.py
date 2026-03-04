@@ -32,6 +32,8 @@ from etc_sim.backend.services.storage import StorageService
 # Import actual simulation engine
 from etc_sim.config.parameters import SimulationConfig
 from etc_sim.simulation.engine import SimulationEngine
+# 导入工作流编辑器的规则引擎实例，仿真启动时从中获取最新规则
+from etc_sim.backend.api.workflows import _standalone_engine as workflow_engine
 
 logger = logging.getLogger(__name__)
 
@@ -261,8 +263,18 @@ class WebSocketManager:
             impact_discover_dist=config_data.get('impactDiscoverDist', 150.0)
         )
         
-        # 创建仿真引擎
-        engine = SimulationEngine(config)
+        # 从工作流编辑器获取最新规则，注入到仿真引擎
+        custom_rules = None
+        try:
+            rules = workflow_engine.rules
+            if rules:
+                custom_rules = [r.to_dict() for r in rules]
+                logger.info(f"从工作流编辑器加载 {len(custom_rules)} 条规则")
+        except Exception as e:
+            logger.warning(f"加载工作流规则失败，将使用默认规则: {e}")
+        
+        # 创建仿真引擎（传入自定义规则）
+        engine = SimulationEngine(config, custom_rules=custom_rules)
         dt = config.simulation_dt
         max_time = config.max_simulation_time
         num_lanes = config.num_lanes

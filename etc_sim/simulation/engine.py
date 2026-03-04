@@ -2,6 +2,7 @@
 仿真引擎
 """
 
+import logging
 import random
 from collections import defaultdict
 from typing import List, Dict, Optional
@@ -16,10 +17,12 @@ from ..models.etc_anomaly_detector import ETCAnomalyDetector, ETCTransaction
 from ..models.etc_noise_simulator import ETCNoiseSimulator, NoiseConfig
 from ..models.environment import EnvironmentModel, EnvironmentConfig, WeatherType
 from ..models.alert_context import AlertContext, AlertEvent
-from ..models.alert_rules import AlertRuleEngine, create_default_rules
+from ..models.alert_rules import AlertRule, AlertRuleEngine, create_default_rules
 from ..models.ml_feature_extractor import TimeSeriesFeatureExtractor
 from ..models.alert_evaluator import extract_ground_truths_from_engine
 from ..models.phantom_jam import PhantomJamDetector
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -38,9 +41,16 @@ class SimulationEngine:
     """仿真引擎
     
     整合所有模块，驱动仿真运行
+    
+    Args:
+        config: 仿真配置
+        custom_rules: 自定义规则列表（字典格式）。若提供则使用这些规则，
+                      否则使用 create_default_rules() 的默认规则集。
+                      字典格式与 AlertRule.from_dict() 兼容。
     """
     
-    def __init__(self, config: SimulationConfig = None):
+    def __init__(self, config: SimulationConfig = None,
+                 custom_rules: Optional[List[Dict]] = None):
         self.config = config
         self.road_network = RoadNetwork(
             road_length_km=config.road_length_km if config else 20.0,
@@ -69,10 +79,19 @@ class SimulationEngine:
         # 初始化环境影响模型
         self.environment = EnvironmentModel()
         
-        # 初始化预警规则引擎
+        # 初始化预警规则引擎（支持从工作流编辑器注入自定义规则）
         self.alert_rule_engine = AlertRuleEngine()
-        for rule in create_default_rules():
-            self.alert_rule_engine.add_rule(rule)
+        if custom_rules is not None:
+            for rule_data in custom_rules:
+                try:
+                    rule = AlertRule.from_dict(rule_data)
+                    self.alert_rule_engine.add_rule(rule)
+                except Exception as e:
+                    logger.error(f"加载自定义规则失败: {e}, data={rule_data}")
+            logger.info(f"已加载 {len(self.alert_rule_engine.rules)} 条自定义规则")
+        else:
+            for rule in create_default_rules():
+                self.alert_rule_engine.add_rule(rule)
         self.rule_engine_events: List[Dict] = []  # 规则引擎预警事件
         
         self.vehicles: List[Vehicle] = []
