@@ -5,6 +5,7 @@ ETC 交通仿真系统 - FastAPI 后端
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from os import getenv
 
 from .api import configs, simulations, analysis, websocket, charts, environment, road_network, files, workflows, evaluation
 from .api import code_execution, data_packets, custom_roads, prediction
@@ -60,10 +61,13 @@ app = FastAPI(
     openapi_url="/api/openapi.json"
 )
 
-# CORS 配置
+# CORS 配置（支持环境变量 ALLOWED_ORIGINS，逗号分隔）
+_DEFAULT_ORIGINS = "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173"
+_ALLOWED_ORIGINS = getenv("ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"],
+    allow_origins=[o.strip() for o in _ALLOWED_ORIGINS],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
