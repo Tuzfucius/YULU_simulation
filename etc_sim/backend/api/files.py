@@ -460,6 +460,93 @@ async def get_output_file_chunk(path: str, offset: int = 0, limit: int = 500):
 
 
 # ============================================
+# 仿真记录门架信息提取
+# ============================================
+
+@router.get("/simulation-gates")
+async def get_simulation_gates(path: str):
+    """
+    从指定仿真运行记录中提取门架信息
+
+    Args:
+        path: 仿真运行目录的相对路径（如 run_20260226_140928）
+    
+    Returns:
+        {gates: [...], config: {...}, run_dir: str}
+    """
+    target_dir = (OUTPUT_DIR / path).resolve()
+    if not str(target_dir).startswith(str(OUTPUT_DIR)):
+        raise HTTPException(400, "路径越界")
+    
+    data_file = target_dir / "data.json"
+    if not data_file.exists():
+        raise HTTPException(404, f"仿真数据文件不存在: {path}/data.json")
+    
+    try:
+        with open(data_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError:
+        raise HTTPException(500, "仿真数据文件格式异常，无法解析 JSON")
+    
+    # 提取门架信息
+    raw_gates = data.get("etcGates", [])
+    config = data.get("config", {})
+    
+    gates = []
+    for i, gate in enumerate(raw_gates):
+        position_m = gate.get("position", 0)
+        position_km = round(position_m / 1000.0, 3)
+        segment = gate.get("segment", i + 1)
+        gates.append({
+            "id": f"G{segment:02d}",
+            "position_m": position_m,
+            "position_km": position_km,
+            "segment": segment,
+        })
+    
+    # 如果 JSON 中没有 etcGates，尝试从 config 回退计算
+    if not gates and config:
+        road_length_km = config.get("custom_road_length_km") or config.get("road_length_km") or 20.0
+        segment_length_km = config.get("segment_length_km") or 2.0
+        custom_gantries = config.get("custom_gantry_positions", [])
+        
+        if custom_gantries:
+            for idx, g_km in enumerate(custom_gantries):
+                gates.append({
+                    "id": f"G{idx + 1:02d}",
+                    "position_m": round(float(g_km) * 1000),
+                    "position_km": round(float(g_km), 3),
+                    "segment": idx + 1,
+                })
+        else:
+            pos_km = float(segment_length_km)
+            seg = 1
+            while pos_km < float(road_length_km):
+                gates.append({
+                    "id": f"G{seg:02d}",
+                    "position_m": round(pos_km * 1000),
+                    "position_km": round(pos_km, 3),
+                    "segment": seg,
+                })
+                pos_km += float(segment_length_km)
+                seg += 1
+    
+    # 提取精简的 config 摘要
+    config_summary = {}
+    if config:
+        for key in ["road_length_km", "custom_road_length_km", "segment_length_km",
+                     "num_lanes", "total_vehicles", "simulation_time", "max_simulation_time"]:
+            if key in config:
+                config_summary[key] = config[key]
+    
+    return {
+        "gates": gates,
+        "config": config_summary,
+        "run_dir": path,
+    }
+
+
+# ============================================
 # 脚本管理
 # ============================================
 
@@ -511,6 +598,7 @@ async def save_script(req: SaveScriptRequest):
 class RunScriptRequest(BaseModel):
     code: str
     timeout: int = 10
+    sim_run_dir: Optional[str] = None  # 绑定的仿真记录目录（相对路径）
 
 
 @router.post("/scripts/run")
@@ -519,14 +607,23 @@ async def run_script(req: RunScriptRequest):
     在子进程中执行 Python 脚本（沙箱）
     
     脚本可使用预注入的 ETCGateData 工具类读取门架数据。
+    当指定 sim_run_dir 时，gate_data 的数据目录指向该仿真记录。
     """
+    # 确定数据目录
+    if req.sim_run_dir:
+        data_dir = (OUTPUT_DIR / req.sim_run_dir).resolve()
+        if not str(data_dir).startswith(str(OUTPUT_DIR)) or not data_dir.exists():
+            data_dir = OUTPUT_DIR
+    else:
+        data_dir = OUTPUT_DIR
+    
     # 构建完整脚本（注入工具库）
     full_script = f'''
 import sys, os, json, csv
 from pathlib import Path
 
 # 预注入路径
-OUTPUT_DIR = r"{str(OUTPUT_DIR)}"
+OUTPUT_DIR = r"{str(data_dir)}"
 
 class ETCGateData:
     """ETC 门架数据读取工具"""
@@ -571,7 +668,7 @@ gate_data = ETCGateData()
             capture_output=True,
             text=True,
             timeout=req.timeout,
-            cwd=str(PROJECT_ROOT),
+            cwd=str(ETC_SIM_DIR),
         )
         
         return {
