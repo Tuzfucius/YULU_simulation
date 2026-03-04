@@ -11,6 +11,9 @@ from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
 from collections import deque
 import math
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -78,21 +81,28 @@ class ETCAnomalyDetector:
     SPEED_ALERT_THRESHOLD = 30  # 速度警报阈值 (km/h)
     CONSECUTIVE_THRESHOLD = 3   # 连续异常计数阈值
     
-    def __init__(self):
+    # 内存管理参数
+    MAX_TRANSACTIONS = 10000     # 最大保留交易记录数
+    MAX_ALERT_HISTORY = 1000     # 最大保留历史警报数
+    ACTIVE_ALERT_MAX_AGE = 600.0 # 活跃警报最大存活时间 (秒)
+    
+    def __init__(self, max_transactions: int = None, max_alert_history: int = None):
         # 门架统计信息
         self.gate_stats: Dict[str, GateStatistics] = {}
         
         # 车辆上一次通过的门架记录
         self.vehicle_last_gate: Dict[int, Tuple[str, float]] = {}
         
-        # 活跃警报
+        # 活跃警报（定期清理过期的）
         self.active_alerts: List[AnomalyAlert] = []
         
-        # 历史警报
-        self.alert_history: List[AnomalyAlert] = []
+        # 历史警报（有上限）
+        self._max_alert_history = max_alert_history or self.MAX_ALERT_HISTORY
+        self.alert_history: deque = deque(maxlen=self._max_alert_history)
         
-        # 流水记录
-        self.transactions: List[ETCTransaction] = []
+        # 流水记录（有上限，使用 deque 自动淘汰旧数据）
+        self._max_transactions = max_transactions or self.MAX_TRANSACTIONS
+        self.transactions: deque = deque(maxlen=self._max_transactions)
     
     def register_gate(self, gate_id: str, position_km: float):
         """注册门架"""
@@ -158,6 +168,14 @@ class ETCAnomalyDetector:
         if alert:
             self.active_alerts.append(alert)
             self.alert_history.append(alert)
+        
+        # 定期清理过期的活跃警报（避免列表无限增长）
+        if len(self.active_alerts) > 100:
+            current_time = transaction.timestamp
+            self.active_alerts = [
+                a for a in self.active_alerts
+                if current_time - a.timestamp <= self.ACTIVE_ALERT_MAX_AGE
+            ]
         
         return alert
     
@@ -247,15 +265,16 @@ class ETCAnomalyDetector:
         # 计算时间窗口内的流量
         current_time = self.transactions[-1].timestamp if self.transactions else 0
         
-        upstream_count = sum(
-            1 for t in self.transactions 
-            if t.gate_id == upstream_gate_id and current_time - t.timestamp <= time_window
-        )
-        
-        downstream_count = sum(
-            1 for t in self.transactions 
-            if t.gate_id == downstream_gate_id and current_time - t.timestamp <= time_window
-        )
+        # 仅从最近的交易中统计（从尾部倒查，避免遍历全量数据）
+        upstream_count = 0
+        downstream_count = 0
+        for t in reversed(self.transactions):
+            if current_time - t.timestamp > time_window:
+                break  # 已超出时间窗口，后续记录更旧，直接跳出
+            if t.gate_id == upstream_gate_id:
+                upstream_count += 1
+            elif t.gate_id == downstream_gate_id:
+                downstream_count += 1
         
         if upstream_count == 0:
             return None
@@ -325,5 +344,7 @@ class ETCAnomalyDetector:
                 for a in self.active_alerts
             ],
             'total_transactions': len(self.transactions),
-            'total_alerts': len(self.alert_history)
+            'max_transactions': self._max_transactions,
+            'total_alerts': len(self.alert_history),
+            'max_alert_history': self._max_alert_history
         }
