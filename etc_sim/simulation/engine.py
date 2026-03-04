@@ -19,6 +19,7 @@ from ..models.alert_context import AlertContext, AlertEvent
 from ..models.alert_rules import AlertRuleEngine, create_default_rules
 from ..models.ml_feature_extractor import TimeSeriesFeatureExtractor
 from ..models.alert_evaluator import extract_ground_truths_from_engine
+from ..models.phantom_jam import PhantomJamDetector
 
 
 @dataclass
@@ -290,14 +291,16 @@ class SimulationEngine:
         jams = PhantomJamDetector.detect_phantom_jam(active_vehicles, self.current_time)
         self.phantom_jam_events.extend(jams)
         
-        for v in active_vehicles:
-            self.safety_data.append({
-                'time': self.current_time, 'vehicle_id': v.id,
-                'vehicle_type': v.vehicle_type, 'driver_style': v.driver_style,
-                'speed': v.speed * 3.6, 'pos': v.pos,
-                'min_ttc': v.min_ttc, 'max_decel': v.max_decel,
-                'brake_count': v.brake_count, 'emergency_brake_count': v.emergency_brake_count
-            })
+        # 安全数据采样（与轨迹数据使用相同的采样间隔，避免每步都记录）
+        if int(self.current_time) % sample_interval == 0:
+            for v in active_vehicles:
+                self.safety_data.append({
+                    'time': self.current_time, 'vehicle_id': v.id,
+                    'vehicle_type': v.vehicle_type, 'driver_style': v.driver_style,
+                    'speed': v.speed * 3.6, 'pos': v.pos,
+                    'min_ttc': v.min_ttc, 'max_decel': v.max_decel,
+                    'brake_count': v.brake_count, 'emergency_brake_count': v.emergency_brake_count
+                })
         
         # ===== 预警规则引擎评估 (step 方法) =====
         alert_context = AlertContext(
