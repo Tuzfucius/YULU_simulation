@@ -2,7 +2,7 @@
  * ETC 交通仿真系统 - Modern UI (Multi-Page with Router)
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ConfigPanel } from './components/ConfigPanel';
@@ -10,19 +10,22 @@ import { ControlBar } from './components/ControlBar';
 import { ChartsPanel } from './components/ChartsPanel';
 import { ResultsPanel } from './components/ResultsPanel';
 import { LogConsole } from './components/LogConsole';
-import { ReplayPage } from './components/pages/ReplayPage';
-import { DashboardPage } from './components/pages/DashboardPage';
-import { ScenariosPage } from './components/pages/ScenariosPage';
-import { WorkflowPage } from './components/pages/WorkflowPage';
-import { RoadEditorPage } from './components/pages/RoadEditorPage';
-import { PredictBuilderPage } from './components/pages/PredictBuilderPage';
 import { RoadNetworkOverview } from './components/RoadNetworkOverview';
 import { SegmentInspector } from './components/SegmentInspector';
 import { MicroscopicInspector } from './components/MicroscopicInspector';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useI18nStore } from './stores/i18nStore';
 import { useSimStore } from './stores/simStore';
 import { engine } from './engine/SimulationEngine';
 import { useTheme } from './utils/useTheme';
+
+// 懒加载非首屏页面
+const ReplayPage = React.lazy(() => import('./components/pages/ReplayPage').then(m => ({ default: m.ReplayPage })));
+const DashboardPage = React.lazy(() => import('./components/pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
+const ScenariosPage = React.lazy(() => import('./components/pages/ScenariosPage').then(m => ({ default: m.ScenariosPage })));
+const WorkflowPage = React.lazy(() => import('./components/pages/WorkflowPage').then(m => ({ default: m.WorkflowPage })));
+const RoadEditorPage = React.lazy(() => import('./components/pages/RoadEditorPage').then(m => ({ default: m.RoadEditorPage })));
+const PredictBuilderPage = React.lazy(() => import('./components/pages/PredictBuilderPage').then(m => ({ default: m.PredictBuilderPage })));
 
 // 导航项
 const NAV_ITEMS = [
@@ -183,9 +186,20 @@ function App() {
           </div>
         </nav>
 
-        {/* 路由内容区域 — 带过渡动画 */}
+        {/* 路由内容区域 — 带错误边界和过渡动画 */}
         <div className="flex-1 overflow-hidden">
-          <AnimatedRoutes />
+          <ErrorBoundary>
+            <Suspense fallback={
+              <div className="flex items-center justify-center h-full text-[var(--text-muted)]">
+                <div className="text-center">
+                  <div className="animate-spin w-8 h-8 border-2 border-[var(--accent-blue)] border-t-transparent rounded-full mx-auto mb-3" />
+                  <span className="text-sm">加载中...</span>
+                </div>
+              </div>
+            }>
+              <AnimatedRoutes />
+            </Suspense>
+          </ErrorBoundary>
         </div>
       </div>
     </BrowserRouter>
