@@ -351,34 +351,40 @@ export const DashboardPage: React.FC = () => {
                     <div ref={outputRef} className="flex-1 overflow-y-auto p-3 font-mono text-xs scrollbar-thin bg-[rgba(0,0,0,0.2)]">
                         {output.length === 0 ? (
                             <p className="text-[var(--text-muted)]">{isEn ? 'Click ▶ Run to execute...' : '点击 ▶ 运行来执行 Python 脚本...'}</p>
-                        ) : output.map((o, i) => {
-                            if (o.text.startsWith('[JSON_CHART]')) {
-                                try {
-                                    const chartData = JSON.parse(o.text.replace('[JSON_CHART]', '').trim());
-                                    return (
-                                        <div key={i} className="my-2 p-3 rounded bg-[var(--glass-bg)] border border-[var(--glass-border)]">
-                                            <div className="text-[10px] font-bold mb-2 text-[var(--accent-blue)] uppercase tracking-wider">📈 {chartData.title || (isEn ? 'Analysis Chart' : '分析图表')}</div>
-                                            <div className="h-32 flex items-end gap-1 px-2 pb-2 border-b border-[var(--glass-border)]/30">
-                                                {(chartData.series || []).map((val: number, idx: number) => {
-                                                    const max = Math.max(...chartData.series, 1);
-                                                    const height = (val / max) * 100;
-                                                    return (
-                                                        <div key={idx} className="flex-1 flex flex-col items-center group">
-                                                            <div className="w-full bg-[var(--accent-blue)]/40 hover:bg-[var(--accent-blue)] transition-all rounded-t-sm relative" style={{ height: `${height}%` }}>
-                                                                <div className="absolute -top-4 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[8px] bg-black/80 px-1 rounded">{val}</div>
+                        ) : output.flatMap((o, oi) => {
+                            // 按行拆分，逐行检测图表标记
+                            const lines = o.text.split('\n');
+                            return lines.map((line, li) => {
+                                const key = `${oi}-${li}`;
+                                if (line.trimStart().startsWith('[JSON_CHART]')) {
+                                    try {
+                                        const chartData = JSON.parse(line.replace('[JSON_CHART]', '').trim());
+                                        return (
+                                            <div key={key} className="my-2 p-3 rounded bg-[var(--glass-bg)] border border-[var(--glass-border)]">
+                                                <div className="text-[10px] font-bold mb-2 text-[var(--accent-blue)] uppercase tracking-wider">📈 {chartData.title || (isEn ? 'Chart' : '图表')}</div>
+                                                <div className="h-32 flex items-end gap-1 px-2 pb-2 border-b border-[var(--glass-border)]/30">
+                                                    {(chartData.series || []).map((val: number, idx: number) => {
+                                                        const max = Math.max(...chartData.series, 1);
+                                                        const pct = (val / max) * 100;
+                                                        return (
+                                                            <div key={idx} className="flex-1 flex flex-col items-center group">
+                                                                <div className="w-full bg-[var(--accent-blue)]/40 hover:bg-[var(--accent-blue)] transition-all rounded-t-sm relative" style={{ height: `${pct}%` }}>
+                                                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[8px] bg-black/80 px-1 rounded whitespace-nowrap">{val}</div>
+                                                                </div>
+                                                                <div className="mt-1 text-[8px] text-[var(--text-muted)] truncate max-w-[40px] text-center">{chartData.xAxis?.[idx] ?? idx}</div>
                                                             </div>
-                                                            <div className="mt-1 text-[8px] text-[var(--text-muted)] rotate-45 origin-left truncate w-4">{chartData.xAxis?.[idx] || idx}</div>
-                                                        </div>
-                                                    );
-                                                })}
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
-                                        </div>
-                                    );
-                                } catch (e) {
-                                    return <pre key={i} className="whitespace-pre-wrap text-red-400">❌ Chart Render Error: {String(e)}</pre>;
+                                        );
+                                    } catch {
+                                        return <pre key={key} className="whitespace-pre-wrap text-red-400">❌ Chart JSON 解析失败</pre>;
+                                    }
                                 }
-                            }
-                            return <pre key={i} className={`whitespace-pre-wrap ${o.type === 'stderr' ? 'text-red-400' : 'text-[var(--text-secondary)]'}`}>{o.text}</pre>;
+                                if (!line) return null;
+                                return <pre key={key} className={`whitespace-pre-wrap ${o.type === 'stderr' ? 'text-red-400' : 'text-[var(--text-secondary)]'}`}>{line}</pre>;
+                            });
                         })}
                     </div>
                 </div>
@@ -389,16 +395,33 @@ export const DashboardPage: React.FC = () => {
                 <div className="px-4 py-3 border-b border-[var(--glass-border)]">
                     <h3 className="text-sm font-medium text-[var(--text-primary)]">📖 {isEn ? 'API Reference' : '接口文档'}</h3>
                     <p className="text-[10px] text-[var(--text-muted)] mt-1">
-                        {isEn ? 'All available methods for your alert script' : '脚本中可直接使用的所有方法和变量'}
+                        {isEn ? 'Available variables and methods' : '可用变量与方法'}
                     </p>
                 </div>
 
                 <div className="p-4 space-y-4">
                     {/* gate_data 变量 */}
+                    {/* sim_data 变量说明 */}
+                    <div>
+                        <h4 className="text-xs font-medium text-[var(--accent-blue)] mb-1">sim_data</h4>
+                        <p className="text-[10px] text-[var(--text-muted)] mb-1.5">
+                            {isEn ? 'Complete simulation result dict. Available when a simulation record is selected.' : '完整的仿真结果字典。选择仿真记录后自动注入，未选择时为 None。'}
+                        </p>
+                        <div className="p-2 rounded bg-[rgba(0,0,0,0.2)] text-[10px] font-mono text-[var(--text-secondary)] space-y-0.5">
+                            <div className="text-[var(--text-muted)]"># {isEn ? 'Quick access aliases' : '快捷别名'}</div>
+                            <div>sim_config  <span className="text-[var(--text-muted)]"># {isEn ? 'config dict' : '配置字典'}</span></div>
+                            <div>sim_gates   <span className="text-[var(--text-muted)]"># {isEn ? 'gate list' : '门架列表'}</span></div>
+                            <div>sim_stats   <span className="text-[var(--text-muted)]"># {isEn ? 'statistics' : '统计摘要'}</span></div>
+                        </div>
+                    </div>
+
+                    <hr className="border-[var(--glass-border)]" />
+
+                    {/* gate_data 变量 */}
                     <div>
                         <h4 className="text-xs font-medium text-[var(--accent-blue)] mb-1">gate_data</h4>
                         <p className="text-[10px] text-[var(--text-muted)] mb-2">
-                            {isEn ? 'Pre-initialized ETCGateData instance. Provides access to all simulation output data in the output/ directory.' : '预初始化的 ETCGateData 实例。可以访问 output/ 目录下的所有仿真输出数据。'}
+                            {isEn ? 'File I/O tool for the selected simulation directory.' : '文件读写工具，指向当前选中的仿真目录。'}
                         </p>
                     </div>
 
@@ -499,12 +522,16 @@ export const DashboardPage: React.FC = () => {
                         <div className="space-y-2">
                             {[
                                 {
-                                    name: isEn ? 'Flow Drop Detect' : '流量骤降检测',
-                                    code: '\n# 检测流量骤降 (示例)\nthreshold = 0.5\n# logic here...\nprint("[JSON_CHART] " + json.dumps({"title":"检测结果", "xAxis":["G1","G2"], "series":[10, 2]}))\n'
+                                    name: isEn ? 'Simulation Overview' : '仿真概况解析',
+                                    code: `\n# ===== 仿真概况解析 =====\nif sim_data is None:\n    print("⚠️ 请先在左侧门架列表 Tab 中选择一条仿真记录")\nelse:\n    print(f"📦 仿真配置:")\n    print(f"   路长: {sim_config.get('road_length_km', '?')} km")\n    print(f"   车道数: {sim_config.get('num_lanes', '?')}")\n    print(f"   总车辆: {sim_config.get('total_vehicles', '?')}")\n    print(f"📊 统计:")\n    print(f"   完成车辆: {sim_stats.get('total_vehicles', '?')}")\n    print(f"   异常事件: {sim_stats.get('total_anomalies', '?')}")\n    print(f"   ETC 报警: {sim_stats.get('etc_alerts_count', '?')}")\n    print(f"🚧 门架数: {len(sim_gates)} 个")\n`
                                 },
                                 {
-                                    name: isEn ? 'Speed Heatmap' : '速度热力图',
-                                    code: '\n# 速度分析 (示例)\nprint("[JSON_CHART] " + json.dumps({"title":"平均车速", "xAxis":["A","B","C"], "series":[80, 45, 90]}))\n'
+                                    name: isEn ? 'Gate Transaction Chart' : '门架交易量图表',
+                                    code: `\n# ===== 门架交易量统计图表 =====\nif sim_data is None:\n    print("⚠️ 请先选择仿真记录")\nelse:\n    transactions = sim_data.get("etc_detection", {}).get("transactions", [])\n    gate_counts = Counter(t["gate_id"] for t in transactions)\n    sorted_gates = sorted(gate_counts.items())\n    labels = [g[0] for g in sorted_gates]\n    values = [g[1] for g in sorted_gates]\n    print(f"📡 总交易数: {len(transactions)}")\n    for g, c in sorted_gates:\n        print(f"   {g}: {c} 笔")\n    print("[JSON_CHART] " + json.dumps({"title": "各门架交易量", "xAxis": labels, "series": values}))\n`
+                                },
+                                {
+                                    name: isEn ? 'Anomaly Statistics' : '异常事件统计',
+                                    code: `\n# ===== 异常事件统计 =====\nif sim_data is None:\n    print("⚠️ 请先选择仿真记录")\nelse:\n    logs = sim_data.get("anomaly_logs", [])\n    print(f"🚨 异常事件总数: {len(logs)}")\n    type_map = {1: "停车", 2: "缓行(短)", 3: "缓行(长)"}\n    type_counts = Counter(l.get("type", 0) for l in logs)\n    labels, values = [], []\n    for t, c in sorted(type_counts.items()):\n        name = type_map.get(t, f"类型{t}")\n        labels.append(name)\n        values.append(c)\n        print(f"   {name}: {c} 次")\n    if labels:\n        print("[JSON_CHART] " + json.dumps({"title": "异常类型分布", "xAxis": labels, "series": values}))\n`
                                 }
                             ].map((s, idx) => (
                                 <button key={idx} onClick={() => setScript(prev => prev + s.code)}

@@ -617,10 +617,24 @@ async def run_script(req: RunScriptRequest):
     else:
         data_dir = OUTPUT_DIR
     
+    # 预读仿真数据（如果指定了 sim_run_dir）
+    sim_data_json = "None"
+    if req.sim_run_dir:
+        data_json_path = data_dir / "data.json"
+        if data_json_path.exists():
+            try:
+                raw = data_json_path.read_text(encoding="utf-8")
+                # 验证是合法 JSON
+                json.loads(raw)
+                sim_data_json = f'json.loads(r"""{raw}""")'
+            except Exception:
+                sim_data_json = "None"
+    
     # 构建完整脚本（注入工具库）
     full_script = f'''
 import sys, os, json, csv
 from pathlib import Path
+from collections import Counter, defaultdict
 
 # 预注入路径
 OUTPUT_DIR = r"{str(data_dir)}"
@@ -651,8 +665,14 @@ class ETCGateData:
         with open(full, "r", encoding="utf-8") as f:
             return json.load(f)
 
-# 实例化
+# 实例化工具
 gate_data = ETCGateData()
+
+# ===== 预加载的仿真数据 =====
+sim_data = {sim_data_json}
+sim_config = sim_data.get("config", {{}}) if sim_data else None
+sim_gates = sim_data.get("etcGates", []) if sim_data else None
+sim_stats = sim_data.get("statistics", {{}}) if sim_data else None
 
 # ===== 用户脚本开始 =====
 {req.code}
