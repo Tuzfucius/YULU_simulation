@@ -8,7 +8,9 @@
 import { useState, useCallback, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
 
-const API_BASE = 'http://localhost:8000/api/code';
+import { API } from '../config/api';
+
+const API_BASE = API.CODE;
 
 const DEFAULT_CODE = `"""
 ETC 预警自定义分析脚本

@@ -19,7 +19,9 @@ interface ChartInfo {
 }
 
 // API 基础路径
-const API_BASE = 'http://localhost:8000/api';
+import { API } from '../config/api';
+
+const API_BASE = API.BASE;
 
 export const ChartsPanel: React.FC = () => {
     const { isRunning, isComplete } = useSimStore();

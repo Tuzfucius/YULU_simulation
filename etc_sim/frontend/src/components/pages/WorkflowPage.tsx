@@ -30,11 +30,12 @@ import { NodePalette } from '../workflow/NodePalette';
 import { NodePropertiesPanel } from '../workflow/NodePropertiesPanel';
 import { useWorkflowStore, NODE_TYPE_CONFIGS } from '../../stores/workflowStore';
 import { useI18nStore } from '../../stores/i18nStore';
+import { API } from '../../config/api';
 
 // 自定义节点类型注册
 const nodeTypes = { workflowNode: WorkflowNode };
 
-const API_BASE = 'http://localhost:8000/api/workflows';
+const API_BASE = API.WORKFLOWS;
 
 export function WorkflowPage() {
     const {

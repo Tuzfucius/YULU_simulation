@@ -14,7 +14,9 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useSimStore } from '../stores/simStore';
 import { useI18nStore } from '../stores/i18nStore';
 
-const API_BASE = 'http://localhost:8000/api';
+import { API } from '../config/api';
+
+const API_BASE = API.BASE;
 
 interface RoadNode {
     x: number;

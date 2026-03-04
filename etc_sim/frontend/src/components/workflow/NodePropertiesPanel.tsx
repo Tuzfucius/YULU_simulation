@@ -2,7 +2,9 @@
  * 节点属性编辑面板 — 右侧面板，编辑选中节点的参数
  */
 
+import React, { useMemo } from 'react';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { useSimStore } from '../../stores/simStore';
 import type { LogicType, ParamFieldMeta } from '../../types/workflow';
 import { DATA_SOURCE_FIELDS } from '../../types/workflow';
 
@@ -16,13 +18,6 @@ const LOGIC_OPTIONS: { value: LogicType; label: string }[] = [
     { value: 'THRESHOLD', label: '⊕ (阈值判断)' },
 ];
 
-/** 生成门架 ID 列表 G02..G18（每 2km 一个，默认 20km 路段） */
-const GATE_OPTIONS = Array.from({ length: 9 }, (_, i) => {
-    const km = (i + 1) * 2;
-    const id = `G${km.toString().padStart(2, '0')}`;
-    return { value: id, label: `${id} (${km}km)` };
-});
-
 const inputCls = `w-full px-2.5 py-1.5 text-xs rounded-md
     bg-[var(--glass-bg)] border border-[var(--glass-border)]
     text-[var(--text-primary)] outline-none
@@ -30,6 +25,27 @@ const inputCls = `w-full px-2.5 py-1.5 text-xs rounded-md
 
 export function NodePropertiesPanel() {
     const { nodes, selectedNodeId, updateNodeData, removeNode } = useWorkflowStore();
+    const { config: simConfig } = useSimStore();
+
+    // 动态生成门架列表
+    const GATE_OPTIONS = useMemo(() => {
+        if (simConfig.customGantryPositionsKm && simConfig.customGantryPositionsKm.length > 0) {
+            return simConfig.customGantryPositionsKm.map((km, i) => {
+                const id = `G${(i + 1).toString().padStart(2, '0')}`;
+                return { value: id, label: `${id} (${km.toFixed(1)}km)` };
+            });
+        }
+        // 默认按间隔生成
+        const interval = simConfig.etcGateIntervalKm || 2;
+        const length = simConfig.roadLengthKm || 20;
+        const count = Math.floor(length / interval);
+        return Array.from({ length: count }, (_, i) => {
+            const km = (i + 1) * interval;
+            const id = `G${km.toString().padStart(2, '0')}`;
+            return { value: id, label: `${id} (${km}km)` };
+        });
+    }, [simConfig]);
+
     const selectedNode = nodes.find(n => n.id === selectedNodeId);
 
     if (!selectedNode) {
