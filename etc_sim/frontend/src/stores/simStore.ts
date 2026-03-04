@@ -75,6 +75,29 @@ interface SimulationProgress {
     activeAnomalies: number;
 }
 
+// 图表数据结构
+interface ChartDataPoint {
+    time: number;
+    value: number;
+    label?: string;
+}
+
+interface ChartData {
+    speedHistory: ChartDataPoint[];
+    flowHistory: ChartDataPoint[];
+    densityHistory: ChartDataPoint[];
+    [key: string]: ChartDataPoint[];  // 允许扩展
+}
+
+// 日志条目
+interface LogEntry {
+    id: string;
+    level: string;
+    message: string;
+    timestamp: number;
+    category?: string;
+}
+
 
 const defaultConfig: SimulationConfig = {
     roadLengthKm: 10,
@@ -125,7 +148,7 @@ const defaultProgress: SimulationProgress = {
 
 interface SimState {
     config: SimulationConfig;
-    setConfig: (partial: any) => void;
+    setConfig: (partial: Partial<SimulationConfig>) => void;
     resetConfig: () => void;
     isRunning: boolean;
     isPaused: boolean;
@@ -135,14 +158,14 @@ interface SimState {
     setPaused: (v: boolean) => void;
     setComplete: (v: boolean) => void;
     setTurboMode: (v: boolean) => void;
-    progress: any;
-    setProgress: (p: any) => void;
-    statistics: any;
-    setStatistics: (s: any) => void;
-    chartData: any;
-    setChartData: (d: any) => void;
-    logs: any[];
-    addLog: (log: any) => void;
+    progress: SimulationProgress;
+    setProgress: (p: SimulationProgress) => void;
+    statistics: Record<string, unknown> | null;
+    setStatistics: (s: Record<string, unknown> | null) => void;
+    chartData: ChartData | null;
+    setChartData: (d: ChartData | null) => void;
+    logs: LogEntry[];
+    addLog: (log: Record<string, unknown>) => void;
     clearLogs: () => void;
     resetAll: () => void;
 }
@@ -151,8 +174,8 @@ export const useSimStore = create<SimState>()(
     persist(
         (set) => ({
             config: defaultConfig,
-            setConfig: (partial: any) =>
-                set((state: any) => ({ config: { ...state.config, ...partial } })),
+            setConfig: (partial: Partial<SimulationConfig>) =>
+                set((state: SimState) => ({ config: { ...state.config, ...partial } })),
             resetConfig: () => set({ config: defaultConfig }),
 
             isRunning: false,
@@ -165,18 +188,18 @@ export const useSimStore = create<SimState>()(
             setTurboMode: (v: boolean) => set({ turboMode: v }),
 
             progress: defaultProgress,
-            setProgress: (p: any) => set({ progress: p }),
+            setProgress: (p: SimulationProgress) => set({ progress: p }),
 
             statistics: null,
-            setStatistics: (s: any) => set({ statistics: s }),
+            setStatistics: (s: Record<string, unknown> | null) => set({ statistics: s }),
 
             chartData: null,
-            setChartData: (d: any) => set({ chartData: d }),
+            setChartData: (d: ChartData | null) => set({ chartData: d }),
 
             logs: [],
-            addLog: (log: Record<string, any>) =>
-                set((state: any) => ({
-                    logs: [...state.logs.slice(-199), { ...log, id: Date.now().toString() }],
+            addLog: (log: Record<string, unknown>) =>
+                set((state: SimState) => ({
+                    logs: [...state.logs.slice(-199), { ...log, id: Date.now().toString() } as LogEntry],
                 })),
             clearLogs: () => set({ logs: [] }),
 
@@ -195,17 +218,18 @@ export const useSimStore = create<SimState>()(
             name: 'sim-config',
             partialize: (state) => ({ config: state.config }),
             version: 1,
-            merge: (persistedState: any, currentState) => {
+            merge: (persistedState: unknown, currentState) => {
+                const persisted = persistedState as Partial<SimState> | null;
                 // Deep merge persisted config with default config to ensure new fields are present
-                if (!persistedState || !persistedState.config) {
+                if (!persisted || !persisted.config) {
                     return currentState;
                 }
                 return {
                     ...currentState,
-                    ...persistedState,
+                    ...persisted,
                     config: {
                         ...currentState.config,
-                        ...persistedState.config,
+                        ...persisted.config,
                     },
                 };
             },
