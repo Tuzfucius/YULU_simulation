@@ -2,10 +2,14 @@
 ETC 交通仿真系统 - FastAPI 后端
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
 from os import getenv
+import traceback
+import uuid
 
 from .api import configs, simulations, analysis, websocket, charts, environment, road_network, files, workflows, evaluation
 from .api import code_execution, data_packets, custom_roads, prediction
@@ -72,6 +76,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ==================== 全局异常处理 ====================
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """请求参数验证失败"""
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "validation_error",
+            "detail": exc.errors(),
+            "message": "请求参数验证失败",
+        },
+    )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """全局未处理异常捕获"""
+    error_id = str(uuid.uuid4())[:8]
+    logger.error(f"[{error_id}] Unhandled exception on {request.method} {request.url}: {exc}")
+    logger.error(f"[{error_id}] {traceback.format_exc()}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "internal_error",
+            "error_id": error_id,
+            "message": f"服务器内部错误 (参考ID: {error_id})",
+        },
+    )
 
 # 注册路由
 app.include_router(configs.router, prefix="/api/configs", tags=["配置管理"])
