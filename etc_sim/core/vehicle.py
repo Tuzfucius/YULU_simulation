@@ -140,6 +140,7 @@ class Vehicle:
         # ETC门架检测（方案B）
         self.detected_by_etc = False
         self.etc_detection_time: Optional[float] = None
+        self.passed_gates: set = set()  # 已通过的门架ID集合
         
         # 日志和状态
         self.logs = {}

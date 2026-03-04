@@ -246,9 +246,8 @@ class SimulationEngine:
                 gate_id = f"G{int(gate.position_km):02d}"
                 
                 if gate.position_km - 0.05 <= pos_km < gate.position_km + 0.05:
-                    last_gate_key = f"_last_gate_{gate_id}"
-                    if not hasattr(v, last_gate_key) or not getattr(v, last_gate_key):
-                        setattr(v, last_gate_key, True)
+                    if gate_id not in v.passed_gates:
+                        v.passed_gates.add(gate_id)
                         self._process_etc_transaction(v, gate_id, gate.position_km)
         
         # 轨迹采样（按配置的间隔记录）
