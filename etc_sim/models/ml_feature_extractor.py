@@ -1,12 +1,16 @@
 import pandas as pd
 import numpy as np
 import math
+import logging
 from typing import List, Dict, Optional, Tuple, Any
 from collections import defaultdict
 
 # 导入现有系统数据结构
 from .etc_anomaly_detector import ETCTransaction
 from .alert_evaluator import GroundTruthEvent
+from ..utils.safe_eval import safe_eval, SafeExpressionError
+
+logger = logging.getLogger(__name__)
 
 class TimeSeriesFeatureExtractor:
     """
@@ -339,16 +343,18 @@ class TimeSeriesFeatureExtractor:
                         for f in feature_cols:
                             if f not in local_ns:
                                 local_ns[f] = grp[f]
-                        val = eval(formula, {"__builtins__": {}}, local_ns)
+                        # 使用安全求值替代 eval，防止代码注入
+                        val = safe_eval(formula, local_ns)
                         grp = grp.copy()
                         grp[col_name] = val
                         results.append(grp)
                     df_features = pd.concat(results, ignore_index=True)
                     df_features[col_name] = df_features[col_name].fillna(0)
                     custom_cols.append(col_name)
+                except SafeExpressionError as e:
+                    logger.warning(f"自定义表达式被安全策略拒绝 '{expr}': {e}")
                 except Exception as e:
-                    import logging
-                    logging.getLogger(__name__).warning(f"自定义表达式执行失败 '{expr}': {e}")
+                    logger.warning(f"自定义表达式执行失败 '{expr}': {e}")
         
         feature_cols.extend(custom_cols)
                 
