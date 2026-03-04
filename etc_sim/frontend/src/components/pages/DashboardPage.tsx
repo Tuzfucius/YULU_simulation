@@ -312,13 +312,21 @@ export const DashboardPage: React.FC = () => {
             {/* ===== 中间：编辑器 + 输出 ===== */}
             <div className="flex-1 flex flex-col min-w-0">
                 <div className="h-12 flex items-center justify-between px-4 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] shrink-0">
-                    <div className="flex items-center gap-3">
-                        <h2 className="text-sm font-medium text-[var(--text-primary)]">📊 {isEn ? 'Alert Dashboard' : '预警仪表盘'}</h2>
-                        <span className="text-xs text-[var(--text-muted)]">—</span>
-                        <span className="text-xs text-[var(--text-secondary)] font-mono">
-                            {currentPath || (isEn ? 'Unsaved' : '未保存')}
-                            {isModified && <span className="text-yellow-400 ml-1">●</span>}
-                        </span>
+                    <div className="flex items-center gap-2 overflow-hidden">
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-[rgba(255,255,255,0.03)] border border-[var(--glass-border)]">
+                            <span className="text-xs">🐍</span>
+                            <div className="flex items-center text-[11px] font-mono leading-none">
+                                <span className="text-[var(--text-muted)]">scripts / </span>
+                                <span className={`ml-1 ${currentPath ? 'text-[var(--accent-blue)] font-bold' : 'text-yellow-500/70 italic'}`}>
+                                    {currentPath || (isEn ? 'unsaved_script.py' : '未命名脚本.py')}
+                                </span>
+                                {isModified && (
+                                    <span className="ml-2 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-yellow-500/10 text-yellow-500 text-[10px] animate-pulse">
+                                        ● {isEn ? 'Modified' : '已修改'}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
                     </div>
                     <div className="flex items-center gap-2">
                         <button onClick={() => saveScript()} className="px-3 py-1 text-xs rounded-lg border border-[var(--glass-border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors">
@@ -343,9 +351,35 @@ export const DashboardPage: React.FC = () => {
                     <div ref={outputRef} className="flex-1 overflow-y-auto p-3 font-mono text-xs scrollbar-thin bg-[rgba(0,0,0,0.2)]">
                         {output.length === 0 ? (
                             <p className="text-[var(--text-muted)]">{isEn ? 'Click ▶ Run to execute...' : '点击 ▶ 运行来执行 Python 脚本...'}</p>
-                        ) : output.map((o, i) => (
-                            <pre key={i} className={`whitespace-pre-wrap ${o.type === 'stderr' ? 'text-red-400' : 'text-[var(--text-secondary)]'}`}>{o.text}</pre>
-                        ))}
+                        ) : output.map((o, i) => {
+                            if (o.text.startsWith('[JSON_CHART]')) {
+                                try {
+                                    const chartData = JSON.parse(o.text.replace('[JSON_CHART]', '').trim());
+                                    return (
+                                        <div key={i} className="my-2 p-3 rounded bg-[var(--glass-bg)] border border-[var(--glass-border)]">
+                                            <div className="text-[10px] font-bold mb-2 text-[var(--accent-blue)] uppercase tracking-wider">📈 {chartData.title || (isEn ? 'Analysis Chart' : '分析图表')}</div>
+                                            <div className="h-32 flex items-end gap-1 px-2 pb-2 border-b border-[var(--glass-border)]/30">
+                                                {(chartData.series || []).map((val: number, idx: number) => {
+                                                    const max = Math.max(...chartData.series, 1);
+                                                    const height = (val / max) * 100;
+                                                    return (
+                                                        <div key={idx} className="flex-1 flex flex-col items-center group">
+                                                            <div className="w-full bg-[var(--accent-blue)]/40 hover:bg-[var(--accent-blue)] transition-all rounded-t-sm relative" style={{ height: `${height}%` }}>
+                                                                <div className="absolute -top-4 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[8px] bg-black/80 px-1 rounded">{val}</div>
+                                                            </div>
+                                                            <div className="mt-1 text-[8px] text-[var(--text-muted)] rotate-45 origin-left truncate w-4">{chartData.xAxis?.[idx] || idx}</div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                } catch (e) {
+                                    return <pre key={i} className="whitespace-pre-wrap text-red-400">❌ Chart Render Error: {String(e)}</pre>;
+                                }
+                            }
+                            return <pre key={i} className={`whitespace-pre-wrap ${o.type === 'stderr' ? 'text-red-400' : 'text-[var(--text-secondary)]'}`}>{o.text}</pre>;
+                        })}
                     </div>
                 </div>
             </div>
@@ -459,12 +493,35 @@ export const DashboardPage: React.FC = () => {
 
                     <hr className="border-[var(--glass-border)]" />
 
+                    {/* 代码片段 Snippets */}
+                    <div>
+                        <h4 className="text-xs font-medium text-[var(--text-primary)] mb-2">⚡ {isEn ? 'Snippets' : '常用算法模板'}</h4>
+                        <div className="space-y-2">
+                            {[
+                                {
+                                    name: isEn ? 'Flow Drop Detect' : '流量骤降检测',
+                                    code: '\n# 检测流量骤降 (示例)\nthreshold = 0.5\n# logic here...\nprint("[JSON_CHART] " + json.dumps({"title":"检测结果", "xAxis":["G1","G2"], "series":[10, 2]}))\n'
+                                },
+                                {
+                                    name: isEn ? 'Speed Heatmap' : '速度热力图',
+                                    code: '\n# 速度分析 (示例)\nprint("[JSON_CHART] " + json.dumps({"title":"平均车速", "xAxis":["A","B","C"], "series":[80, 45, 90]}))\n'
+                                }
+                            ].map((s, idx) => (
+                                <button key={idx} onClick={() => setScript(prev => prev + s.code)}
+                                    className="w-full text-left px-2 py-1.5 rounded bg-[rgba(255,255,255,0.03)] border border-[var(--glass-border)] hover:bg-[rgba(255,255,255,0.08)] transition-colors text-[10px] text-[var(--accent-blue)]">
+                                    + {s.name}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <hr className="border-[var(--glass-border)]" />
+
                     {/* 快捷键 */}
                     <div>
                         <h4 className="text-xs font-medium text-[var(--text-primary)] mb-1.5">⌨️ {isEn ? 'Shortcuts' : '快捷键'}</h4>
                         <div className="text-[10px] text-[var(--text-muted)] space-y-1">
                             <div className="flex justify-between"><span className="font-mono">Ctrl+S</span><span>{isEn ? 'Save script' : '保存脚本'}</span></div>
-                            <div className="flex justify-between"><span className="font-mono">Ctrl+Enter</span><span>{isEn ? 'Run script (future)' : '运行脚本（计划）'}</span></div>
                         </div>
                     </div>
                 </div>
