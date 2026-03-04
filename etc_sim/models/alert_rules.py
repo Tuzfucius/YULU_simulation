@@ -198,8 +198,11 @@ class AlertRule:
                     break  # 使用第一个有效的 gate_id
 
         # ── 步骤 2: 将数据源 gate_id 注入到 gate_id='*' 的条件 ──
-        for cond in self.conditions:
+        # 保存原始 gate_id 以便评估后恢复，避免状态泄漏
+        original_gate_ids = {}
+        for i, cond in enumerate(self.conditions):
             if cond.gate_id == '*' and resolved_gate_id != '*':
+                original_gate_ids[i] = cond.gate_id
                 cond.gate_id = resolved_gate_id
 
         # ── 步骤 3: 评估条件 ──
@@ -210,10 +213,9 @@ class AlertRule:
         else:
             triggered = all(c.evaluate(context) for c in self.conditions)
 
-        # ── 步骤 3b: 恢复注入的 gate_id（避免状态泄漏到下一轮） ──
-        for cond in self.conditions:
-            if resolved_gate_id != '*' and cond.gate_id == resolved_gate_id:
-                cond.gate_id = '*'
+        # ── 步骤 3b: 恢复注入的 gate_id ──
+        for i, orig_id in original_gate_ids.items():
+            self.conditions[i].gate_id = orig_id
 
         if not triggered:
             return None
