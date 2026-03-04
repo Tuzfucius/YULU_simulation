@@ -10,6 +10,8 @@ from dataclasses import dataclass
 
 from ..config.parameters import SimulationConfig
 from ..config.colors import COLORS
+from .car_following import IDMModel
+from .lane_change import MOBILModel
 
 
 def kmh_to_ms(v: float) -> float:
@@ -208,80 +210,22 @@ class Vehicle:
     
     def idm_calc_acceleration(self, leader: Optional['Vehicle'], current_speed: float, 
                               vehicles_nearby: List['Vehicle'] = None) -> float:
-        """IDM加速度计算"""
-        if leader is None:
-            return self.a_max
-        
-        v = current_speed
-        v0 = self.v0
-        a_max = self.a_max * self.aggressiveness_range[0]
-        b = self.b_desired
-        
-        if leader.anomaly_type == 1 and leader.anomaly_state == 'active':
-            # 基于距离的分阶段制动：远距轻踩→中距减速→近距急刹
-            dist = leader.pos - self.pos
-            s = max(dist - self.length / 2 - leader.length / 2, 0.5)
-            
-            if s > 200:  # 远距离（>200m）：轻微减速
-                return max(-1.5, -v * 0.1)
-            elif s > 100:  # 中距离（100-200m）：中等减速
-                ratio = (200 - s) / 100  # 0→1
-                return -1.5 - 2.5 * ratio  # -1.5 → -4.0
-            elif s > 30:  # 近距离（30-100m）：强力减速
-                ratio = (100 - s) / 70  # 0→1
-                return -4.0 - 3.0 * ratio  # -4.0 → -7.0
-            else:  # 极近距离（<30m）：紧急制动
-                return -7.0
-        
-        delta_v = v - leader.speed
-        dist = leader.pos - self.pos
-        s = max(dist - self.length / 2 - leader.length / 2, 0.5)
-        
-        s_star = (self.s0 + v * self.T + v * delta_v / (2 * math.sqrt(a_max * b)))
-        
-        ratio_v = (v / v0) ** self.delta
-        ratio_s = (s_star / s) ** 2
-        
-        accel = a_max * (1 - ratio_v - ratio_s)
-        
-        time_gap = s / max(v, 0.1)
-        is_emergency = time_gap < 1.5 or delta_v > 3
-        
-        if is_emergency:
-            accel *= 1.2
-        
-        return max(-7.0, min(a_max * 1.5, accel))
+        """IDM加速度计算（委托给 core.car_following.IDMModel）"""
+        return IDMModel.calc_acceleration(self, leader, current_speed)
     
     # ==================== MOBIL模型 ====================
     
     def mobil_decision(self, vehicles_nearby: List['Vehicle'], 
                        blocked_lanes: dict = None) -> tuple:
-        """MOBIL换道决策"""
-        if blocked_lanes is None:
-            blocked_lanes = {}
-        
-        leader = self._find_leader(vehicles_nearby)
-        
-        if leader:
-            if leader.anomaly_type == 1 and leader.pos - self.pos < self.config.forced_change_dist:
-                return self._try_forced_lane_change(vehicles_nearby, blocked_lanes)
-        
-        current_gain = self._calc_lane_gain(self.lane, vehicles_nearby, leader)
-        
-        best_gain = current_gain
-        target_lane = None
-        
-        for candidate in [self.lane - 1, self.lane + 1]:
-            if 0 <= candidate < (self.config.num_lanes if self.config else 4):
-                if self._can_change_to(candidate, vehicles_nearby, blocked_lanes):
-                    gain = self._calc_lane_gain(candidate, vehicles_nearby, leader)
-                    if gain > best_gain + 0.1:
-                        best_gain = gain
-                        target_lane = candidate
-        
-        if target_lane is not None:
-            return target_lane, 'free'
-        return None, None
+        """MOBIL换道决策（委托给 core.lane_change.MOBILModel）"""
+        return MOBILModel.decide_lane_change(
+            vehicle=self,
+            vehicles_nearby=vehicles_nearby,
+            current_lane=self.lane,
+            blocked_lanes=blocked_lanes,
+            politeness=self.politeness,
+            num_lanes=self.config.num_lanes if self.config else 4
+        )
     
     def _calc_lane_gain(self, target_lane: int, vehicles_nearby: List['Vehicle'], 
                         current_leader: Optional['Vehicle']) -> float:
