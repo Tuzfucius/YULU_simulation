@@ -10,6 +10,25 @@ import type {
 } from '../types/workflow';
 import { PORT_TEMPLATES as PORTS } from '../types/workflow';
 
+// ==================== 常量 ====================
+const STORAGE_KEY = 'yulu_workflow_draft';
+const MAX_HISTORY = 50;
+const AUTOSAVE_DELAY_MS = 2000;
+
+/** 深拷贝辅助 */
+function deepClone<T>(obj: T): T {
+    return JSON.parse(JSON.stringify(obj));
+}
+
+/** 历史快照结构 */
+interface HistorySnapshot {
+    nodes: Node<WorkflowNodeData>[];
+    edges: Edge[];
+}
+
+// 自动保存定时器
+let _autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+
 // ==================== 辅助：根据 category 获取默认端口 ====================
 
 function getDefaultPorts(category: string, nodeType?: string): PortDefinition[] {
@@ -122,6 +141,12 @@ interface WorkflowState {
     workflowDescription: string;
     isDirty: boolean;
 
+    // 撤销/重做
+    history: HistorySnapshot[];
+    historyIndex: number;
+    canUndo: boolean;
+    canRedo: boolean;
+
     // Actions
     setNodes: (nodes: Node<WorkflowNodeData>[]) => void;
     setEdges: (edges: Edge[]) => void;
@@ -134,6 +159,16 @@ interface WorkflowState {
     /** 检查连接是否合法（同一 targetHandle 不能多次连接） */
     canConnect: (sourceId: string, targetId: string, sourceHandle: string | null, targetHandle: string | null) => boolean;
 
+    // 撤销/重做
+    undo: () => void;
+    redo: () => void;
+    /** 内部: 推送当前状态到历史栈 */
+    _pushHistory: () => void;
+
+    // 本地持久化
+    saveToLocal: () => void;
+    loadFromLocal: () => boolean;
+
     // Serialization
     exportToRules: () => RuleDefinition[];
     loadRules: (rules: RuleDefinition[]) => void;
@@ -142,6 +177,14 @@ interface WorkflowState {
 
 let nodeIdCounter = 0;
 
+/** 触发自动保存到 localStorage（debounce） */
+function scheduleAutosave(store: WorkflowState) {
+    if (_autosaveTimer) clearTimeout(_autosaveTimer);
+    _autosaveTimer = setTimeout(() => {
+        store.saveToLocal();
+    }, AUTOSAVE_DELAY_MS);
+}
+
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     nodes: [],
     edges: [],
@@ -149,9 +192,21 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     workflowName: '新工作流',
     workflowDescription: '',
     isDirty: false,
+    history: [],
+    historyIndex: -1,
+    canUndo: false,
+    canRedo: false,
 
-    setNodes: (nodes) => set({ nodes, isDirty: true }),
-    setEdges: (edges) => set({ edges, isDirty: true }),
+    setNodes: (nodes) => {
+        set({ nodes, isDirty: true });
+        get()._pushHistory();
+        scheduleAutosave(get());
+    },
+    setEdges: (edges) => {
+        set({ edges, isDirty: true });
+        get()._pushHistory();
+        scheduleAutosave(get());
+    },
 
     addNode: (nodeConfig, position) => {
         const id = `node_${++nodeIdCounter}_${Date.now()}`;
@@ -178,6 +233,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             },
         };
         set((state) => ({ nodes: [...state.nodes, newNode], isDirty: true }));
+        get()._pushHistory();
+        scheduleAutosave(get());
     },
 
     removeNode: (nodeId) => {
@@ -187,6 +244,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             selectedNodeId: state.selectedNodeId === nodeId ? null : state.selectedNodeId,
             isDirty: true,
         }));
+        get()._pushHistory();
+        scheduleAutosave(get());
     },
 
     updateNodeData: (nodeId, data) => {
@@ -196,6 +255,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             ),
             isDirty: true,
         }));
+        get()._pushHistory();
+        scheduleAutosave(get());
     },
 
     selectNode: (nodeId) => set({ selectedNodeId: nodeId }),
@@ -428,5 +489,94 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         set({ nodes: newNodes, edges: newEdges, isDirty: false });
     },
 
-    clearAll: () => set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false }),
+    clearAll: () => {
+        set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false, history: [], historyIndex: -1, canUndo: false, canRedo: false });
+        try { localStorage.removeItem(STORAGE_KEY); } catch (_) { /* ignore */ }
+    },
+
+    // ==================== 撤销/重做 ====================
+
+    _pushHistory: () => {
+        const { nodes, edges, history, historyIndex } = get();
+        const snapshot: HistorySnapshot = { nodes: deepClone(nodes), edges: deepClone(edges) };
+        // 截断 redo 分支
+        const newHistory = history.slice(0, historyIndex + 1);
+        newHistory.push(snapshot);
+        // 限制历史长度
+        if (newHistory.length > MAX_HISTORY) newHistory.shift();
+        const newIndex = newHistory.length - 1;
+        set({ history: newHistory, historyIndex: newIndex, canUndo: newIndex > 0, canRedo: false });
+    },
+
+    undo: () => {
+        const { history, historyIndex } = get();
+        if (historyIndex <= 0) return;
+        const prev = history[historyIndex - 1];
+        const newIndex = historyIndex - 1;
+        set({
+            nodes: deepClone(prev.nodes),
+            edges: deepClone(prev.edges),
+            historyIndex: newIndex,
+            isDirty: true,
+            canUndo: newIndex > 0,
+            canRedo: true,
+        });
+        scheduleAutosave(get());
+    },
+
+    redo: () => {
+        const { history, historyIndex } = get();
+        if (historyIndex >= history.length - 1) return;
+        const next = history[historyIndex + 1];
+        const newIndex = historyIndex + 1;
+        set({
+            nodes: deepClone(next.nodes),
+            edges: deepClone(next.edges),
+            historyIndex: newIndex,
+            isDirty: true,
+            canUndo: true,
+            canRedo: newIndex < history.length - 1,
+        });
+        scheduleAutosave(get());
+    },
+
+    // ==================== 本地持久化 ====================
+
+    saveToLocal: () => {
+        try {
+            const { nodes, edges, workflowName, workflowDescription } = get();
+            const data = { nodes, edges, workflowName, workflowDescription, savedAt: Date.now() };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } catch (e) {
+            console.warn('工作流自动保存失败:', e);
+        }
+    },
+
+    loadFromLocal: () => {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return false;
+            const data = JSON.parse(raw);
+            if (data.nodes && Array.isArray(data.nodes)) {
+                set({
+                    nodes: data.nodes,
+                    edges: data.edges || [],
+                    workflowName: data.workflowName || '新工作流',
+                    workflowDescription: data.workflowDescription || '',
+                    isDirty: false,
+                });
+                // 重建 nodeIdCounter 避免 ID 冲突
+                const maxId = data.nodes.reduce((max: number, n: any) => {
+                    const match = n.id?.match(/\d+/);
+                    return match ? Math.max(max, parseInt(match[0], 10)) : max;
+                }, 0);
+                nodeIdCounter = maxId + 1;
+                get()._pushHistory(); // 初始快照
+                return true;
+            }
+        } catch (e) {
+            console.warn('加载本地工作流失败:', e);
+        }
+        return false;
+    },
 }));

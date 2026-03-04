@@ -42,6 +42,8 @@ export function WorkflowPage() {
         selectNode, selectedNodeId, exportToRules, loadRules, clearAll,
         workflowName, workflowDescription, setWorkflowMeta,
         canConnect,
+        undo, redo, canUndo, canRedo,
+        loadFromLocal,
     } = useWorkflowStore();
     const { t } = useI18nStore();
 
@@ -49,6 +51,36 @@ export function WorkflowPage() {
     const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
     const [statusMsg, setStatusMsg] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+
+    // ===== localStorage 恢复 =====
+    useEffect(() => {
+        const restored = loadFromLocal();
+        if (restored) {
+            setStatusMsg('已从本地缓存恢复工作流');
+            setTimeout(() => setStatusMsg(null), 3000);
+        }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ===== 撤销/重做快捷键 =====
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    redo();
+                } else {
+                    undo();
+                }
+            }
+            // Ctrl+Y 也支持重做
+            if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+                e.preventDefault();
+                redo();
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [undo, redo]);
 
     // 节点变更
     const onNodesChange: OnNodesChange = useCallback(
@@ -210,10 +242,20 @@ export function WorkflowPage() {
             reader.onload = (ev) => {
                 try {
                     const data = JSON.parse(ev.target?.result as string);
-                    if (data.rules) {
-                        loadRules(data.rules);
-                        showStatus(t('workflow.importedRules').replace('{count}', data.rules.length));
+                    // 基本格式校验
+                    if (!data.rules || !Array.isArray(data.rules)) {
+                        showStatus('❗ 无效的工作流文件：缺少 rules 字段');
+                        return;
                     }
+                    for (let i = 0; i < data.rules.length; i++) {
+                        const r = data.rules[i];
+                        if (!r.name || !Array.isArray(r.conditions)) {
+                            showStatus(`❗ 规则 #${i + 1} 缺少必要字段 (name/conditions)`);
+                            return;
+                        }
+                    }
+                    loadRules(data.rules);
+                    showStatus(t('workflow.importedRules').replace('{count}', data.rules.length));
                 } catch {
                     showStatus(t('workflow.invalidJson'));
                 }
@@ -246,6 +288,24 @@ export function WorkflowPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
+                        {/* 撤销/重做 */}
+                        <button
+                            onClick={undo}
+                            disabled={!canUndo}
+                            title="撤销 (Ctrl+Z)"
+                            className="text-[11px] px-2 py-1.5 rounded-md text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors disabled:opacity-30"
+                        >
+                            ↩️
+                        </button>
+                        <button
+                            onClick={redo}
+                            disabled={!canRedo}
+                            title="重做 (Ctrl+Shift+Z)"
+                            className="text-[11px] px-2 py-1.5 rounded-md text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors disabled:opacity-30"
+                        >
+                            ↪️
+                        </button>
+                        <span className="w-px h-5 bg-[var(--glass-border)]" />
                         <button
                             onClick={loadDefaults}
                             disabled={isLoading}
