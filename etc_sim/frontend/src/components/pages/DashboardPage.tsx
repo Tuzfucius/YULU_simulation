@@ -18,14 +18,18 @@ interface TreeNode {
     children?: TreeNode[];
 }
 
-// 门架信息（展示用）
-const ETC_GATES = Array.from({ length: 10 }, (_, i) => ({
-    id: `G${String(i + 1).padStart(2, '0')}`,
-    positionKm: (i + 1) * 2,
-    segment: i + 1,
-    description_zh: `第 ${i + 1} 号 ETC 门架（里程 ${(i + 1) * 2} km）`,
-    description_en: `ETC Gate #${i + 1} at ${(i + 1) * 2} km`,
-}));
+interface GateInfo {
+    id: string;
+    position_m: number;
+    position_km: number;
+    segment: number;
+}
+
+interface SimRunItem {
+    name: string;
+    path: string;
+    meta?: Record<string, any>;
+}
 
 const DEFAULT_SCRIPT = `"""
 ETC 门架预警脚本
@@ -88,6 +92,13 @@ export const DashboardPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'scripts' | 'gates'>('scripts');
     const outputRef = useRef<HTMLDivElement>(null);
 
+    // 仿真记录 & 动态门架
+    const [simRuns, setSimRuns] = useState<SimRunItem[]>([]);
+    const [selectedRunDir, setSelectedRunDir] = useState<string>('');
+    const [gates, setGates] = useState<GateInfo[]>([]);
+    const [gatesLoading, setGatesLoading] = useState(false);
+    const [gatesConfig, setGatesConfig] = useState<Record<string, any>>({});
+
     const refreshTree = useCallback(async () => {
         try {
             const res = await fetch('/api/files/scripts/tree');
@@ -95,7 +106,39 @@ export const DashboardPage: React.FC = () => {
         } catch { }
     }, []);
 
-    useEffect(() => { refreshTree(); }, [refreshTree]);
+    // 加载仿真运行记录列表
+    const refreshSimRuns = useCallback(async () => {
+        try {
+            const res = await fetch('/api/files/output-files');
+            if (res.ok) {
+                const d = await res.json();
+                // 过滤出包含 data.json 的目录（按 path 提取目录名）
+                const jsonFiles = (d.files || []).filter((f: any) => f.name === 'data.json');
+                const runs: SimRunItem[] = jsonFiles.map((f: any) => {
+                    const dir = f.path.replace(/[\\/]data\.json$/, '');
+                    return { name: dir, path: dir, meta: f.meta };
+                });
+                setSimRuns(runs);
+            }
+        } catch { }
+    }, []);
+
+    // 加载指定仿真记录的门架信息
+    const loadGates = useCallback(async (runDir: string) => {
+        if (!runDir) { setGates([]); setGatesConfig({}); return; }
+        setGatesLoading(true);
+        try {
+            const res = await fetch(`/api/files/simulation-gates?path=${encodeURIComponent(runDir)}`);
+            if (res.ok) {
+                const d = await res.json();
+                setGates(d.gates || []);
+                setGatesConfig(d.config || {});
+            }
+        } catch { }
+        setGatesLoading(false);
+    }, []);
+
+    useEffect(() => { refreshTree(); refreshSimRuns(); }, [refreshTree, refreshSimRuns]);
     useEffect(() => { if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight; }, [output]);
 
     const loadScript = useCallback(async (path: string) => {
@@ -128,7 +171,9 @@ export const DashboardPage: React.FC = () => {
     const runScript = useCallback(async () => {
         setIsRunning(true); setOutput([]);
         try {
-            const res = await fetch('/api/files/scripts/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: script, timeout: 15 }) });
+            const body: Record<string, any> = { code: script, timeout: 15 };
+            if (selectedRunDir) body.sim_run_dir = selectedRunDir;
+            const res = await fetch('/api/files/scripts/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
             if (res.ok) {
                 const d = await res.json();
                 const items: typeof output = [];
@@ -139,7 +184,7 @@ export const DashboardPage: React.FC = () => {
             }
         } catch (e: any) { setOutput([{ type: 'stderr', text: `❌ ${e.message}` }]); }
         setIsRunning(false);
-    }, [script, isEn]);
+    }, [script, isEn, selectedRunDir]);
 
     // 目录树渲染
     const renderTree = (nodes: TreeNode[], depth = 0) => (
@@ -198,25 +243,68 @@ export const DashboardPage: React.FC = () => {
                         </div>
                     </>
                 ) : (
-                    /* 门架信息列表 */
-                    <div className="flex-1 overflow-y-auto scrollbar-thin">
-                        <div className="px-3 py-2 border-b border-[var(--glass-border)]">
-                            <p className="text-[10px] text-[var(--text-muted)]">{isEn ? 'ETC gate positions and IDs' : 'ETC 门架编号与位置信息'}</p>
-                        </div>
-                        {ETC_GATES.map(gate => (
-                            <div key={gate.id} className="px-3 py-2.5 border-b border-[var(--glass-border)]/50 hover:bg-[rgba(255,255,255,0.03)]">
-                                <div className="flex items-center gap-2">
-                                    <span className="w-12 text-xs font-mono font-medium text-[var(--accent-blue)]">{gate.id}</span>
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent-purple)]/10 text-[var(--accent-purple)]">
-                                        {gate.positionKm} km
-                                    </span>
-                                    <span className="text-[10px] text-[var(--text-muted)]">Seg {gate.segment}</span>
+                    /* 门架信息列表 — 动态加载 */
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                        {/* 仿真记录选择器 */}
+                        <div className="px-3 py-2 border-b border-[var(--glass-border)] space-y-1.5">
+                            <label className="text-[10px] text-[var(--text-muted)]">
+                                {isEn ? 'Select simulation record' : '选择仿真记录'}
+                            </label>
+                            <select
+                                value={selectedRunDir}
+                                onChange={e => { setSelectedRunDir(e.target.value); loadGates(e.target.value); }}
+                                className="w-full text-xs px-2 py-1.5 rounded bg-[rgba(0,0,0,0.2)] border border-[var(--glass-border)] text-[var(--text-primary)] outline-none cursor-pointer"
+                            >
+                                <option value="">{isEn ? '-- Select --' : '-- 请选择 --'}</option>
+                                {simRuns.map(run => (
+                                    <option key={run.path} value={run.path}>{run.name}</option>
+                                ))}
+                            </select>
+                            {selectedRunDir && gatesConfig.road_length_km && (
+                                <div className="text-[9px] text-[var(--text-muted)] flex flex-wrap gap-x-3">
+                                    <span>🛣️ {gatesConfig.road_length_km || gatesConfig.custom_road_length_km} km</span>
+                                    {gatesConfig.num_lanes && <span>🚗 {gatesConfig.num_lanes} {isEn ? 'lanes' : '车道'}</span>}
+                                    {gatesConfig.total_vehicles && <span>📊 {gatesConfig.total_vehicles} {isEn ? 'vehicles' : '车辆'}</span>}
                                 </div>
-                                <p className="text-[10px] text-[var(--text-muted)] mt-0.5 ml-14">
-                                    {isEn ? gate.description_en : gate.description_zh}
-                                </p>
-                            </div>
-                        ))}
+                            )}
+                        </div>
+
+                        {/* 门架列表 */}
+                        <div className="flex-1 overflow-y-auto scrollbar-thin">
+                            {!selectedRunDir ? (
+                                <div className="px-3 py-6 text-center text-[10px] text-[var(--text-muted)]">
+                                    {isEn ? 'Please select a simulation record above to view gates.' : '请在上方选择一条仿真记录以查看门架信息'}
+                                </div>
+                            ) : gatesLoading ? (
+                                <div className="px-3 py-6 text-center text-[10px] text-[var(--text-muted)]">⏳ {isEn ? 'Loading...' : '加载中...'}</div>
+                            ) : gates.length === 0 ? (
+                                <div className="px-3 py-6 text-center text-[10px] text-[var(--text-muted)]">
+                                    {isEn ? 'No gate data found in this record.' : '该记录中未找到门架数据'}
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="px-3 py-1.5 border-b border-[var(--glass-border)] text-[10px] text-[var(--text-muted)]">
+                                        {isEn ? `${gates.length} gates loaded` : `已加载 ${gates.length} 个门架`}
+                                    </div>
+                                    {gates.map(gate => (
+                                        <div key={gate.id} className="px-3 py-2.5 border-b border-[var(--glass-border)]/50 hover:bg-[rgba(255,255,255,0.03)]">
+                                            <div className="flex items-center gap-2">
+                                                <span className="w-12 text-xs font-mono font-medium text-[var(--accent-blue)]">{gate.id}</span>
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent-purple)]/10 text-[var(--accent-purple)]">
+                                                    {gate.position_km} km
+                                                </span>
+                                                <span className="text-[10px] text-[var(--text-muted)]">Seg {gate.segment}</span>
+                                            </div>
+                                            <p className="text-[10px] text-[var(--text-muted)] mt-0.5 ml-14">
+                                                {isEn
+                                                    ? `ETC Gate #${gate.segment} at ${gate.position_km} km`
+                                                    : `第 ${gate.segment} 号 ETC 门架（里程 ${gate.position_km} km）`}
+                                            </p>
+                                        </div>
+                                    ))}
+                                </>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>
