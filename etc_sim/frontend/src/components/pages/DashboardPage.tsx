@@ -91,6 +91,11 @@ export const DashboardPage: React.FC = () => {
     const [showNewFile, setShowNewFile] = useState(false);
     const [activeTab, setActiveTab] = useState<'scripts' | 'gates'>('scripts');
     const outputRef = useRef<HTMLDivElement>(null);
+    const dragRef = useRef<{ startY: number; startH: number } | null>(null);
+
+    // 输出面板高度控制
+    const [outputHeight, setOutputHeight] = useState(176); // px，默认 176px (h-44)
+    const [outputCollapsed, setOutputCollapsed] = useState(false);
 
     // 仿真记录 & 动态门架
     const [simRuns, setSimRuns] = useState<SimRunItem[]>([]);
@@ -167,6 +172,26 @@ export const DashboardPage: React.FC = () => {
         const h = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveScript(); } };
         window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
     }, [saveScript]);
+
+    // 拖拽调整输出面板高度
+    const onDragStart = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        dragRef.current = { startY: e.clientY, startH: outputHeight };
+        const onMove = (ev: MouseEvent) => {
+            if (!dragRef.current) return;
+            const delta = dragRef.current.startY - ev.clientY; // 向上拖拽 = 增大
+            const next = Math.min(600, Math.max(80, dragRef.current.startH + delta));
+            setOutputHeight(next);
+            if (outputCollapsed) setOutputCollapsed(false);
+        };
+        const onUp = () => {
+            dragRef.current = null;
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    }, [outputHeight, outputCollapsed]);
 
     const runScript = useCallback(async () => {
         setIsRunning(true); setOutput([]);
@@ -343,50 +368,82 @@ export const DashboardPage: React.FC = () => {
                         options={{ fontSize: 13, minimap: { enabled: false }, lineNumbers: 'on', scrollBeyondLastLine: false, wordWrap: 'on', padding: { top: 10 }, tabSize: 4, insertSpaces: true }} />
                 </div>
 
-                <div className="h-44 border-t border-[var(--glass-border)] flex flex-col">
-                    <div className="px-4 py-1.5 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] flex items-center justify-between shrink-0">
-                        <span className="text-xs text-[var(--text-muted)]">💬 {isEn ? 'Output' : '输出'}</span>
-                        <button onClick={() => setOutput([])} className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]">{isEn ? 'Clear' : '清空'}</button>
+                {/* ===== 输出面板：可折叠 + 可拖拽调整高度 ===== */}
+                <div
+                    className="border-t border-[var(--glass-border)] flex flex-col transition-[height] duration-100"
+                    style={{ height: outputCollapsed ? '32px' : `${outputHeight}px`, flexShrink: 0 }}
+                >
+                    {/* 拖拽调整把手 */}
+                    <div
+                        onMouseDown={onDragStart}
+                        className="h-1 w-full cursor-ns-resize hover:bg-[var(--accent-blue)]/40 transition-colors shrink-0 group"
+                        title={isEn ? 'Drag to resize' : '拖拽调整高度'}
+                    >
+                        <div className="h-full w-12 mx-auto rounded-full bg-[var(--glass-border)] group-hover:bg-[var(--accent-blue)]/60 transition-colors" />
                     </div>
-                    <div ref={outputRef} className="flex-1 overflow-y-auto p-3 font-mono text-xs scrollbar-thin bg-[rgba(0,0,0,0.2)]">
-                        {output.length === 0 ? (
-                            <p className="text-[var(--text-muted)]">{isEn ? 'Click ▶ Run to execute...' : '点击 ▶ 运行来执行 Python 脚本...'}</p>
-                        ) : output.flatMap((o, oi) => {
-                            // 按行拆分，逐行检测图表标记
-                            const lines = o.text.split('\n');
-                            return lines.map((line, li) => {
-                                const key = `${oi}-${li}`;
-                                if (line.trimStart().startsWith('[JSON_CHART]')) {
-                                    try {
-                                        const chartData = JSON.parse(line.replace('[JSON_CHART]', '').trim());
-                                        return (
-                                            <div key={key} className="my-2 p-3 rounded bg-[var(--glass-bg)] border border-[var(--glass-border)]">
-                                                <div className="text-[10px] font-bold mb-2 text-[var(--accent-blue)] uppercase tracking-wider">📈 {chartData.title || (isEn ? 'Chart' : '图表')}</div>
-                                                <div className="h-32 flex items-end gap-1 px-2 pb-2 border-b border-[var(--glass-border)]/30">
-                                                    {(chartData.series || []).map((val: number, idx: number) => {
-                                                        const max = Math.max(...chartData.series, 1);
-                                                        const pct = (val / max) * 100;
-                                                        return (
-                                                            <div key={idx} className="flex-1 flex flex-col items-center group">
-                                                                <div className="w-full bg-[var(--accent-blue)]/40 hover:bg-[var(--accent-blue)] transition-all rounded-t-sm relative" style={{ height: `${pct}%` }}>
-                                                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[8px] bg-black/80 px-1 rounded whitespace-nowrap">{val}</div>
+
+                    {/* 面板头 */}
+                    <div className="px-4 py-1 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] flex items-center justify-between shrink-0">
+                        <button
+                            onClick={() => setOutputCollapsed(v => !v)}
+                            className="flex items-center gap-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                        >
+                            <span className={`transition-transform duration-200 ${outputCollapsed ? '-rotate-90' : ''}`}>▾</span>
+                            💬 {isEn ? 'Output' : '输出'}
+                            {!outputCollapsed && output.length > 0 && (
+                                <span className="px-1.5 py-0.5 rounded-full bg-[var(--accent-blue)]/10 text-[var(--accent-blue)] text-[10px]">{output.length}</span>
+                            )}
+                        </button>
+                        <div className="flex items-center gap-3">
+                            {!outputCollapsed && (
+                                <button onClick={() => setOutput([])} className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+                                    {isEn ? 'Clear' : '清空'}
+                                </button>
+                            )}
+                            <span className="text-[10px] text-[var(--text-muted)] select-none">{outputHeight}px</span>
+                        </div>
+                    </div>
+                    {!outputCollapsed && (
+                        <div ref={outputRef} className="flex-1 overflow-y-auto p-3 font-mono text-xs scrollbar-thin bg-[rgba(0,0,0,0.2)]">
+                            {output.length === 0 ? (
+                                <p className="text-[var(--text-muted)]">{isEn ? 'Click ▶ Run to execute...' : '点击 ▶ 运行来执行 Python 脚本...'}</p>
+                            ) : output.flatMap((o, oi) => {
+                                // 按行拆分，逐行检测图表标记
+                                const lines = o.text.split('\n');
+                                return lines.map((line, li) => {
+                                    const key = `${oi}-${li}`;
+                                    if (line.trimStart().startsWith('[JSON_CHART]')) {
+                                        try {
+                                            const chartData = JSON.parse(line.replace('[JSON_CHART]', '').trim());
+                                            return (
+                                                <div key={key} className="my-2 p-3 rounded bg-[var(--glass-bg)] border border-[var(--glass-border)]">
+                                                    <div className="text-[10px] font-bold mb-2 text-[var(--accent-blue)] uppercase tracking-wider">📈 {chartData.title || (isEn ? 'Chart' : '图表')}</div>
+                                                    <div className="h-32 flex items-end gap-1 px-2 pb-2 border-b border-[var(--glass-border)]/30">
+                                                        {(chartData.series || []).map((val: number, idx: number) => {
+                                                            const max = Math.max(...chartData.series, 1);
+                                                            const pct = (val / max) * 100;
+                                                            return (
+                                                                <div key={idx} className="flex-1 flex flex-col items-center group">
+                                                                    <div className="w-full bg-[var(--accent-blue)]/40 hover:bg-[var(--accent-blue)] transition-all rounded-t-sm relative" style={{ height: `${pct}%` }}>
+                                                                        <div className="absolute -top-4 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[8px] bg-black/80 px-1 rounded whitespace-nowrap">{val}</div>
+                                                                    </div>
+                                                                    <div className="mt-1 text-[8px] text-[var(--text-muted)] truncate max-w-[40px] text-center">{chartData.xAxis?.[idx] ?? idx}</div>
                                                                 </div>
-                                                                <div className="mt-1 text-[8px] text-[var(--text-muted)] truncate max-w-[40px] text-center">{chartData.xAxis?.[idx] ?? idx}</div>
-                                                            </div>
-                                                        );
-                                                    })}
+                                                            );
+                                                        })}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        );
-                                    } catch {
-                                        return <pre key={key} className="whitespace-pre-wrap text-red-400">❌ Chart JSON 解析失败</pre>;
+                                            );
+                                        } catch {
+                                            return <pre key={key} className="whitespace-pre-wrap text-red-400">❌ Chart JSON 解析失败</pre>;
+                                        }
                                     }
-                                }
-                                if (!line) return null;
-                                return <pre key={key} className={`whitespace-pre-wrap ${o.type === 'stderr' ? 'text-red-400' : 'text-[var(--text-secondary)]'}`}>{line}</pre>;
-                            });
-                        })}
-                    </div>
+                                    if (!line) return null;
+                                    return <pre key={key} className={`whitespace-pre-wrap ${o.type === 'stderr' ? 'text-red-400' : 'text-[var(--text-secondary)]'}`}>{line}</pre>;
+                                });
+                            })}
+                        </div>
+                    )}
                 </div>
             </div>
 
