@@ -28,7 +28,7 @@
 ### 1. 自动启动（推荐）
 
 #### Windows 用户
-只需在项目根目录双击执行 `start.bat`。（或者在命令行运行 `cd etc_sim && start.bat`）。
+只需在 etc_sim 文件夹下双击执行 `start.bat`。（或者在命令行运行 `cd etc_sim && start.bat`）。
 它会自动创建 `etc_sim` Conda 虚拟环境、拉取后端运行包、初始化前端模块依赖，并同步启动首尾服务。
 
 #### Linux / MacOS 用户
