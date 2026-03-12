@@ -146,6 +146,35 @@ graph TD
 - **搜索策略**：受制于仿真步长计算开销，系统采取限定参数空间 (`ParamRange`) 的自适应离散随机网格搜索（取代暴力全网格）。
 - **流程**：提取历史上下文快照及异常真值 $\rightarrow$ 排列组合不同参数（如尝试 `threshold_kmh`=30/40/50） $\rightarrow$ 虚拟执行回放 $\rightarrow$ 比较 F1 得分并输出 `OptimizationResult` $\rightarrow$ 反馈给前端。
 
+## 10. 机器学习与预测诊断模型
+
+除了基于规则和专家经验的静态管控外，系统内嵌了基于随机森林（Random Forest）的时序状态异常诊断引擎模块（`alert_ml_predictor.py`），旨在通过历史流数据的学习预判局部路网未来的拥堵或事故波及概率。
+
+### 10.1 特征工程 (Feature Engineering)
+
+系统的 `TimeSeriesFeatureExtractor` 负责将原始的 ETC 流水记录（或宏观断面历史）按指定的**步长时间** (`step_seconds`) 聚合，衍生出训练模型所需的关键评估面：
+
+- **基础维度**：`flow` (流量), `density` (密度), `avg_speed` (平均速度)。
+- **扩展维度 (需启用的配置项)**：`speed_variance` (区间速度方差，反映交通流离散度), `occupancy` (空间占有率估算), `headway_mean` (平均车头时距)。
+- **自定义派生 (Custom Expressions)**：支持业务人员通过基于内置安全沙箱的纯字符串公式定义组合指标，基于 `pandas` DataFrame 自动完成矢量化求值并作为新特征列纳入（例如 `congestion_index = density / max(flow, 1)`）。
+
+### 10.2 序列窗口化 (Sliding Window Strategy)
+
+真实交通态势具有强时序惯性，预测模块不采用单步数据而采用滑动窗口（Sliding Window）。
+1. 在提取并补齐好区间时序特征后，按 `window_size_steps` 步长往后滑动截断数据。
+2. 将得到的 2D 矩阵 `(Steps * Features)` 在空间上展平 (Flatten) 得到 1D Array 供随机森林消费。
+3. **标签对其 (Ground Truth Alignment)：** 读取物理引擎挂载的原始异常事件 `GroundTruthEvent`，在当前时空区间窗口如果匹配得上异常时空方块（事件发生地、涉事范围边界以及存续时长），则标记序列为阳性状态（0为正常，1/2分别为源头区和波及区等衍生细化）。
+
+### 10.3 模型训练与评估
+
+1. 引擎接收构建好的多维 JSON 时序特征，进行 `train_test_split` 分割。
+2. 内部模型采用 Scikit-learn 的 `RandomForestClassifier`，其中 `class_weight='balanced'` 设置为了应对实际路网常态情况占比远大于事故的极端不平衡问题。
+3. **模型透明度**：除了返回常规的 P/R/F1 宏观平均（Macro-average指标）和混淆矩阵供报表展现外，会归并同一物理特征在各时间窗中的信息增益比率 (`feature_importances_`) 返回前端显示以指导专家决策（如：证明在这段路 “速度方差” 是第一预测因子）。
+
+### 10.4 实时闭环与模型管理
+
+该预测器支持调用 `predict_realtime_window()` 输出类别决策与各类别预测概率字典（Confidence Dictionary）。而在规则引擎系统 (`AlertRuleEngine`) 内嵌条件库中，提供的 `custom_script` (自定义算法节点) 便可直接实例化或调用保存好的 `.joblib` 模型（由 `save_model` 落盘持久化），在每一帧的 `AlertContext` 状态注入实时验证判断，实现算法策略与逻辑规则的深层混合部署。
+
 ---
 
-> 通过以上多层架构的有机组合，系统达到了规则灵活性强、评估数字化、调参自动化的现代化仿真预警设计标准。
+> 通过以上多层架构的有机组合，系统达到了规则灵活性强、评估数字化、调参自动化和数据驱动预测的现代化仿真预警设计标准。
