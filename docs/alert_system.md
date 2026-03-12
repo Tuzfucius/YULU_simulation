@@ -10,16 +10,16 @@
 
 ```mermaid
 graph TD
-    A[物理引擎 (仿真步)] --> B[网联数据 (ETC, 雷达)]
-    B --> C(AlertContext 预警上下文)
-    C --> D{规则引擎 AlertRuleEngine}
-    D --> E[条件原子 Condition]
-    E --> F[动作 Action]
-    F --> G(前端推送 / 自动干预)
+    A["物理引擎 (仿真步)"] --> B["网联数据 (ETC, 雷达)"]
+    B --> C("AlertContext 预警上下文")
+    C --> D{"规则引擎 AlertRuleEngine"}
+    D --> E["条件原子 Condition"]
+    E --> F["动作 Action"]
+    F --> G("前端推送 / 自动干预")
     
-    H[工作流编辑器] -->|JSON配置| D
-    I[评估系统 AlertEvaluator] -.->|F1 Score| D
-    J[优化器 AlertOptimizer] -.->|参数寻优| E
+    H["工作流编辑器"] -->|JSON配置| D
+    I["评估系统 AlertEvaluator"] -.->|F1 Score| D
+    J["优化器 AlertOptimizer"] -.->|参数寻优| E
 ```
 
 ## 2. 核心数据结构
