@@ -845,10 +845,10 @@ export class SimulationEngine {
             .map(([changes, count]) => ({ changes, count }));
     }
 
-    // 当前主题
-    private currentTheme: 'light' | 'dark' = 'dark';
+    // 当前主题（light / dark；retro-tech 在引擎层映射为 dark）
+    private currentTheme: string = 'dark';
 
-    setTheme(theme: 'light' | 'dark') {
+    setTheme(theme: string) {
         this.currentTheme = theme;
     }
 

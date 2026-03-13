@@ -2,7 +2,7 @@
  * ETC 交通仿真系统 - Modern UI (Multi-Page with Router)
  */
 
-import React, { useCallback, useEffect, useState, Suspense } from 'react';
+import React, { useCallback, useEffect, useState, useRef, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ConfigPanel } from './components/ConfigPanel';
@@ -115,11 +115,26 @@ function SimulationPage() {
 
 function App() {
   const { lang, setLang } = useI18nStore();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, setTheme, themes } = useTheme();
   const [navCollapsed, setNavCollapsed] = useState(false);
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const themeMenuRef = useRef<HTMLDivElement>(null);
+
+  // 点击外部关闭主题菜单
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (themeMenuRef.current && !themeMenuRef.current.contains(e.target as Node)) {
+        setThemeMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   useEffect(() => {
-    engine.setTheme(theme);
+    // 复古科技风在引擎层等同于 dark
+    const engineTheme = theme === 'light' ? 'light' : 'dark';
+    engine.setTheme(engineTheme);
   }, [theme]);
 
   return (
@@ -162,13 +177,45 @@ function App() {
 
           {/* 底部控制 */}
           <div className="p-3 border-t border-[var(--glass-border)] space-y-2">
-            <button
-              onClick={toggleTheme}
-              className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
-            >
-              <span className="text-lg">{theme === 'dark' ? '🌙' : '☀️'}</span>
-              {!navCollapsed && <span>{lang === 'zh' ? (theme === 'dark' ? '深色' : '浅色') : (theme === 'dark' ? 'Dark' : 'Light')}</span>}
-            </button>
+            {/* 主题选择器 */}
+            <div ref={themeMenuRef} className="relative">
+              <button
+                onClick={() => setThemeMenuOpen(o => !o)}
+                className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
+              >
+                <span className="text-lg">{themes.find(t => t.id === theme)?.icon ?? '🎨'}</span>
+                {!navCollapsed && (
+                  <span className="flex-1 text-left">
+                    {lang === 'zh' ? (themes.find(t => t.id === theme)?.label ?? '主题') : (themes.find(t => t.id === theme)?.labelEn ?? 'Theme')}
+                  </span>
+                )}
+                {!navCollapsed && <span className="text-xs opacity-50">{themeMenuOpen ? '▲' : '▼'}</span>}
+              </button>
+              {/* 主题列表弹出菜单 */}
+              {themeMenuOpen && (
+                <div className="absolute bottom-full left-0 right-0 mb-1 rounded-lg overflow-hidden shadow-xl"
+                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--glass-border)', zIndex: 100 }}
+                >
+                  {themes.map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => { setTheme(t.id); setThemeMenuOpen(false); }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors text-left"
+                      style={{
+                        background: t.id === theme ? 'var(--glass-bg-hover)' : 'transparent',
+                        color: t.id === theme ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                      }}
+                    >
+                      <span className="text-base shrink-0">{t.icon}</span>
+                      {!navCollapsed && (
+                        <span>{lang === 'zh' ? t.label : t.labelEn}</span>
+                      )}
+                      {t.id === theme && <span className="ml-auto text-xs">✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
               className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"

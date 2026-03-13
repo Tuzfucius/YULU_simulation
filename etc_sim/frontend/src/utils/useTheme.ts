@@ -1,25 +1,20 @@
 /**
  * 主题切换 Hook
+ * 支持 light / dark / retro-tech 多主题切换，持久化到 localStorage
  */
 
-import { useState, useEffect } from 'react';
-
-type Theme = 'light' | 'dark';
+import { useEffect } from 'react';
+import { ThemeId, THEMES } from '../themes';
+import { useThemeStore } from '../stores/themeStore';
 
 export const useTheme = () => {
-    const [theme, setTheme] = useState<Theme>(() => {
-        const saved = localStorage.getItem('theme');
-        return (saved as Theme) || 'dark';
-    });
+    const { theme, setTheme, toggleTheme } = useThemeStore();
 
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', theme);
-        localStorage.setItem('theme', theme);
     }, [theme]);
 
-    const toggleTheme = () => {
-        setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-    };
-
-    return { theme, toggleTheme };
+    return { theme, toggleTheme, setTheme, themes: THEMES };
 };
+
+export type { ThemeId };

@@ -1,27 +1,27 @@
 /**
  * 主题管理 Store
- * 支持明亮模式和深色模式切换
+ * 支持 light / dark / retro-tech 三种主题切换
  */
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-
-export type Theme = 'light' | 'dark';
+import { ThemeId, THEMES } from '../themes';
 
 interface ThemeStore {
-    theme: Theme;
+    theme: ThemeId;
     toggleTheme: () => void;
-    setTheme: (theme: Theme) => void;
+    setTheme: (theme: ThemeId) => void;
 }
 
 export const useThemeStore = create<ThemeStore>()(
     persist(
-        (set) => ({
+        (set, get) => ({
             theme: 'dark',
-            toggleTheme: () =>
-                set((state) => ({
-                    theme: state.theme === 'light' ? 'dark' : 'light',
-                })),
+            toggleTheme: () => {
+                const currentIdx = THEMES.findIndex(t => t.id === get().theme);
+                const nextIdx = (currentIdx + 1) % THEMES.length;
+                set({ theme: THEMES[nextIdx].id });
+            },
             setTheme: (theme) => set({ theme }),
         }),
         {
@@ -29,3 +29,6 @@ export const useThemeStore = create<ThemeStore>()(
         }
     )
 );
+
+// 兼容旧导出，方便已有代码直接引用 Theme 类型
+export type { ThemeId as Theme };

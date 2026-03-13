@@ -1,0 +1,207 @@
+/**
+ * 复古科技风 (Retro-Tech) 主题
+ * 风格特征：深海蓝底色 + 电光蓝霓虹辉光 + 科技感边框
+ * 使用 [data-theme="retro-tech"] 选择器，自动覆盖所有 CSS 变量
+ */
+
+/* ── Google Fonts: 引入科技感字体 ────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Share+Tech+Mono&display=swap');
+
+/* ── 主题变量覆盖 ─────────────────────────────────────────── */
+[data-theme="retro-tech"] {
+    /* 基础背景 */
+    --bg-base: #080d1a;
+    --bg-surface: #0c1829;
+
+    /* 玻璃效果 */
+    --glass-bg: rgba(12, 24, 41, 0.88);
+    --glass-bg-hover: rgba(18, 36, 60, 0.92);
+    --glass-border: rgba(0, 212, 255, 0.22);
+    --glass-shadow: 0 0 20px rgba(0, 212, 255, 0.08), 0 4px 24px rgba(0, 0, 0, 0.4);
+
+    /* 强调色 */
+    --accent-blue: #00d4ff;
+    --accent-purple: #7b68ee;
+    --accent-green: #39e75f;
+    --accent-red: #ff4455;
+
+    /* 文字 */
+    --text-primary: #d8f0ff;
+    --text-secondary: #7ab8d8;
+    --text-muted: #3a6880;
+
+    /* ── 专属变量 ──────────────────────────────────────────── */
+    --retro-glow-color: #00d4ff;
+    --retro-glow-subtle: rgba(0, 212, 255, 0.12);
+    --retro-glow-medium: rgba(0, 212, 255, 0.28);
+    --retro-glow-strong: rgba(0, 212, 255, 0.55);
+
+    --retro-box-glow: 0 0 12px rgba(0, 212, 255, 0.25), 0 0 30px rgba(0, 212, 255, 0.08);
+    --retro-text-glow: 0 0 8px rgba(0, 212, 255, 0.6), 0 0 18px rgba(0, 212, 255, 0.3);
+    --retro-border-glow: 0 0 6px rgba(0, 212, 255, 0.5), inset 0 0 6px rgba(0, 212, 255, 0.05);
+
+    --retro-font-display: 'Orbitron', 'JetBrains Mono', monospace;
+    --retro-font-data: 'Share Tech Mono', 'JetBrains Mono', monospace;
+}
+
+/* ── 全局 body 装饰（网格背景）────────────────────────────── */
+[data-theme="retro-tech"] body {
+    background-image:
+        linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    background-position: center center;
+}
+
+/* ── glass-panel 辉光边框 ──────────────────────────────────── */
+[data-theme="retro-tech"] .glass-panel {
+    border-color: var(--glass-border);
+    box-shadow: var(--retro-box-glow);
+    background: var(--glass-bg);
+}
+
+/* ── glass-card 增强边框 + 悬停效果 ────────────────────────── */
+[data-theme="retro-tech"] .glass-card {
+    border-color: rgba(0, 212, 255, 0.2);
+    box-shadow: var(--retro-box-glow);
+    position: relative;
+    overflow: visible;
+}
+
+[data-theme="retro-tech"] .glass-card::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(0, 212, 255, 0.35), transparent 60%, rgba(123, 104, 238, 0.2));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+}
+
+[data-theme="retro-tech"] .glass-card:hover {
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.3), 0 0 50px rgba(0, 212, 255, 0.1);
+    border-color: rgba(0, 212, 255, 0.4);
+}
+
+/* ── 按钮样式 ──────────────────────────────────────────────── */
+[data-theme="retro-tech"] .glass-btn {
+    border-color: rgba(0, 212, 255, 0.25);
+    color: var(--text-primary);
+    transition: all 0.2s ease;
+    letter-spacing: 0.05em;
+}
+
+[data-theme="retro-tech"] .glass-btn:hover {
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 10px rgba(0, 212, 255, 0.3), inset 0 0 8px rgba(0, 212, 255, 0.05);
+    background: rgba(0, 212, 255, 0.08);
+    color: var(--accent-blue);
+}
+
+[data-theme="retro-tech"] .glass-btn-primary {
+    background: rgba(0, 212, 255, 0.15);
+    border: 1px solid var(--accent-blue);
+    color: var(--accent-blue);
+    box-shadow: 0 0 12px rgba(0, 212, 255, 0.25);
+}
+
+[data-theme="retro-tech"] .glass-btn-primary:hover {
+    background: rgba(0, 212, 255, 0.25);
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
+}
+
+/* ── 输入框 ────────────────────────────────────────────────── */
+[data-theme="retro-tech"] .glass-input {
+    background: rgba(0, 18, 36, 0.7);
+    border-color: rgba(0, 212, 255, 0.2);
+    color: var(--text-primary);
+    font-family: var(--retro-font-data);
+}
+
+[data-theme="retro-tech"] .glass-input:focus {
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 10px rgba(0, 212, 255, 0.25);
+    background: rgba(0, 18, 36, 0.85);
+}
+
+/* ── 标题辉光 ──────────────────────────────────────────────── */
+[data-theme="retro-tech"] h1,
+[data-theme="retro-tech"] h2,
+[data-theme="retro-tech"] h3 {
+    font-family: var(--retro-font-display);
+    color: var(--text-primary);
+    text-shadow: var(--retro-text-glow);
+    letter-spacing: 0.06em;
+}
+
+/* ── 滚动条 ────────────────────────────────────────────────── */
+[data-theme="retro-tech"] ::-webkit-scrollbar-thumb {
+    background: rgba(0, 212, 255, 0.2);
+}
+
+[data-theme="retro-tech"] ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 212, 255, 0.4);
+}
+
+/* ── 导航侧边栏激活项 ──────────────────────────────────────── */
+[data-theme="retro-tech"] nav a.active,
+[data-theme="retro-tech"] nav [aria-current] {
+    text-shadow: 0 0 6px rgba(0, 212, 255, 0.6);
+}
+
+/* ── 选择器（select, option）──────────────────────────────── */
+[data-theme="retro-tech"] select {
+    background: rgba(0, 18, 36, 0.8);
+    border-color: rgba(0, 212, 255, 0.2);
+    color: var(--text-primary);
+}
+
+/* ── 扫描线装饰层（可通过 prefers-reduced-motion 关闭）─────── */
+@media (prefers-reduced-motion: no-preference) {
+    [data-theme="retro-tech"] #root::after {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background: repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 2px,
+            rgba(0, 0, 0, 0.04) 2px,
+            rgba(0, 0, 0, 0.04) 4px
+        );
+        pointer-events: none;
+        z-index: 9999;
+    }
+}
+
+/* ── Range Slider 适配 ─────────────────────────────────────── */
+[data-theme="retro-tech"] input[type=range]::-webkit-slider-thumb {
+    background: var(--accent-blue);
+    box-shadow: 0 0 8px rgba(0, 212, 255, 0.6);
+}
+
+[data-theme="retro-tech"] input[type=range]::-webkit-slider-runnable-track {
+    background: rgba(0, 212, 255, 0.1);
+}
+
+/* ── 呼吸脉冲动画（用于状态指示）──────────────────────────── */
+@keyframes retro-pulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(0, 212, 255, 0.3); }
+    50%       { box-shadow: 0 0 20px rgba(0, 212, 255, 0.6), 0 0 40px rgba(0, 212, 255, 0.2); }
+}
+
+[data-theme="retro-tech"] .retro-pulse {
+    animation: retro-pulse 2.5s ease-in-out infinite;
+}
+
+/* ── 辅助 class：数据标签辉光 ─────────────────────────────── */
+[data-theme="retro-tech"] .retro-data-label {
+    font-family: var(--retro-font-data);
+    color: var(--accent-blue);
+    text-shadow: 0 0 6px rgba(0, 212, 255, 0.5);
+    letter-spacing: 0.08em;
+}
