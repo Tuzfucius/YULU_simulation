@@ -4,6 +4,7 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 import os
 import json
+import shutil
 import traceback
 import logging
 
@@ -12,6 +13,7 @@ from ...models.alert_ml_predictor import TimeSeriesPredictor
 from ...models.ml_feature_extractor import TimeSeriesFeatureExtractor
 from ...models.etc_anomaly_detector import ETCTransaction
 from ...models.alert_evaluator import GroundTruthEvent
+from ..services.run_repository import list_runs as list_history_runs
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/prediction", tags=["prediction"])
@@ -26,6 +28,59 @@ DATASETS_DIR.mkdir(parents=True, exist_ok=True)
 
 # 内存单例保存已训练好的模型 (供当前会话使用)
 current_predictor = TimeSeriesPredictor()
+
+
+def _collect_source_names(file_names: Optional[List[str]] = None, run_ids: Optional[List[str]] = None) -> List[str]:
+    ordered: List[str] = []
+    for name in (file_names or []) + (run_ids or []):
+        if name and name not in ordered:
+            ordered.append(name)
+    return ordered
+
+
+def _resolve_source_path(source_name: str) -> Optional[Path]:
+    candidates = [
+        DATASETS_DIR / source_name,
+        DATASETS_DIR / f"{source_name}.json",
+        RESULTS_DIR / source_name / "data.json",
+        RESULTS_DIR / source_name,
+        RESULTS_DIR / f"{source_name}.json",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    found = list(DATASETS_DIR.rglob(source_name))
+    if found:
+        return found[0]
+
+    found = list(RESULTS_DIR.rglob(source_name))
+    if found:
+        return found[0]
+
+    if not source_name.endswith('.json'):
+        found = list(RESULTS_DIR.rglob(f"{source_name}.json"))
+        if found:
+            return found[0]
+
+    return None
+
+
+def _load_source_result_payload(source_name: str) -> dict:
+    source_path = _resolve_source_path(source_name)
+    if not source_path or not source_path.exists():
+        return {}
+
+    if source_path.is_dir():
+        source_path = source_path / 'data.json'
+    if not source_path.exists() or source_path.parent == DATASETS_DIR:
+        return {}
+
+    try:
+        with open(source_path, 'r', encoding='utf-8') as file:
+            return json.load(file)
+    except Exception:
+        return {}
 
 
 # ============================================
@@ -116,35 +171,27 @@ def _load_ml_dataset_from_file(file_path: Path,
 # ============================================
 
 class TrainingRequest(BaseModel):
-    file_names: List[str]  # e.g., ["sim_20260224_190000.json"]
-    model_type: str        # e.g., "xgboost_flat", "lstm_seq"
+    file_names: List[str] = []
+    run_ids: List[str] = []
+    model_type: str
     hyperparameters: Dict[str, Any]
-    # 数据集提取参数
-    step_seconds: float = 60.0              # 时间步长 (秒)
-    window_size_steps: int = 5              # 滑动窗口步数
-    selected_features: List[str] = []       # 额外启用的特征 (speed_variance, occupancy, headway_mean)
+    step_seconds: float = 60.0
+    window_size_steps: int = 5
+    selected_features: List[str] = []
+
 
 @router.post("/train")
 async def train_model(request: TrainingRequest):
-    """
-    根据选中的历史仿真结果，抽取 ml_dataset 进行模型训练
-    """
+    """???????????????"""
     try:
-        # 1. 挂载数据集合并
         combined_samples = []
         metadata = {}
-        
-        for fname in request.file_names:
-            # 优先从 datasets/ 目录加载已提取的数据集
-            file_path = DATASETS_DIR / fname
-            if not file_path.exists():
-                file_path = RESULTS_DIR / fname / "data.json"
-            if not file_path.exists():
-                file_path = RESULTS_DIR / fname # fallback for direct files
-            if not file_path.exists():
-                found = list(RESULTS_DIR.rglob(fname))
-                file_path = found[0] if found else None
+        source_names = _collect_source_names(request.file_names, request.run_ids)
+
+        for source_name in source_names:
+            file_path = _resolve_source_path(source_name)
             if file_path is None or not file_path.exists():
+                logger.warning(f"??????: {source_name}")
                 continue
 
             ml_dataset = _load_ml_dataset_from_file(
@@ -153,52 +200,51 @@ async def train_model(request: TrainingRequest):
                 window_size_steps=request.window_size_steps,
                 extra_features=request.selected_features or None,
             )
-            
+
             if not metadata and ml_dataset.get("metadata"):
                 metadata = ml_dataset["metadata"]
-                    
-            samples = ml_dataset.get("samples", [])
-            combined_samples.extend(samples)
-                
+
+            combined_samples.extend(ml_dataset.get("samples", []))
+
         if not combined_samples:
-            raise HTTPException(
-                status_code=400, 
-                detail="所选文件中未提取出有效的机器学习特征样本。请确认仿真数据包含有效的路段统计数据，或尝试重新生成数据集。"
-            )
-            
+            raise HTTPException(status_code=400, detail="???????????????")
+
         final_dataset = {
-            "metadata": metadata,
-            "samples": combined_samples
+            "metadata": {
+                **metadata,
+                "source_files": source_names,
+                "source_run_ids": request.run_ids,
+            },
+            "samples": combined_samples,
         }
-        
-        # 2. 调度引擎开始训练
+
         global current_predictor
         current_predictor = TimeSeriesPredictor()
-        
         params = {
-            'n_estimators': request.hyperparameters.get('n_estimators', 100),
-            'max_depth': request.hyperparameters.get('max_depth', 10),
+            "n_estimators": request.hyperparameters.get("n_estimators", 100),
+            "max_depth": request.hyperparameters.get("max_depth", 10),
         }
-        
         result = current_predictor.train(final_dataset, params=params)
-        
         if result.get("status") == "error":
-             raise HTTPException(status_code=400, detail=result.get("message"))
-        
-        # 3. 自动保存模型（规范化命名 + meta.json 伴生）
+            raise HTTPException(status_code=400, detail=result.get("message"))
+
         from datetime import datetime
-        ds_stem = request.file_names[0].replace('.json', '') if request.file_names else 'unknown'
+
+        primary_name = source_names[0] if source_names else 'unknown'
+        ds_stem = primary_name.replace('.json', '')
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         model_id = f"rf_{ds_stem}_{ts}"
         model_path = MODELS_DIR / f"{model_id}.joblib"
+
+        source_files = metadata.get("source_files", []) or source_names
         try:
             current_predictor.save_model(str(model_path))
-            # 生成元数据伴生文件
             meta = {
                 "model_id": model_id,
                 "created_at": datetime.now().isoformat(),
                 "source_datasets": request.file_names,
                 "source_simulations": source_files,
+                "source_run_ids": request.run_ids,
                 "model_type": request.model_type,
                 "hyperparameters": request.hyperparameters,
                 "metrics": {
@@ -211,42 +257,21 @@ async def train_model(request: TrainingRequest):
                 "validated_samples": result["samples_validated"],
             }
             meta_path = MODELS_DIR / f"{model_id}.meta.json"
-            with open(meta_path, "w", encoding="utf-8") as mf:
-                json.dump(meta, mf, indent=2, ensure_ascii=False)
-            logger.info(f"模型已保存: {model_path} (元数据: {meta_path})")
+            with open(meta_path, "w", encoding="utf-8") as meta_file:
+                json.dump(meta, meta_file, indent=2, ensure_ascii=False)
         except Exception as save_err:
-            logger.warning(f"模型保存失败: {save_err}")
+            logger.warning(f"??????: {save_err}")
             model_id = None
 
-        # 4. 提取关联的仿真测试上下文以便前端绘图
         all_speeds = []
         all_anomalies = []
-        source_files = metadata.get("source_files", [])
-        # 如果是直接从源仿真文件训练而不是 dataset
-        if not source_files and any(RESULTS_DIR.rglob(fname) for fname in request.file_names):
-            source_files = request.file_names
-            
-        for sf in source_files:
-            sf_path = RESULTS_DIR / sf / "data.json"
-            if not sf_path.exists():
-                sf_path = RESULTS_DIR / sf
-            if not sf_path.exists():
-                found = list(RESULTS_DIR.rglob(sf))
-                sf_path = found[0] if found else None
-            
-            if sf_path and sf_path.exists():
-                try:
-                    with open(sf_path, "r", encoding="utf-8") as f:
-                        sg_data = json.load(f)
-                        all_speeds.extend(sg_data.get("segment_speed_history", []))
-                        all_anomalies.extend(sg_data.get("anomaly_logs", []))
-                except Exception as e:
-                    logger.warning(f"无法读取源测试上下文 {sf_path}: {e}")
+        for source_name in source_files:
+            payload = _load_source_result_payload(source_name)
+            if payload:
+                all_speeds.extend(payload.get("segment_speed_history", []))
+                all_anomalies.extend(payload.get("anomaly_logs", []))
 
-        # 将评价详情转换为前端要求的 predict_results 格式
         predict_results = result["metrics"].pop("test_details", [])
-
-        # 提取关键指标并返回
         return {
             "status": "success",
             "metrics": result["metrics"],
@@ -256,15 +281,14 @@ async def train_model(request: TrainingRequest):
             "test_context": {
                 "ground_truth_anomalies": all_anomalies,
                 "predict_results": predict_results,
-                "segment_speed_history": all_speeds
-            }
+                "segment_speed_history": all_speeds,
+            },
         }
-        
     except HTTPException:
         raise
     except Exception as e:
-         traceback.print_exc()
-         raise HTTPException(status_code=500, detail=f"模型训练失败: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"??????: {str(e)}")
 
 
 # ============================================
@@ -414,46 +438,27 @@ async def load_model(request: LoadModelRequest):
 
 @router.get("/results")
 async def list_simulation_results():
-    """列出 data/simulations/ 目录下的所有仿真结果文件夹"""
+    """?????????????"""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     files = []
-    
-    # 查找所有仿真结果目录（兼容新旧格式）
-    for sim_dir in sorted(RESULTS_DIR.iterdir(), reverse=True):
-        if not sim_dir.is_dir():
-            continue
-        json_file = sim_dir / "data.json"
-        if not json_file.exists():
-            continue
-        sim_dir = json_file.parent
-        stat = json_file.stat()
-        # 快速提取元信息
-        meta = {}
-        try:
-            with open(json_file, "r", encoding="utf-8") as fp:
-                head = fp.read(3000)
-            data = json.loads(head) if head.rstrip().endswith('}') else None
-            if data:
-                cfg = data.get("config", {})
-                stats = data.get("statistics", {})
-                ml = data.get("ml_dataset", {})
-                meta = {
-                    "vehicles": cfg.get("total_vehicles") or stats.get("total_vehicles"),
-                    "anomalies": stats.get("total_anomalies"),
-                    "sim_time": stats.get("simulation_time"),
-                    "ml_samples": len(ml.get("samples", [])) if ml else 0,
-                }
-        except Exception:
-            pass
-
+    for run in list_history_runs(RESULTS_DIR):
+        run_dir = RESULTS_DIR / run["run_id"]
+        data_file = run_dir / "data.json"
+        size = data_file.stat().st_size if data_file.exists() else 0
+        summary = run.get("summary", {})
         files.append({
-            "name": sim_dir.name,  # 返回目录名 run_xxx
-            "path": sim_dir.name,
-            "size": stat.st_size,
-            "modified": stat.st_mtime,
-            "meta": meta,
+            "name": run["name"],
+            "path": run["path"],
+            "run_id": run["run_id"],
+            "size": size,
+            "modified": run.get("modified"),
+            "meta": {
+                "vehicles": summary.get("total_vehicles"),
+                "anomalies": summary.get("total_anomalies"),
+                "sim_time": summary.get("simulation_time"),
+                "ml_samples": summary.get("ml_samples", 0),
+            },
         })
-    
     return {"files": files}
 
 
@@ -462,31 +467,27 @@ async def list_simulation_results():
 # ============================================
 
 class ExtractDatasetRequest(BaseModel):
-    file_names: List[str]           # 来源仿真结果文件
-    dataset_name: str = ""          # 数据集名称, 为空则自动生成
+    file_names: List[str] = []
+    run_ids: List[str] = []
+    dataset_name: str = ""
     step_seconds: float = 60.0
     window_size_steps: int = 5
     selected_features: List[str] = []
-    custom_expressions: List[str] = []  # 用户自定义的派生特征表达式
+    custom_expressions: List[str] = []
+
 
 @router.post("/extract-dataset")
 async def extract_dataset(request: ExtractDatasetRequest):
-    """
-    从历史仿真结果中提取 ml_dataset 并保存到 data/datasets/ 目录
-    """
+    """?????????????????"""
     try:
         combined_samples = []
         metadata = {}
+        source_names = _collect_source_names(request.file_names, request.run_ids)
 
-        for fname in request.file_names:
-            file_path = RESULTS_DIR / fname / "data.json"
-            if not file_path.exists():
-                file_path = RESULTS_DIR / fname
-            if not file_path.exists():
-                found = list(RESULTS_DIR.rglob(fname))
-                file_path = found[0] if found else None
+        for source_name in source_names:
+            file_path = _resolve_source_path(source_name)
             if file_path is None or not file_path.exists():
-                logger.warning(f"文件不存在: {fname}")
+                logger.warning(f"??????: {source_name}")
                 continue
 
             ml_dataset = _load_ml_dataset_from_file(
@@ -494,7 +495,7 @@ async def extract_dataset(request: ExtractDatasetRequest):
                 step_seconds=request.step_seconds,
                 window_size_steps=request.window_size_steps,
                 extra_features=request.selected_features or None,
-                force_rebuild=True,  # 提取时总是重建
+                force_rebuild=True,
                 custom_expressions=request.custom_expressions or None,
             )
 
@@ -503,22 +504,16 @@ async def extract_dataset(request: ExtractDatasetRequest):
             combined_samples.extend(ml_dataset.get("samples", []))
 
         if not combined_samples:
-            raise HTTPException(
-                status_code=400,
-                detail="所选文件中未能提取有效的机器学习特征样本。请确认历史文件中包含足够的流量历史数据。"
-            )
+            raise HTTPException(status_code=400, detail="???????????????")
 
-        # 生成数据集名称
         from datetime import datetime
-        if not request.dataset_name:
-            ds_name = f"ds_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
-        else:
-            ds_name = request.dataset_name.replace(" ", "_")
 
+        ds_name = request.dataset_name.replace(" ", "_") if request.dataset_name else f"ds_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
         final_dataset = {
             "metadata": {
                 **metadata,
-                "source_files": request.file_names,
+                "source_files": source_names,
+                "source_run_ids": request.run_ids,
                 "extraction_params": {
                     "step_seconds": request.step_seconds,
                     "window_size_steps": request.window_size_steps,
@@ -529,13 +524,11 @@ async def extract_dataset(request: ExtractDatasetRequest):
             "samples": combined_samples,
         }
 
-        # 保存到 datasets 目录
         ds_path = DATASETS_DIR / f"{ds_name}.json"
-        with open(ds_path, "w", encoding="utf-8") as f:
-            json.dump(final_dataset, f, indent=2, ensure_ascii=False)
+        with open(ds_path, "w", encoding="utf-8") as dataset_file:
+            json.dump(final_dataset, dataset_file, indent=2, ensure_ascii=False)
 
         n_features = len(metadata.get("feature_names", [])) or (6 + len(request.selected_features))
-
         return {
             "status": "success",
             "dataset_name": ds_name,
@@ -545,12 +538,11 @@ async def extract_dataset(request: ExtractDatasetRequest):
             "input_vector_dim": n_features * request.window_size_steps,
             "path": str(ds_path),
         }
-
     except HTTPException:
         raise
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"数据集提取失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"???????: {str(e)}")
 
 
 @router.get("/datasets")
@@ -630,6 +622,14 @@ class RenameRequest(BaseModel):
     new_name: str
 
 
+def _next_copy_name(directory: Path, stem: str, suffix: str) -> str:
+    for index in range(1, 1000):
+        candidate = f"{stem}_copy{index}"
+        if not (directory / f"{candidate}{suffix}").exists():
+            return candidate
+    raise HTTPException(status_code=500, detail="无法生成可用的复制名称")
+
+
 @router.put("/models/{model_id}/rename")
 async def rename_model(model_id: str, request: RenameRequest):
     """重命名模型文件（同步更新 meta.json 中的 model_id）"""
@@ -672,6 +672,30 @@ async def open_model_folder(model_id: str):
         return {"success": True, "folder": str(MODELS_DIR)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"打开文件夹失败: {e}")
+
+
+@router.post("/models/{model_id}/copy")
+async def copy_model(model_id: str):
+    """复制模型文件及其元数据。"""
+    src = MODELS_DIR / f"{model_id}.joblib"
+    src_meta = MODELS_DIR / f"{model_id}.meta.json"
+    if not src.exists():
+        raise HTTPException(status_code=404, detail=f"模型不存在: {model_id}")
+
+    new_name = _next_copy_name(MODELS_DIR, model_id, ".joblib")
+    dst = MODELS_DIR / f"{new_name}.joblib"
+    dst_meta = MODELS_DIR / f"{new_name}.meta.json"
+    try:
+        shutil.copy2(src, dst)
+        if src_meta.exists():
+            with open(src_meta, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            meta["model_id"] = new_name
+            with open(dst_meta, "w", encoding="utf-8") as f:
+                json.dump(meta, f, indent=2, ensure_ascii=False)
+        return {"success": True, "new_model_id": new_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"复制失败: {e}")
 
 
 # --- 数据集管理 ---
@@ -721,3 +745,19 @@ async def open_dataset_folder(dataset_name: str):
         return {"success": True, "folder": str(DATASETS_DIR)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"打开文件夹失败: {e}")
+
+
+@router.post("/datasets/{dataset_name}/copy")
+async def copy_dataset(dataset_name: str):
+    """复制数据集文件。"""
+    src = DATASETS_DIR / f"{dataset_name}.json"
+    if not src.exists():
+        raise HTTPException(status_code=404, detail=f"数据集不存在: {dataset_name}")
+
+    new_name = _next_copy_name(DATASETS_DIR, dataset_name, ".json")
+    dst = DATASETS_DIR / f"{new_name}.json"
+    try:
+        shutil.copy2(src, dst)
+        return {"success": True, "new_name": new_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"复制失败: {e}")

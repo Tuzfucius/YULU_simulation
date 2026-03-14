@@ -43,6 +43,22 @@ type SimulationDataset = {
     metadata?: Record<string, unknown>;
 };
 
+type RunImageItem = {
+    name: string;
+    url: string;
+};
+
+type RunGatePayload = {
+    run_id: string;
+    gates?: Array<Record<string, unknown>>;
+    path_geometry?: {
+        paths?: Array<{
+            path_id?: string;
+            polyline?: Array<[number, number]>;
+        }>;
+    };
+};
+
 function formatTimestamp(epochSeconds?: number) {
     if (!epochSeconds) return '--';
     return new Date(epochSeconds * 1000).toLocaleString('zh-CN', {
@@ -78,6 +94,47 @@ function getNumericValue(...values: unknown[]) {
     return null;
 }
 
+function deriveRunIdFromPath(path: string) {
+    const normalized = path.replace(/\\/g, '/');
+    return normalized.split('/')[0] || '';
+}
+
+function buildRoadDataFromHistory(payload: RunGatePayload | null, historyData: SimulationDataset | null): RoadData | null {
+    const pathPoints = payload?.path_geometry?.paths?.flatMap((path) => path.polyline || []) || [];
+    const nodes = pathPoints
+        .filter((point): point is [number, number] => Array.isArray(point) && point.length >= 2)
+        .map(([x, y]) => ({ x, y }));
+
+    const gates = (payload?.gates || historyData?.etcGates || []).map((gate, index) => {
+        const x = getNumericValue(gate.x, gate.position, index * 120) ?? index * 120;
+        const y = getNumericValue(gate.y, 0) ?? 0;
+        return {
+            id: String(gate.id ?? gate.gate_id ?? gate.name ?? index),
+            name: String(gate.name ?? gate.id ?? gate.gate_id ?? `门架 ${index + 1}`),
+            x,
+            y,
+        };
+    });
+
+    if (nodes.length === 0 && gates.length === 0) {
+        return null;
+    }
+
+    const fallbackNodes = gates.length > 0
+        ? gates.map((gate, index) => ({ x: gate.x ?? index * 120, y: gate.y ?? 0 }))
+        : [];
+
+    return {
+        nodes: nodes.length > 0 ? nodes : fallbackNodes,
+        gantries: gates,
+        ramps: [],
+        meta: {
+            total_length_km: getNumericValue(historyData?.config?.custom_road_length_km, historyData?.config?.road_length_km) ?? undefined,
+            num_gantries: gates.length,
+        },
+    };
+}
+
 export function SituationScreenPage() {
     const { lang } = useI18nStore();
     const { config, statistics } = useSimStore();
@@ -86,10 +143,12 @@ export function SituationScreenPage() {
     const [historyFiles, setHistoryFiles] = useState<OutputFile[]>([]);
     const [selectedHistoryPath, setSelectedHistoryPath] = useState('');
     const [historyData, setHistoryData] = useState<SimulationDataset | null>(null);
+    const [historyImages, setHistoryImages] = useState<RunImageItem[]>([]);
     const [roadData, setRoadData] = useState<RoadData | null>(null);
     const [loading, setLoading] = useState(false);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [selectedGantryId, setSelectedGantryId] = useState<string | null>(null);
+    const selectedRunId = useMemo(() => deriveRunIdFromPath(selectedHistoryPath), [selectedHistoryPath]);
 
     useEffect(() => {
         const loadRoadFiles = async () => {
@@ -132,14 +191,27 @@ export function SituationScreenPage() {
     }, [selectedHistoryPath]);
 
     useEffect(() => {
-        if (!selectedRoadFile) {
-            setRoadData(null);
-            return;
-        }
-
         const loadRoadData = async () => {
             setLoading(true);
             try {
+                if (selectedRunId) {
+                    const response = await fetch(`${API.BASE}/runs/${encodeURIComponent(selectedRunId)}/gates`);
+                    if (response.ok) {
+                        const payload = await response.json() as RunGatePayload;
+                        const nextRoadData = buildRoadDataFromHistory(payload, historyData);
+                        if (nextRoadData) {
+                            setRoadData(nextRoadData);
+                            setSelectedGantryId(nextRoadData.gantries?.[0]?.id || null);
+                            return;
+                        }
+                    }
+                }
+
+                if (!selectedRoadFile) {
+                    setRoadData(null);
+                    return;
+                }
+
                 const response = await fetch(`${API.BASE}/custom-roads/${selectedRoadFile}`);
                 if (!response.ok) return;
                 const data: RoadData = await response.json();
@@ -153,7 +225,7 @@ export function SituationScreenPage() {
         };
 
         loadRoadData();
-    }, [selectedRoadFile]);
+    }, [historyData, selectedRoadFile, selectedRunId]);
 
     useEffect(() => {
         if (!selectedHistoryPath) {
@@ -179,6 +251,37 @@ export function SituationScreenPage() {
 
         loadHistoryData();
     }, [selectedHistoryPath]);
+
+    useEffect(() => {
+        if (!selectedRunId) {
+            setHistoryImages([]);
+            return;
+        }
+
+        let cancelled = false;
+        const loadHistoryImages = async () => {
+            try {
+                const response = await fetch(`${API.BASE}/runs/${encodeURIComponent(selectedRunId)}/images`);
+                const payload = await response.json();
+                if (!response.ok) {
+                    throw new Error(payload.detail || '加载历史图像失败');
+                }
+                if (!cancelled) {
+                    setHistoryImages(Array.isArray(payload.images) ? payload.images : []);
+                }
+            } catch (error) {
+                console.error('Failed to load history images', error);
+                if (!cancelled) {
+                    setHistoryImages([]);
+                }
+            }
+        };
+
+        loadHistoryImages();
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedRunId]);
 
     const selectedRoadMeta = roadFiles.find(file => file.filename === selectedRoadFile);
     const selectedHistoryMeta = historyFiles.find(file => file.path === selectedHistoryPath) || null;
@@ -271,9 +374,42 @@ export function SituationScreenPage() {
         },
     ];
 
+    const historySummaryItems = [
+        {
+            label: '总车辆数',
+            value: getMetricValue(statMap?.total_vehicles ?? statMap?.activeVehicles, '--'),
+            hint: '历史运行统计',
+        },
+        {
+            label: 'ETC 交易数',
+            value: getMetricValue(statMap?.etc_transactions_count, '--'),
+            hint: '来自历史记录',
+        },
+        {
+            label: '规则告警数',
+            value: getMetricValue(statMap?.etc_alerts_count ?? historyData?.anomaly_logs?.length, '--'),
+            hint: '异常与告警综合',
+        },
+        {
+            label: '平均速度',
+            value: avgSpeedValue ? `${avgSpeedValue.toFixed(1)} km/h` : '--',
+            hint: '历史统计优先',
+        },
+        {
+            label: '仿真时长',
+            value: simulationTimeValue ? `${Math.round(simulationTimeValue)} 秒` : '--',
+            hint: '运行总时长',
+        },
+        {
+            label: '当前选中门架',
+            value: selectedGantry?.name || selectedGantry?.id || '--',
+            hint: '与详情卡联动',
+        },
+    ];
+
     return (
-        <div className="screen-shell h-full overflow-hidden text-[var(--text-primary)]">
-            <div className="flex h-full flex-col">
+        <div className="screen-shell h-full overflow-y-auto overflow-x-hidden text-[var(--text-primary)]">
+            <div className="flex min-h-full flex-col">
                 <ScreenHeader
                     title={lang === 'en' ? 'Highway Situation Screen' : '高速态势感知大屏'}
                     subtitle="Expressway Screen"
@@ -288,7 +424,7 @@ export function SituationScreenPage() {
                     })}
                 />
 
-                <div className="flex min-h-0 flex-1 gap-4 p-4">
+                <div className="flex flex-1 gap-4 p-4">
                     <section className="flex min-w-0 flex-1 flex-col gap-4">
                         <div className="grid grid-cols-4 gap-3">
                             {[
@@ -306,7 +442,7 @@ export function SituationScreenPage() {
                             ))}
                         </div>
 
-                        <ScreenPanel className="relative min-h-0 flex-1 overflow-hidden p-0">
+                        <ScreenPanel className="relative min-h-[420px] flex-1 overflow-hidden p-0">
                             <div className="absolute left-4 top-4 z-10 flex items-center gap-3">
                                 <div className="screen-chip rounded-full px-3 py-1 text-xs">
                                     地图主舞台
@@ -351,9 +487,98 @@ export function SituationScreenPage() {
                                 />
                             )}
                         </ScreenPanel>
+
+                        <ScreenPanel
+                            title="历史统计详情"
+                            aside={<span className="text-xs text-cyan-300/70">地图下方联动区域</span>}
+                            className="shrink-0 min-h-[320px]"
+                        >
+                            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_1fr_1fr]">
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {historySummaryItems.map(item => (
+                                            <ScreenSummaryTile
+                                                key={item.label}
+                                                label={item.label}
+                                                value={item.value}
+                                                hint={item.hint}
+                                            />
+                                        ))}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 text-sm text-cyan-50/85">
+                                        <div className="rounded-2xl border border-cyan-400/10 bg-[rgba(2,10,24,0.5)] px-4 py-3">
+                                            <div className="text-xs text-cyan-300/65">历史数据文件</div>
+                                            <div className="mt-2 truncate">{selectedHistoryMeta?.path ?? '--'}</div>
+                                        </div>
+                                        <div className="rounded-2xl border border-cyan-400/10 bg-[rgba(2,10,24,0.5)] px-4 py-3">
+                                            <div className="text-xs text-cyan-300/65">异常记录条数</div>
+                                            <div className="mt-2">{historyData?.anomaly_logs?.length ?? 0}</div>
+                                        </div>
+                                        <div className="rounded-2xl border border-cyan-400/10 bg-[rgba(2,10,24,0.5)] px-4 py-3">
+                                            <div className="text-xs text-cyan-300/65">历史运行 ID</div>
+                                            <div className="mt-2 truncate">{selectedRunId || '--'}</div>
+                                        </div>
+                                        <div className="rounded-2xl border border-cyan-400/10 bg-[rgba(2,10,24,0.5)] px-4 py-3">
+                                            <div className="text-xs text-cyan-300/65">历史图像数量</div>
+                                            <div className="mt-2">{historyImages.length}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="min-h-[260px] rounded-2xl border border-cyan-400/10 bg-[rgba(2,10,24,0.5)] p-3">
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <span className="text-sm text-cyan-100">异常态势</span>
+                                        <span className="text-xs text-cyan-300/70">{alertRecords.length} 条</span>
+                                    </div>
+                                    <ScreenAlertList
+                                        alerts={alertRecords}
+                                        selectedAlertId={selectedGantryId}
+                                        onSelectAlert={setSelectedGantryId}
+                                    />
+                                </div>
+
+                                <div className="min-h-[260px] rounded-2xl border border-cyan-400/10 bg-[rgba(2,10,24,0.5)] p-3">
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <span className="text-sm text-cyan-100">事件详情</span>
+                                        <span className="text-xs text-cyan-300/70">历史模式</span>
+                                    </div>
+                                    <ScreenIncidentDetail
+                                        gantry={selectedGantry}
+                                        alert={selectedAlert}
+                                    />
+                                </div>
+                            </div>
+                        </ScreenPanel>
+
+                        <ScreenPanel
+                            title="历史图像输出"
+                            aside={<span className="text-xs text-cyan-300/70">{historyImages.length} 张</span>}
+                            className="shrink-0"
+                        >
+                            {historyImages.length > 0 ? (
+                                <div className="grid grid-cols-2 gap-3">
+                                    {historyImages.slice(0, 6).map((image, index) => (
+                                        <a
+                                            key={`${image.name}-${index}`}
+                                            href={image.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="overflow-hidden rounded-2xl border border-cyan-400/10 bg-[rgba(2,10,24,0.5)] transition-colors hover:border-cyan-300/45"
+                                        >
+                                            <div className="aspect-[16/10] overflow-hidden bg-black/30">
+                                                <img src={image.url} alt={image.name} className="h-full w-full object-cover" loading="lazy" />
+                                            </div>
+                                            <div className="px-3 py-2 text-xs text-cyan-50/80">{image.name}</div>
+                                        </a>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-sm text-cyan-200/65">当前历史记录目录没有可展示的图像。</div>
+                            )}
+                        </ScreenPanel>
                     </section>
 
-                    <aside className="relative z-10 flex min-h-0 w-[380px] shrink-0 flex-col gap-4 overflow-y-auto pr-1">
+                    <aside className="relative z-10 flex w-[360px] shrink-0 flex-col gap-4 overflow-y-auto pr-1">
                         <ScreenPanel
                             title="路网概览"
                             aside={<span className="text-xs text-cyan-300/70">更新于 {formatTimestamp(selectedRoadMeta?.updated_at)}</span>}
@@ -399,29 +624,6 @@ export function SituationScreenPage() {
                                     />
                                 ))}
                             </div>
-                        </ScreenPanel>
-
-                        <ScreenPanel
-                            title="异常态势"
-                            aside={<span className="text-xs text-cyan-300/70">{alertRecords.length} 条</span>}
-                            className="shrink-0 min-h-[240px]"
-                        >
-                            <ScreenAlertList
-                                alerts={alertRecords}
-                                selectedAlertId={selectedGantryId}
-                                onSelectAlert={setSelectedGantryId}
-                            />
-                        </ScreenPanel>
-
-                        <ScreenPanel
-                            title="详情卡"
-                            aside={<span className="text-xs text-cyan-300/70">真实数据模式</span>}
-                            className="shrink-0 min-h-[220px]"
-                        >
-                            <ScreenIncidentDetail
-                                gantry={selectedGantry}
-                                alert={selectedAlert}
-                            />
                         </ScreenPanel>
                     </aside>
                 </div>

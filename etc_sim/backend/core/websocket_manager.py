@@ -1,7 +1,5 @@
-"""
-WebSocket 连接管理器
-集成实际的仿真引擎
-"""
+"""WebSocket manager integrated with the simulation engine."""
+
 
 import asyncio
 import json
@@ -32,14 +30,14 @@ from etc_sim.backend.services.storage import StorageService
 # Import actual simulation engine
 from etc_sim.config.parameters import SimulationConfig
 from etc_sim.simulation.engine import SimulationEngine
-# 导入工作流编辑器的规则引擎实例，仿真启动时从中获取最新规则
+# ?????????????????????????
 from etc_sim.backend.api.workflows import _standalone_engine as workflow_engine
 
 logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
-    """WebSocket 连接管理器"""
+    """Manage active WebSocket connections."""
     
     def __init__(self, storage_service: Optional[StorageService] = None):
         self.active_connections: Dict[str, WebSocket] = {}
@@ -48,23 +46,23 @@ class ConnectionManager:
     
     @property
     def connection_count(self) -> int:
-        """返回当前连接数"""
+        """Return the number of active connections."""
         return len(self.active_connections)
     
     async def connect(self, websocket: WebSocket, client_id: str):
-        """建立连接"""
+        """Accept a client connection."""
         await websocket.accept()
         self.active_connections[client_id] = websocket
         logger.info(f"Client connected: {client_id}, total: {self.connection_count}")
     
     async def disconnect(self, client_id: str):
-        """断开连接"""
+        """Disconnect a client."""
         if client_id in self.active_connections:
             del self.active_connections[client_id]
         logger.info(f"Client disconnected: {client_id}, total: {self.connection_count}")
     
     async def send_message(self, client_id: str, message: dict):
-        """发送消息给指定客户端"""
+        """Send a message to a specific client."""
         if client_id in self.active_connections:
             websocket = self.active_connections[client_id]
             try:
@@ -73,7 +71,7 @@ class ConnectionManager:
                 logger.error(f"Failed to send message to {client_id}: {e}")
     
     async def broadcast(self, message: dict, exclude: Optional[str] = None):
-        """广播消息给所有客户端"""
+        """Broadcast a message to all clients."""
         disconnected = []
         for client_id, websocket in self.active_connections.items():
             if client_id != exclude:
@@ -88,7 +86,7 @@ class ConnectionManager:
 
 
 class SimulationSession:
-    """仿真会话"""
+    """Runtime state for one simulation session."""
     
     def __init__(self, session_id: str, websocket: WebSocket):
         self.session_id = session_id
@@ -101,7 +99,7 @@ class SimulationSession:
         self.started_at: Optional[datetime] = None
         self.task: Optional[asyncio.Task] = None
         
-        # 统计数据
+        # 缁熻鏁版嵁
         self.stats = {
             "active_vehicles": 0,
             "completed_vehicles": 0,
@@ -110,7 +108,7 @@ class SimulationSession:
         }
     
     def to_progress_payload(self) -> ProgressPayload:
-        """转换为进度消息"""
+        """Build a progress payload for the session."""
         progress = (self.current_time / self.total_time * 100) if self.total_time > 0 else 0
         eta = (self.total_time - self.current_time) / 60 if self.total_time > 0 else None
         
@@ -126,7 +124,7 @@ class SimulationSession:
 
 
 class WebSocketManager:
-    """WebSocket 仿真管理器"""
+    """Coordinate simulation sessions over WebSocket."""
     
     def __init__(self, storage_service: Optional[StorageService] = None):
         self.connection_manager = ConnectionManager(storage_service)
@@ -138,7 +136,7 @@ class WebSocketManager:
         return self.connection_manager.connection_count
     
     async def handle_connection(self, websocket: WebSocket):
-        """处理新连接"""
+        """Handle a generic WebSocket connection."""
         client_id = f"client_{len(self.connection_manager.active_connections) + 1}"
         await self.connection_manager.connect(websocket, client_id)
         
@@ -150,7 +148,7 @@ class WebSocketManager:
             await self.connection_manager.disconnect(client_id)
     
     async def handle_session(self, websocket: WebSocket, session_id: str):
-        """处理带会话的连接"""
+        """Handle a session-bound WebSocket connection."""
         await websocket.accept()
         
         session = SimulationSession(session_id, websocket)
@@ -166,7 +164,7 @@ class WebSocketManager:
             await self._end_session(session_id)
     
     async def _handle_message(self, client_id: str, data: dict):
-        """处理普通消息"""
+        """Process a generic connection message."""
         msg_type = data.get("type")
         
         if msg_type == "ping":
@@ -181,7 +179,7 @@ class WebSocketManager:
             })
     
     async def _handle_session_message(self, session: SimulationSession, data: dict):
-        """处理会话消息"""
+        """Process a session message."""
         msg_type = data.get("type")
         
         if msg_type == "INIT":
@@ -200,7 +198,7 @@ class WebSocketManager:
             await self._send(session, {"type": "pong"})
     
     async def _handle_init(self, session: SimulationSession, data: dict):
-        """处理初始化"""
+        """Handle session initialization."""
         session.config = data.get("config", {})
         session.total_time = session.config.get("max_simulation_time", 3600)
         
@@ -213,7 +211,7 @@ class WebSocketManager:
         })
     
     async def _handle_start(self, session: SimulationSession):
-        """处理开始仿真"""
+        """Handle simulation start."""
         if session.is_running:
             return
         
@@ -223,14 +221,13 @@ class WebSocketManager:
         
         await self._send(session, {"type": "STARTED"})
         
-        # 启动仿真任务
+        # 鍚姩浠跨湡浠诲姟
         session.task = asyncio.create_task(self._run_simulation(session))
     
     async def _run_simulation(self, session: SimulationSession):
-        """运行仿真 - 使用实际仿真引擎"""
+        """Run the simulation loop."""
         config_data = session.config or {}
-        
-        # 将前端配置转换为后端配置
+
         config = SimulationConfig(
             road_length_km=config_data.get('roadLengthKm', 10),
             segment_length_km=config_data.get('segmentLengthKm', 1),
@@ -238,6 +235,8 @@ class WebSocketManager:
             lane_width=config_data.get('laneWidth', 3.5),
             custom_road_length_km=config_data.get('customRoadLengthKm'),
             custom_gantry_positions=config_data.get('customGantryPositionsKm', []),
+            custom_road_path=config_data.get('customRoadPath'),
+            custom_ramps=config_data.get('customRamps', []),
             total_vehicles=config_data.get('totalVehicles', 1200),
             simulation_dt=config_data.get('simulationDt', 1.0),
             max_simulation_time=config_data.get('maxSimulationTime', 3600),
@@ -260,157 +259,164 @@ class WebSocketManager:
             phantom_jam_dist=200.0,
             phase_critical_density=35.0,
             phase_transition_threshold=5.0,
-            impact_discover_dist=config_data.get('impactDiscoverDist', 150.0)
+            impact_discover_dist=config_data.get('impactDiscoverDist', 150.0),
         )
-        
-        # 从工作流编辑器获取最新规则，注入到仿真引擎
+
         custom_rules = None
         try:
             rules = workflow_engine.rules
             if rules:
-                custom_rules = [r.to_dict() for r in rules]
-                logger.info(f"从工作流编辑器加载 {len(custom_rules)} 条规则")
-        except Exception as e:
-            logger.warning(f"加载工作流规则失败，将使用默认规则: {e}")
-        
-        # 创建仿真引擎（传入自定义规则）
+                custom_rules = [rule.to_dict() for rule in rules]
+                logger.info('Loaded %s workflow rules from editor', len(custom_rules))
+        except Exception as exc:
+            logger.warning('Failed to load workflow rules, fallback to default rules: %s', exc)
+
         engine = SimulationEngine(config, custom_rules=custom_rules)
         dt = config.simulation_dt
         max_time = config.max_simulation_time
         num_lanes = config.num_lanes
         lane_width = config.lane_width
-        
-        logger.info(f"Starting simulation with {config.total_vehicles} vehicles, {config.num_lanes} lanes, {max_time}s max time")
-        
-        # 记录开始
-        await self._send_log(session, "INFO", f"仿真开始: 道路长度 {config.road_length_km}km, 车道数 {config.num_lanes}", "INFO")
-        
-        # 记录轨迹数据用于发送快照
-        trajectory_data = []
+
+        logger.info(
+            'Starting simulation with %s vehicles, %s lanes, %ss max time',
+            config.total_vehicles,
+            config.num_lanes,
+            max_time,
+        )
+        await self._send_log(
+            session,
+            'INFO',
+            f'????: ???? {config.road_length_km}km, ??? {config.num_lanes}',
+            'INFO',
+        )
+
         step_count = 0
-        
         try:
             while engine.current_time < max_time:
                 if not session.is_running:
-                    await self._send_log(session, "INFO", "仿真已停止", "INFO")
+                    await self._send_log(session, 'INFO', '?????', 'INFO')
                     return
-                
+
                 while session.is_paused:
                     await asyncio.sleep(0.1)
                     if not session.is_running:
                         return
-                
-                # 执行一步仿真
+
                 engine.step()
                 session.current_time = engine.current_time
-                
-                # 更新统计
-                active_vehicles = [v for v in engine.vehicles if not v.finished]
-                session.stats["active_vehicles"] = len(active_vehicles)
-                session.stats["completed_vehicles"] = len(engine.finished_vehicles)
-                session.stats["active_anomalies"] = len([v for v in active_vehicles if v.anomaly_state == 'active'])
-                
-                # 计算进度
+
+                active_vehicles = [vehicle for vehicle in engine.vehicles if not vehicle.finished]
+                session.stats['active_vehicles'] = len(active_vehicles)
+                session.stats['completed_vehicles'] = len(engine.finished_vehicles)
+                session.stats['active_anomalies'] = len(
+                    [vehicle for vehicle in active_vehicles if vehicle.anomaly_state == 'active']
+                )
+
                 progress = (session.current_time / max_time) * 100
                 eta = (max_time - session.current_time) / 60 if session.current_time < max_time else 0
-                
-                # 发送进度 (每10步或每100ms)
+
                 step_count += 1
                 if step_count % 10 == 0 or session.current_time % 100 < dt:
-                    await self._send(session, {
-                        "type": "PROGRESS",
-                        "payload": {
-                            "current_time": session.current_time,
-                            "total_time": max_time,
-                            "progress": progress,
-                            "active_vehicles": session.stats["active_vehicles"],
-                            "completed_vehicles": session.stats["completed_vehicles"],
-                            "active_anomalies": session.stats["active_anomalies"],
-                            "eta": eta
-                        }
-                    })
-                
-                # 每2步发送快照 (更高频率以保持平滑) 
-                # 使用相对较小的步数，例如每0.2s模拟时间更新一次
+                    await self._send(
+                        session,
+                        {
+                            'type': 'PROGRESS',
+                            'payload': {
+                                'current_time': session.current_time,
+                                'total_time': max_time,
+                                'progress': progress,
+                                'active_vehicles': session.stats['active_vehicles'],
+                                'completed_vehicles': session.stats['completed_vehicles'],
+                                'active_anomalies': session.stats['active_anomalies'],
+                                'eta': eta,
+                            },
+                        },
+                    )
+
                 steps_per_snapshot = max(1, int(0.2 / dt))
                 if step_count % steps_per_snapshot == 0:
                     await self._send_snapshot_from_engine(session, active_vehicles, num_lanes, lane_width)
-                
-                # 定期发送日志
+
                 if step_count % 100 == 0:
-                    await self._send_log(session, "INFO", 
-                        f"进度: {progress:.1f}%, 活跃车辆: {len(active_vehicles)}, 完成: {len(engine.finished_vehicles)}", 
-                        "INFO")
-                
-                # 避免阻塞
+                    await self._send_log(
+                        session,
+                        'INFO',
+                        f'??: {progress:.1f}%, ????: {len(active_vehicles)}, ??: {len(engine.finished_vehicles)}',
+                        'INFO',
+                    )
+
                 await asyncio.sleep(0.001)
-            
-            # 仿真完成
-            await self._send_log(session, "INFO", f"仿真完成! 完成车辆: {len(engine.finished_vehicles)}, 异常: {len(engine.anomaly_logs)}", "INFO")
-            
-            # 计算统计数据
+
+            await self._send_log(
+                session,
+                'INFO',
+                f'????! ????: {len(engine.finished_vehicles)}, ??: {len(engine.anomaly_logs)}',
+                'INFO',
+            )
+
             results = engine.export_to_dict()
             stats = results.get('statistics', {})
-            
-            # 持久化仿真结果到磁盘 (含 ml_dataset，供预测工作台训练使用)
+
             saved_path = None
+            sim_id = None
             if self.storage_service:
                 sim_id = f"run_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
                 try:
                     saved_path = self.storage_service.save_results(sim_id, results)
-                    logger.info(f"Simulation results saved to: {saved_path}")
+                    logger.info('Simulation results saved to: %s', saved_path)
                     ml_samples = len(results.get('ml_dataset', {}).get('samples', []))
-                    await self._send_log(session, "INFO", f"仿真结果已保存: {sim_id}/data.json (ML样本数: {ml_samples})", "INFO")
+                    await self._send_log(
+                        session,
+                        'INFO',
+                        f'???????: {sim_id}/data.json (ML??? {ml_samples})',
+                        'INFO',
+                    )
                 except Exception as save_err:
-                    logger.error(f"Failed to save simulation results: {save_err}")
-                    await self._send_log(session, "WARN", f"仿真结果保存失败: {save_err}", "WARN")
-            
+                    logger.error('Failed to save simulation results: %s', save_err)
+                    await self._send_log(session, 'WARN', f'????????: {save_err}', 'WARN')
+
             session.is_running = False
-            
-            await self._send(session, {
-                "type": "COMPLETE",
-                "payload": {
-                    "statistics": {
-                        "total_vehicles": stats.get('total_vehicles', len(engine.finished_vehicles)),
-                        "total_anomalies": stats.get('total_anomalies', len(engine.anomaly_logs)),
-                        "simulation_time": session.current_time,
-                        "completed_vehicles": stats.get('total_vehicles', len(engine.finished_vehicles)),
-                        # 更多统计可以从 results 提取
-                        "avg_speed": 0.0, # Placeholder
-                        "avg_travel_time": 0.0, # Placeholder
-                        "total_lane_changes": sum(v.total_lane_changes for v in engine.finished_vehicles) if engine.finished_vehicles else 0,
-                        "anomaly_count": len(engine.anomaly_logs),
-                        "affected_vehicles": len([v for v in engine.finished_vehicles if v.is_affected]),
-                        "max_congestion_length": 0.0,
-                        "etc_detection_rate": 0.0,
-                        "ttc_violations": 0
+            await self._send(
+                session,
+                {
+                    'type': 'COMPLETE',
+                    'payload': {
+                        'run_id': sim_id,
+                        'saved_path': saved_path,
+                        'statistics': {
+                            'total_vehicles': stats.get('total_vehicles', len(engine.finished_vehicles)),
+                            'total_anomalies': stats.get('total_anomalies', len(engine.anomaly_logs)),
+                            'simulation_time': session.current_time,
+                            'completed_vehicles': stats.get('total_vehicles', len(engine.finished_vehicles)),
+                            'avg_speed': 0.0,
+                            'avg_travel_time': 0.0,
+                            'total_lane_changes': sum(v.total_lane_changes for v in engine.finished_vehicles) if engine.finished_vehicles else 0,
+                            'anomaly_count': len(engine.anomaly_logs),
+                            'affected_vehicles': len([v for v in engine.finished_vehicles if v.is_affected]),
+                            'max_congestion_length': 0.0,
+                            'etc_detection_rate': 0.0,
+                            'ttc_violations': 0,
+                        },
+                        'results': results,
                     },
-                    "results": results
-                }
-            })
-            
-        except Exception as e:
-            logger.error(f"Simulation error: {e}", exc_info=True)
-            await self._send(session, {
-                "type": "ERROR",
-                "payload": {"message": str(e)}
-            })
+                },
+            )
+        except Exception as exc:
+            logger.error('Simulation error: %s', exc, exc_info=True)
+            await self._send(session, {'type': 'ERROR', 'payload': {'message': str(exc)}})
             session.is_running = False
-    
+
     async def _send_snapshot_from_engine(self, session: SimulationSession, vehicles, num_lanes=4, lane_width=3.5):
-        """从引擎发送车辆快照"""
+        """Send a snapshot built from the engine state."""
         snapshot_vehicles = []
         
-        # 限制发送的车辆数量，优先发送视野内的或所有活跃车辆
-        # 如果车辆太多，可以考虑只发送部分，但为了平滑最好发送所有
-        # 这里为了网络性能，我们限制最多发送500辆，或者做视图裁剪
+        # 闄愬埗鍙戦€佺殑杞﹁締鏁伴噺锛屼紭鍏堝彂閫佽閲庡唴鐨勬垨鎵€鏈夋椿璺冭溅杈?        # 濡傛灉杞﹁締澶锛屽彲浠ヨ€冭檻鍙彂閫侀儴鍒嗭紝浣嗕负浜嗗钩婊戞渶濂藉彂閫佹墍鏈?        # 杩欓噷涓轰簡缃戠粶鎬ц兘锛屾垜浠檺鍒舵渶澶氬彂閫?00杈嗭紝鎴栬€呭仛瑙嗗浘瑁佸壀
         limit = 500 
         
         for v in vehicles[:limit]:  
-            # 计算横向位置 (基于车道和lateral偏移)
-            # 车道 0 在最下方 (或上方，取决于前端坐标系)
-            # 假设 road center line 模式或从底部开始
-            # 简化的 y 坐标计算: lane * width + width/2 + lateral
+            # 璁＄畻妯悜浣嶇疆 (鍩轰簬杞﹂亾鍜宭ateral鍋忕Щ)
+            # 杞﹂亾 0 鍦ㄦ渶涓嬫柟 (鎴栦笂鏂癸紝鍙栧喅浜庡墠绔潗鏍囩郴)
+            # 鍋囪 road center line 妯″紡鎴栦粠搴曢儴寮€濮?            # 绠€鍖栫殑 y 鍧愭爣璁＄畻: lane * width + width/2 + lateral
             y = v.lane * lane_width + (lane_width / 2) + v.lateral
             
             snapshot_vehicles.append({
@@ -418,7 +424,7 @@ class WebSocketManager:
                 "x": v.pos,
                 "y": y,
                 "lane": v.lane,
-                "speed": v.speed * 3.6,  # m/s 转 km/h
+                "speed": v.speed * 3.6,  # m/s 杞?km/h
                 "vehicle_type": v.vehicle_type if hasattr(v, 'vehicle_type') else "CAR",
                 "anomaly_state": v.anomaly_state,
                 "anomaly_type": v.anomaly_type,
@@ -436,8 +442,8 @@ class WebSocketManager:
         })
     
     async def _send_snapshot(self, session: SimulationSession):
-        """发送车辆快照"""
-        # 模拟生成车辆快照
+        """Send a synthetic snapshot."""
+        # 妯℃嫙鐢熸垚杞﹁締蹇収
         vehicles = []
         for i in range(min(session.stats["active_vehicles"], 20)):
             vehicles.append({
@@ -463,7 +469,7 @@ class WebSocketManager:
         })
     
     async def _send_log(self, session: SimulationSession, level: str, message: str, category: str):
-        """发送日志"""
+        """Send a log message."""
         await self._send(session, {
             "type": "LOG",
             "payload": {
@@ -475,19 +481,19 @@ class WebSocketManager:
         })
     
     async def _handle_pause(self, session: SimulationSession):
-        """处理暂停"""
+        """Handle pause."""
         if session.is_running and not session.is_paused:
             session.is_paused = True
             await self._send(session, {"type": "PAUSED"})
     
     async def _handle_resume(self, session: SimulationSession):
-        """处理恢复"""
+        """Handle resume."""
         if session.is_running and session.is_paused:
             session.is_paused = False
             await self._send(session, {"type": "RESUMED"})
     
     async def _handle_stop(self, session: SimulationSession):
-        """处理停止"""
+        """Handle stop."""
         session.is_running = False
         session.is_paused = False
         
@@ -497,7 +503,7 @@ class WebSocketManager:
         await self._send(session, {"type": "STOPPED"})
     
     async def _handle_reset(self, session: SimulationSession):
-        """处理重置"""
+        """Handle reset."""
         await self._handle_stop(session)
         
         session.current_time = 0
@@ -511,14 +517,14 @@ class WebSocketManager:
         await self._send(session, {"type": "RESET_COMPLETE"})
     
     async def _send(self, session: SimulationSession, message: dict):
-        """发送消息"""
+        """Send a session message."""
         try:
             await session.websocket.send_json(message)
         except Exception as e:
             logger.error(f"Failed to send message to session {session.session_id}: {e}")
     
     async def _end_session(self, session_id: str):
-        """结束会话"""
+        """End a session."""
         if session_id in self.sessions:
             session = self.sessions[session_id]
             await self._handle_stop(session)
@@ -526,13 +532,12 @@ class WebSocketManager:
             logger.info(f"Session ended: {session_id}")
     
     async def shutdown(self):
-        """关闭所有连接"""
-        # 停止所有会话
+        """Shutdown all connections and sessions."""
         for session_id in list(self.sessions.keys()):
             await self._end_session(session_id)
         
-        # 关闭所有连接
         for client_id in list(self.connection_manager.active_connections.keys()):
             await self.connection_manager.disconnect(client_id)
         
         logger.info("WebSocket manager shutdown complete")
+

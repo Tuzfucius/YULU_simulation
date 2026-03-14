@@ -15,7 +15,9 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useI18nStore } from '../../stores/i18nStore';
+import { ContextMenu, type ContextMenuState } from '../charts/ContextMenu';
 import { RangeSelector } from './RangeSelector';
 import {
   type TrajectoryFrame,
@@ -51,6 +53,7 @@ const PREFETCH_THRESHOLD = 100;
 export const ReplayPage: React.FC = () => {
   const { lang } = useI18nStore();
   const isEn = lang === 'en';
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -80,9 +83,11 @@ export const ReplayPage: React.FC = () => {
   const [loadingChunk, setLoadingChunk] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
   const [currentFilePath, setCurrentFilePath] = useState('');
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   // 防止重复预取
   const fetchingRef = useRef(false);
+  const pendingReplayJumpRef = useRef<{ runId: string; time: number | null; segment: string | null } | null>(null);
 
   // ==================== 双模式状态 ====================
   const [viewMode, setViewMode] = useState<ViewMode>('global');
@@ -96,6 +101,22 @@ export const ReplayPage: React.FC = () => {
   // 素材
   const vehicleImagesRef = useRef<VehicleImages | null>(null);
   const [imagesLoaded, setImagesLoaded] = useState(false);
+
+  const deriveRunId = useCallback((file: OutputFile) => {
+    const normalized = file.path.replace(/\\/g, '/');
+    return normalized.split('/')[0] || file.name.replace(/\.json$/i, '');
+  }, []);
+
+  useEffect(() => {
+    const runId = searchParams.get('run');
+    if (!runId) return;
+    const timeParam = Number(searchParams.get('time'));
+    pendingReplayJumpRef.current = {
+      runId,
+      time: Number.isFinite(timeParam) ? timeParam : null,
+      segment: searchParams.get('segment'),
+    };
+  }, [searchParams]);
 
   // ==================== 素材预加载 ====================
   useEffect(() => {
@@ -263,7 +284,72 @@ export const ReplayPage: React.FC = () => {
     setLoadingFiles(false);
   }, []);
 
+  const showFileMenu = useCallback((event: React.MouseEvent, file: OutputFile) => {
+    event.preventDefault();
+    const runId = deriveRunId(file);
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        {
+          label: '重命名',
+          icon: '✏️',
+          onClick: async () => {
+            const nextName = prompt('请输入新的历史记录名称', runId);
+            if (!nextName || nextName.trim() === '' || nextName.trim() === runId) return;
+            const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/rename`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ new_name: nextName.trim() }),
+            });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.detail || '重命名失败');
+            await refreshOutputFiles();
+          },
+        },
+        {
+          label: '复制',
+          icon: '📄',
+          onClick: async () => {
+            const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/copy`, { method: 'POST' });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.detail || '复制失败');
+            await refreshOutputFiles();
+          },
+        },
+        {
+          label: '删除',
+          icon: '🗑️',
+          danger: true,
+          onClick: async () => {
+            if (!confirm(`确认删除 "${runId}"？此操作不可恢复。`)) return;
+            const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.detail || '删除失败');
+            await refreshOutputFiles();
+          },
+        },
+        {
+          label: '在文件夹中打开',
+          icon: '📂',
+          onClick: async () => {
+            await fetch(`/api/runs/${encodeURIComponent(runId)}/open-folder`, { method: 'POST' });
+          },
+        },
+      ],
+    });
+  }, [deriveRunId, refreshOutputFiles]);
+
   useEffect(() => { refreshOutputFiles(); }, [refreshOutputFiles]);
+
+  useEffect(() => {
+    const request = pendingReplayJumpRef.current;
+    if (!request || outputFiles.length === 0 || loadingFile) return;
+    const target = outputFiles.find(file => deriveRunId(file) === request.runId || file.name === request.runId);
+    if (!target) return;
+    if (loadedFileName === target.name || currentFilePath === target.path) return;
+    loadFileChunked(target);
+  }, [deriveRunId, outputFiles, loadingFile, loadedFileName, currentFilePath, loadFileChunked]);
 
   // ==================== 数据解析 ====================
 
@@ -290,6 +376,40 @@ export const ReplayPage: React.FC = () => {
     setCurrentFilePath('');
     setLoadProgress(1);
   };
+
+  useEffect(() => {
+    const request = pendingReplayJumpRef.current;
+    if (!request || !isLoaded) return;
+    const activeFile = outputFiles.find(file => loadedFileName === file.name || currentFilePath === file.path || deriveRunId(file) === request.runId);
+    if (!activeFile || deriveRunId(activeFile) !== request.runId) return;
+
+    if (request.segment !== null) {
+      const segmentValue = Number(request.segment);
+      if (Number.isFinite(segmentValue)) {
+        const startKm = Math.max(0, segmentValue - 0.5);
+        const endKm = Math.min(roadLength / 1000, Math.max(startKm + 0.5, segmentValue + 0.5));
+        setLocalRange(prev => ({
+          ...prev,
+          startKm,
+          endKm,
+          startTime: request.time !== null ? Math.max(0, request.time - 30) : prev.startTime,
+          endTime: request.time !== null ? Math.min(Math.max(request.time + 30, prev.startTime + 30), prev.endTime > 0 ? Math.max(prev.endTime, request.time + 30) : request.time + 30) : prev.endTime,
+        }));
+        setViewMode('local');
+      }
+    }
+
+    if (request.time !== null) {
+      const localIndex = frameBuffer.findIndex(frame => frame.time >= request.time);
+      if (localIndex >= 0) {
+        setCurrentIndex(bufferOffset + localIndex);
+      }
+    }
+
+    setShowHistory(false);
+    pendingReplayJumpRef.current = null;
+    setSearchParams({}, { replace: true });
+  }, [isLoaded, outputFiles, loadedFileName, currentFilePath, deriveRunId, roadLength, frameBuffer, bufferOffset, setSearchParams]);
 
   const trajectoryToFrames = (trajectoryData: any[], _config?: any): TrajectoryFrame[] => {
     const frameMap = new Map<number, TrajectoryFrame>();
@@ -713,7 +833,7 @@ export const ReplayPage: React.FC = () => {
             ) : (
               <div className="py-1">
                 {outputFiles.map(file => (
-                  <button key={file.path} onClick={() => loadFileChunked(file)} disabled={loadingFile === file.path}
+                  <button key={file.path} onClick={() => loadFileChunked(file)} onContextMenu={(e) => showFileMenu(e, file)} disabled={loadingFile === file.path}
                     className={`w-full text-left px-4 py-2.5 hover:bg-[rgba(255,255,255,0.05)] transition-colors border-b border-[var(--glass-border)]/50 group ${loadedFileName === file.name ? 'bg-[var(--accent-blue)]/5' : ''}`}>
                     <div className="flex items-center gap-2">
                       <span className="text-sm">{file.extension === '.json' ? '📄' : '📊'}</span>
@@ -849,6 +969,7 @@ export const ReplayPage: React.FC = () => {
           </div>
         )}
       </div>
+      <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
     </div>
   );
 };

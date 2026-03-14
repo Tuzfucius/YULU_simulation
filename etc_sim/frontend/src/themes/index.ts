@@ -1,4 +1,4 @@
-export type ThemeId = 'light' | 'dark';
+ï»¿export type ThemeId = 'light' | 'dark';
 
 export interface ThemeMeta {
     id: ThemeId;
@@ -12,18 +12,18 @@ export interface ThemeMeta {
 export const THEMES: ThemeMeta[] = [
     {
         id: 'dark',
-        label: 'ÉîÉ«',
+        label: 'æ·±è‰²',
         labelEn: 'Dark',
-        icon: '??',
-        description: 'Ä¬ÈÏÉîÉ«Ö÷Ìâ',
+        icon: 'ğŸŒ™',
+        description: 'é»˜è®¤æ·±è‰²ä¸»é¢˜',
         descriptionEn: 'Default dark theme',
     },
     {
         id: 'light',
-        label: 'Ç³É«',
+        label: 'æµ…è‰²',
         labelEn: 'Light',
-        icon: '??',
-        description: 'Ã÷ÁÁÇ³É«Ö÷Ìâ',
+        icon: 'â˜€ï¸',
+        description: 'æ˜äº®æµ…è‰²ä¸»é¢˜',
         descriptionEn: 'Bright light theme',
     },
 ];

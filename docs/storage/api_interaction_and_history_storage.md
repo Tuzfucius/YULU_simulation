@@ -1,679 +1,472 @@
-# API 交互关系与历史存储设计说明
+﻿# API 交互关系与历史存储设计
 
 ## 1. 文档目标
 
-本文档用于统一说明以下内容：
+本文档聚焦历史运行系统，说明以下内容：
 
-- 当前仿真、存储、回放、训练、分析链路之间的 API 交互关系
-- 当前主要数据结构的职责边界
-- 为历史数据嵌入路径轨迹后的推荐数据模型
-- 为后续扩展性、兼容性、性能优化预留的接口与存储设计原则
+- 实时仿真、历史存储、回放、训练、分析之间的接口关系
+- 当前历史数据的核心结构与职责边界
+- 路径轨迹嵌入后的推荐数据模型
+- 面向性能优化的存储分层策略
+- 新旧接口共存下的迁移原则
 
-本文档不直接约束某个单一实现，而是提供后续接口改造、存储分层和兼容迁移的统一参考。
+本文件与 `../system_working_principles.md` 的关系是：
 
----
-
-## 2. 当前系统中的主要交互链路
-
-当前系统可以分为四条核心链路：
-
-1. 实时仿真链路
-2. 历史回放链路
-3. 模型训练链路
-4. 统计分析链路
-
-### 2.1 实时仿真链路
-
-```mermaid
-flowchart LR
-    A[前端仿真页面] -->|WebSocket INIT/START| B[WebSocket Manager]
-    B --> C[SimulationEngine]
-    C --> D[内存中的运行时状态]
-    C --> E[轨迹/事件/统计结果]
-    E --> F[StorageService]
-    F --> G[data/simulations/run_xxx]
-    B -->|PROGRESS/SNAPSHOT/COMPLETE| A
-```
-
-当前特点：
-
-- 实时页面通过 WebSocket 驱动仿真启动、暂停、结束
-- `SimulationEngine` 负责时间步推进、事件检测、规则评估和采样
-- 仿真结束后由 `StorageService` 将结果写入 `data/simulations/run_xxx`
-- WebSocket `COMPLETE` 消息当前仍可能承载整份结果数据
-
-当前问题：
-
-- 运行时结果先在内存中累积，再整体落盘
-- 完成时若直接回传整份结果，会放大内存与网络开销
-- 实时链路与历史链路都隐含依赖单个 `data.json`
-
-### 2.2 历史回放链路
-
-```mermaid
-flowchart LR
-    A[ReplayPage] --> B[/api/files/output-files]
-    A --> C[/api/files/output-file-info]
-    A --> D[/api/files/output-file-chunk]
-    A --> E[/api/files/output-file]
-    B --> F[StorageService + 文件目录]
-    C --> G[TrajectoryStorage]
-    D --> G
-    E --> G
-```
-
-当前特点：
-
-- 回放页面优先通过文件列表枚举历史结果
-- 通过 `output-file-info` 获取总帧数和配置
-- 通过 `output-file-chunk` 分批读取帧
-- 旧格式仍可退回到 `output-file`，从 `trajectory_data` 转换为帧
-
-当前问题：
-
-- API 面向文件路径，而不是面向 `run_id`
-- 回放接口默认底层是“一个 run 目录 + 一个主文件”
-- 对新存储结构的适配能力有限
-
-### 2.3 模型训练链路
-
-```mermaid
-flowchart LR
-    A[PredictBuilderPage] --> B[/api/prediction/results]
-    A --> C[/api/prediction/extract-dataset]
-    A --> D[/api/prediction/train]
-    A --> E[/api/prediction/evaluate]
-    B --> F[data/simulations]
-    C --> G[ml_dataset / segment_speed_history]
-    D --> H[data/datasets]
-    D --> I[data/models]
-```
-
-当前特点：
-
-- 训练页先列出历史仿真结果作为候选数据源
-- 数据提取接口会优先读取 `ml_dataset`
-- 若 `ml_dataset` 不存在，则可能依赖 `segment_speed_history` 重建
-- 数据集与模型分开存储在 `data/datasets` 和 `data/models`
-
-当前问题：
-
-- 训练接口强依赖旧目录结构与 `data.json`
-- 数据源主键更像“文件名”而不是“运行记录”
-- 一旦历史数据结构分层，现有训练提取逻辑会受到明显影响
-
-### 2.4 统计分析链路
-
-```mermaid
-flowchart LR
-    A[Dashboard/Evaluation/Charts] --> B[/api/analysis/*]
-    A --> C[/api/evaluation/*]
-    A --> D[/api/files/simulation-gates]
-    B --> E[历史结果]
-    C --> E
-    D --> E
-```
-
-当前特点：
-
-- 分析接口默认可以从历史结果中直接提取统计、图表、门架信息
-- 一部分页面仍通过文件接口读取辅助数据
-
-当前问题：
-
-- 接口职责边界不够清晰
-- 摘要、事件、轨迹、图表生成依赖层次尚未完全分离
+- `system_working_principles.md`
+  讲系统整体工作原理
+- 本文档
+  讲历史运行与存储专题
 
 ---
 
-## 3. 当前主要数据结构与职责
+## 2. 当前历史系统的四条主线
 
-### 3.1 运行时数据
+围绕一次仿真运行，当前系统存在四条数据消费主线：
 
-运行时由仿真引擎维护的核心数据可分为五类：
+1. 历史回放
+2. 训练数据提取
+3. 统计分析
+4. 文件管理与资源浏览
 
-1. 车辆状态
-2. 事件日志
-3. 时序采样
-4. 区段级统计
-5. 派生训练数据
+它们共用同一份运行结果，只是读取视角不同。
 
-推荐按职责理解如下表：
-
-| 数据类型 | 典型字段 | 当前用途 | 性能风险 |
-| --- | --- | --- | --- |
-| 车辆状态 | `id` `pos` `lane` `speed` | 时间步更新、快照推送 | 数量大、更新频繁 |
-| 异常/规则事件 | `timestamp` `type` `severity` | 诊断、规则回放、分析 | 通常不大 |
-| 轨迹采样 | `time` `id` `pos` `lane` `speed` | 历史回放、局部分析 | 最大热点之一 |
-| 安全采样 | `time` `vehicle_id` `min_ttc` | 风险分析 | 与轨迹一样容易膨胀 |
-| 区段统计 | `time` `segment` `avg_speed` `density` | 图表、训练特征 | 中等规模 |
-
-### 3.2 当前历史结果的隐含结构
-
-虽然当前实现可能通过不同文件或不同字段兼容旧格式，但从消费方视角，历史结果大致包含：
-
-```json
-{
-  "config": {},
-  "statistics": {},
-  "anomaly_logs": [],
-  "trajectory_data": [],
-  "segment_speed_history": [],
-  "queue_events": [],
-  "phantom_jam_events": [],
-  "safety_data": [],
-  "vehicle_records": [],
-  "etc_detection": {},
-  "rule_engine": {},
-  "ml_dataset": {}
-}
+```mermaid
+flowchart LR
+    A["SimulationEngine"] --> B["StorageService"]
+    B --> C["run_id 历史目录"]
+    C --> D["回放接口"]
+    C --> E["分析接口"]
+    C --> F["训练接口"]
+    C --> G["文件管理接口"]
 ```
-
-这个结构的问题不是字段多，而是“摘要层、事件层、轨迹层、训练层”混在一起，导致：
-
-- 任意读取都可能牵扯大对象
-- 任意字段扩展都容易让主文件继续膨胀
-- 回放、训练、分析无法独立演化
 
 ---
 
-## 4. 推荐的历史存储分层
+## 3. 当前主要 API 交互关系
 
-为了兼顾扩展性与性能，历史结果建议拆成四层。
+### 3.1 实时仿真到历史存储
 
-### 4.1 运行索引层
+```mermaid
+flowchart LR
+    A["前端仿真页"] -->|WebSocket START| B["WebSocketManager"]
+    B --> C["SimulationEngine"]
+    C --> D["轨迹 / 事件 / 指标 / 统计"]
+    D --> E["StorageService"]
+    E --> F["data/simulations/run_xxx"]
+    E --> G["summary.json / manifest.json / data.json"]
+```
 
-职责：
+特点：
 
-- 用于列表页、筛选、快速搜索、权限控制、版本兼容判断
+- 实时仿真负责生成运行结果
+- 历史存储负责将结果组织为可回放、可分析、可训练的结构
 
-推荐字段：
+### 3.2 历史回放
+
+当前同时存在两套接口：
+
+#### 旧式文件接口
+
+- `GET /api/files/output-files`
+- `GET /api/files/output-file-info`
+- `GET /api/files/output-file-chunk`
+- `GET /api/files/output-file`
+- `GET /api/files/simulation-gates`
+
+特点：
+
+- 面向文件路径
+- 用于兼容旧页面和旧数据结构
+
+#### 新式运行接口
+
+- `GET /api/runs`
+- `GET /api/runs/{run_id}`
+- `GET /api/runs/{run_id}/replay/meta`
+- `GET /api/runs/{run_id}/replay/frames`
+- `GET /api/runs/{run_id}/events`
+- `GET /api/runs/{run_id}/gates`
+
+特点：
+
+- 面向 `run_id`
+- 更适合分层存储和后续扩展
+
+### 3.3 训练链路
+
+主要接口：
+
+- `GET /api/prediction/results`
+- `POST /api/prediction/extract-dataset`
+- `POST /api/prediction/train`
+- `POST /api/prediction/evaluate`
+- `GET /api/prediction/datasets`
+- `GET /api/prediction/models`
+
+交互关系：
+
+```mermaid
+flowchart LR
+    A["PredictBuilderPage"] --> B["/api/prediction/results"]
+    A --> C["/api/prediction/extract-dataset"]
+    C --> D["历史运行结果"]
+    C --> E["data/datasets"]
+    A --> F["/api/prediction/train"]
+    F --> G["data/models"]
+```
+
+### 3.4 分析链路
+
+主要接口：
+
+- `GET /api/runs/{run_id}/analysis`
+
+当前分析接口服务于工作流页主区域，返回：
+
+- 摘要卡片数据
+- 全局速度时序
+- 区段热力图
+- 异常时间分布
+- 事件构成
+- 区段切换时序
+- 异常类型分布
+- 回放锚点
+
+---
+
+## 4. 当前历史数据的职责边界
+
+从职责上看，历史运行数据可以拆为四层。
+
+### 4.1 摘要层
+
+用途：
+
+- 历史列表页
+- 工作流文件管理器中的历史资源列表
+- 训练来源概览
+- 快速展示异常数、车辆数、仿真时长
+
+推荐结构：
 
 ```json
 {
   "run_id": "run_20260314_101500",
   "schema_version": "run_v2",
-  "created_at": "2026-03-14T10:15:00Z",
-  "status": "completed",
-  "config_digest": {},
   "summary": {
-    "total_vehicles": 1200,
-    "total_anomalies": 18,
+    "total_vehicles": 1280,
+    "total_anomalies": 36,
     "simulation_time": 3600,
     "ml_samples": 420
-  },
-  "artifacts": {
-    "manifest": "manifest.json",
-    "trajectory": "trajectory/",
-    "events": "events/",
-    "metrics": "metrics/",
-    "datasets": "datasets/"
   }
 }
 ```
 
-建议持久化位置：
+### 4.2 清单层
 
-- SQLite 索引表或其他轻量元数据库
+用途：
 
-### 4.2 Manifest 层
+- 说明当前运行有哪些数据可用
+- 说明轨迹、事件、指标、路径几何的组织方式
 
-职责：
-
-- 描述这个 run 内有哪些可用数据块
-- 记录路径轨迹、道路几何、采样频率、字段版本
-
-推荐字段：
+推荐结构：
 
 ```json
 {
   "run_id": "run_20260314_101500",
   "schema_version": "run_manifest_v1",
-  "road_topology": {},
-  "path_geometry": {},
   "sampling": {
-    "trajectory_interval_s": 2,
-    "safety_interval_s": 2,
+    "trajectory_interval_s": 1,
     "metrics_interval_s": 10
   },
+  "road_geometry": {
+    "gates": [],
+    "path_geometry": {}
+  },
   "chunks": {
-    "trajectory": [
-      {
-        "chunk_id": "traj_0000",
-        "start_time": 0,
-        "end_time": 600,
-        "frame_count": 300,
-        "file": "trajectory/traj_0000.msgpack"
-      }
-    ],
-    "metrics": [],
-    "events": []
+    "trajectory": [],
+    "events": [],
+    "metrics": []
   }
 }
 ```
 
 ### 4.3 事件层
 
-职责：
+用途：
 
-- 保存异常、规则命中、噪声注入、门架交易、排队事件、拥堵事件等
-
-事件层特点：
-
-- 可按时间排序
-- 可按事件类型过滤
-- 不依赖全量轨迹即可做诊断
+- 异常诊断
+- 回放联动定位
+- 规则命中回看
+- 告警与交易分析
 
 推荐事件结构：
 
 ```json
 {
   "event_id": "evt_000123",
-  "run_id": "run_xxx",
+  "run_id": "run_20260314_101500",
   "time": 812.0,
   "event_type": "anomaly_triggered",
-  "severity": "high",
   "vehicle_id": 57,
-  "segment_id": "main_03",
+  "segment_id": "3",
   "payload": {}
 }
 ```
 
-### 4.4 时序明细层
+### 4.4 时序层
 
-职责：
+用途：
 
-- 保存轨迹、安全指标、区段级指标等连续数据
+- 回放
+- 时序图表
+- 训练数据提取
 
-建议采用：
+包括：
 
-- 轨迹：按时间分块的帧格式
-- 安全：按时间分块或按车辆分块
-- 指标：适合列式格式，优先考虑 Parquet 或紧凑 msgpack
-
----
-
-## 5. 历史数据中嵌入路径轨迹的目标
-
-### 5.1 为什么要嵌入路径轨迹
-
-当前历史轨迹更偏向“直线路径上的位置表达”：
-
-- `pos`
-- `lane`
-- `speed`
-
-这种表达足以支撑直线高速公路回放，但对以下场景支持不足：
-
-- 自定义道路几何
-- 曲线路段
-- 匝道并入并出
-- 多段道路拼接
-- 按真实路径计算局部拥堵传播或车辆轨迹投影
-
-如果要让历史数据具备更强复用能力，应把“路径语义”持久化到历史记录中，而不是只保留线性位置。
-
-### 5.2 路径轨迹应解决的问题
-
-历史数据中嵌入路径轨迹后，应至少支持：
-
-1. 回放时恢复车辆在曲线路径上的真实投影
-2. 训练时提取基于路径的局部特征
-3. 分析时按道路段、连接段、匝道段做切片
-4. 对旧直线数据保持兼容
+- 轨迹帧
+- 区段指标
+- 路径指标
+- 安全指标
 
 ---
 
-## 6. 推荐的路径轨迹数据结构
+## 5. 路径轨迹嵌入设计
 
-建议将路径轨迹拆为三层：路径几何、车辆路径绑定、轨迹采样引用。
+### 5.1 目标
 
-### 6.1 路径几何层
+历史轨迹中嵌入路径轨迹的目标不是单纯增加字段，而是让历史数据具备以下能力：
 
-描述道路本身的几何结构，推荐放在 manifest 中。
+1. 支持曲线或多段道路回放
+2. 支持基于道路语义的分析
+3. 支持基于路径的训练特征提取
+4. 保留对旧直线路径数据的兼容
+
+### 5.2 推荐结构
+
+#### 路径几何
 
 ```json
 {
   "path_geometry": {
     "version": "path_geometry_v1",
-    "coordinate_system": "local_meter",
     "paths": [
       {
-        "path_id": "main_lane_0",
+        "path_id": "main_lane_1",
         "road_id": "main",
-        "lane_id": 0,
+        "lane_id": 1,
         "polyline": [[0, 0], [100, 0], [200, 5]],
         "length_m": 203.1
-      },
-      {
-        "path_id": "ramp_in_0",
-        "road_id": "ramp_in",
-        "lane_id": 0,
-        "polyline": [[120, -50], [140, -20], [160, 0]],
-        "length_m": 58.0
       }
     ]
   }
 }
 ```
 
-设计说明：
-
-- `polyline` 是该路径中心线或主参考线
-- `length_m` 供路径投影和回放定位使用
-- `path_id` 必须稳定且可跨接口引用
-
-### 6.2 车辆路径绑定层
-
-每辆车不应在每一帧重复写完整折线，而应记录它与路径的关联关系。
+#### 轨迹帧中的路径引用
 
 ```json
 {
-  "vehicle_path_bindings": {
-    "57": {
-      "current_path_id": "main_lane_1",
-      "planned_path_ids": ["main_lane_1", "main_lane_2"],
-      "origin_path_id": "main_lane_1",
-      "route_type": "mainline"
-    }
-  }
-}
-```
-
-设计说明：
-
-- 用于表达该车当前在哪条路径上
-- `planned_path_ids` 为后续换道、汇入、分流预留
-- 不要求一开始就完整保存复杂导航，只需先保证路径引用稳定
-
-### 6.3 轨迹采样层
-
-在每一帧中，不再只保存 `pos + lane`，而是保存“路径引用 + 路径内纵向坐标”。
-
-推荐字段：
-
-```json
-{
-  "t": 120.0,
+  "time": 120.0,
   "vehicles": [
     {
-      "vehicle_id": 57,
+      "id": 57,
       "path_id": "main_lane_1",
       "s": 812.4,
       "offset": 0.0,
       "speed": 21.5,
-      "anomaly_type": 0,
       "flags": 0
     }
   ]
 }
 ```
 
-字段说明：
-
-- `path_id`：车辆当前参考路径
-- `s`：沿路径累计里程，单位米
-- `offset`：相对路径中心线的横向偏移，可先保留为 `0.0`
-- `speed`：瞬时速度
-- `flags`：受影响状态、异常状态等压缩位
-
-### 6.4 为什么推荐 `path_id + s`，而不是每帧直接存 `(x, y)`
-
-原因如下：
-
-1. `path_id + s` 更紧凑
-2. 可以由路径几何反算 `(x, y)`，适合回放和可视化
-3. 可以天然兼容直线路径与曲线路径
-4. 便于训练阶段提取“沿路径局部窗口”的特征
-
-如果直接每帧存 `(x, y)`：
-
-- 数据量更大
-- 不利于按路段分析
-- 很难表达车辆已经切换到哪条道路语义路径
-
-因此推荐将 `(x, y)` 视为回放阶段的派生量，而不是历史主存量。
-
----
-
-## 7. 为路径轨迹嵌入保留的接口设计
-
-为了适配路径轨迹，推荐逐步将文件接口升级为以 `run_id` 为中心的接口。
-
-### 7.1 回放接口
-
-#### 现状
-
-- `GET /api/files/output-files`
-- `GET /api/files/output-file-info`
-- `GET /api/files/output-file-chunk`
-- `GET /api/files/simulation-gates`
-
-#### 推荐目标接口
-
-```text
-GET /api/runs
-GET /api/runs/{run_id}
-GET /api/runs/{run_id}/replay/meta
-GET /api/runs/{run_id}/replay/frames?start=0&limit=500
-GET /api/runs/{run_id}/replay/window?time_start=600&time_end=900
-GET /api/runs/{run_id}/road-geometry
-GET /api/runs/{run_id}/events
-```
-
-#### `replay/meta` 推荐返回
+#### 车辆路径绑定
 
 ```json
 {
-  "run_id": "run_xxx",
-  "schema_version": "replay_v2",
-  "total_frames": 1800,
-  "time_range": [0, 3600],
-  "config": {},
-  "capabilities": {
-    "path_based": true,
-    "window_query": true,
-    "multi_resolution": false
-  },
-  "road_geometry": {
-    "has_path_geometry": true,
-    "path_count": 5
-  },
-  "gates": []
+  "vehicle_path_bindings": {
+    "57": {
+      "current_path_id": "main_lane_1",
+      "planned_path_ids": ["main_lane_1", "main_lane_2"]
+    }
+  }
 }
 ```
 
-#### `replay/frames` 推荐返回
+### 5.3 为什么使用 `path_id + s + offset`
+
+不推荐每帧直接保存完整 `(x, y)`，原因如下：
+
+1. 数据量更大
+2. 难以表达道路语义
+3. 不利于按路径或道路段做统计
+4. 不利于训练阶段构造路径局部特征
+
+推荐将：
+
+- `(x, y)` 视为回放渲染阶段的派生量
+- `path_id + s + offset` 视为历史存储主表达
+
+---
+
+## 6. 分析接口的数据模型
+
+当前工作流页分析视图使用 `GET /api/runs/{run_id}/analysis`。
+
+推荐结构如下：
 
 ```json
 {
   "run_id": "run_xxx",
-  "offset": 0,
-  "limit": 500,
-  "total_frames": 1800,
-  "frames": [
+  "summary": {
+    "total_vehicles": 1280,
+    "total_anomalies": 36,
+    "simulation_time": 3600,
+    "ml_samples": 420
+  },
+  "charts": {
+    "speed_timeline": [],
+    "segment_heatmap": [],
+    "anomaly_timeline": [],
+    "event_breakdown": [],
+    "segment_series": {
+      "0": [],
+      "1": []
+    },
+    "anomaly_type_breakdown": []
+  },
+  "meta": {
+    "time_bins": 24,
+    "max_position": 6,
+    "duration": 3600,
+    "anomaly_bucket_size": 150,
+    "segment_options": [
+      { "key": "0", "label": "区段 0" }
+    ],
+    "default_segment": "0"
+  },
+  "replay_anchors": [
     {
-      "time": 120.0,
-      "vehicles": [
-        {
-          "id": 57,
-          "path_id": "main_lane_1",
-          "s": 812.4,
-          "offset": 0.0,
-          "speed": 21.5,
-          "anomaly": 0
-        }
-      ]
+      "id": "anomaly-0",
+      "time": 812.0,
+      "position": 1350.5,
+      "segment": "3",
+      "event_type": "etc_conflict",
+      "label": "异常事件 1"
     }
   ]
 }
 ```
 
-兼容建议：
+字段职责：
 
-- 旧前端仍可通过适配层把 `path_id + s` 映射回原 `x + lane`
-- 新前端则直接消费路径轨迹字段
-
-### 7.2 模型训练接口
-
-#### 现状
-
-- `GET /api/prediction/results`
-- `POST /api/prediction/extract-dataset`
-- `POST /api/prediction/train`
-- `POST /api/prediction/evaluate`
-
-#### 推荐目标
-
-训练数据源应从“文件名”升级为“运行数据源 + 特征视图”。
-
-推荐输入结构：
-
-```json
-{
-  "run_ids": ["run_a", "run_b"],
-  "time_window": {
-    "start": 0,
-    "end": 3600
-  },
-  "feature_profile": "segment_and_gate_v2",
-  "selected_features": [
-    "flow_in",
-    "flow_out",
-    "path_density",
-    "path_speed_gradient"
-  ],
-  "sampling_strategy": {
-    "step_seconds": 60,
-    "window_size_steps": 5
-  }
-}
-```
-
-新增路径轨迹后，训练特征可以自然扩展为：
-
-- 某条路径上的平均速度
-- 路径局部密度
-- 相邻路径速度梯度
-- 匝道入口路径拥堵传播速度
-
-这类特征比单纯基于直线 `segment_speed_history` 更适合复杂道路。
-
-### 7.3 分析接口
-
-推荐逐步引入：
-
-```text
-GET /api/runs/{run_id}/summary
-GET /api/runs/{run_id}/statistics
-GET /api/runs/{run_id}/metrics?type=segment_speed
-GET /api/runs/{run_id}/metrics?type=path_speed
-GET /api/runs/{run_id}/events?event_type=anomaly_triggered
-```
-
-其中新增的 `path_speed`、`path_density` 等指标，就是路径轨迹引入后的直接收益。
+- `charts.speed_timeline`
+  全局平均速度与车流规模
+- `charts.segment_heatmap`
+  区段时空热力
+- `charts.segment_series`
+  可切换区段图表数据
+- `charts.anomaly_type_breakdown`
+  异常类型分布
+- `replay_anchors`
+  用于跳转到回放页的锚点列表
 
 ---
 
-## 8. 兼容迁移原则
+## 7. 回放联动设计
 
-由于现有回放、训练、分析均已依赖旧结构，迁移必须遵循兼容优先。
+分析面板与回放页联动的参数设计如下：
 
-### 8.1 不直接删除旧接口
+```text
+/replay?run=<run_id>&time=<seconds>&segment=<segment_id>
+```
 
-旧接口建议保留一段时间：
+处理流程：
+
+1. 分析页点击异常锚点
+2. 跳转到回放页
+3. 回放页根据 `run` 自动加载对应历史运行
+4. 根据 `time` 尝试定位播放索引
+5. 根据 `segment` 尝试切换到局部视图并调整路段范围
+
+这种设计的优点：
+
+- 参数简单
+- 不依赖把全部帧塞进分析接口
+- 可以继续扩展更多定位参数
+
+---
+
+## 8. 性能优化要求
+
+### 8.1 存储层要求
+
+为了避免历史数据膨胀拖慢系统，存储层应满足：
+
+1. 主循环不维护超大 JSON 对象
+2. 轨迹分块写盘，避免一次性全量驻留内存
+3. 路径几何只保存一次，不在每帧重复展开
+4. 分析接口优先使用聚合结果，而不是实时重扫全量轨迹
+
+### 8.2 回放层要求
+
+回放层应满足：
+
+1. 支持分块读取
+2. 支持按时间窗口读取
+3. 支持旧数据兼容转换
+4. 支持路径轨迹扩展
+
+### 8.3 训练层要求
+
+训练层应满足：
+
+1. 优先使用摘要与聚合指标
+2. 仅在必要时回退到全量轨迹重建
+3. 以 `run_id` 为来源，而不是仅以文件名为来源
+
+---
+
+## 9. 兼容迁移原则
+
+### 9.1 新接口先落地
+
+先补 `run_id` 体系：
+
+- `GET /api/runs`
+- `GET /api/runs/{run_id}/analysis`
+- `GET /api/runs/{run_id}/replay/meta`
+- `GET /api/runs/{run_id}/replay/frames`
+
+### 9.2 旧接口做桥接
+
+旧接口不立刻删除，而是逐步桥接到新结构：
 
 - `/api/files/output-file`
 - `/api/files/output-file-info`
 - `/api/files/output-file-chunk`
-- `/api/prediction/results`
 
-这些接口的内部实现可以逐渐切换到新的 `run_id + manifest + chunk` 存储，但外部返回格式暂时保持兼容。
+### 9.3 旧数据做适配
 
-### 8.2 新旧 schema 共存
+对于旧运行记录：
 
-建议在每个运行记录上显式写入：
-
-- `schema_version`
-- `trajectory_version`
-- `path_geometry_version`
-
-兼容策略建议如下：
-
-| 版本 | 特点 | 兼容方案 |
-| --- | --- | --- |
-| `run_v1` | 主文件 + 平铺轨迹 | 运行时转换为帧 |
-| `run_v2` | 分块轨迹 + manifest | 原生按块读取 |
-| `run_v2_path` | 分块轨迹 + 路径几何 + `path_id + s` | 回放按路径投影 |
-
-### 8.3 旧数据向新接口暴露时的适配逻辑
-
-对于旧历史数据：
-
-- 若只有 `trajectory_data`，则仍转换为 `frames`
-- 若没有 `path_geometry`，则由默认直线路径生成虚拟 `path_id`
-- 若没有 `path_id`，则按 `lane` 生成 `main_lane_<lane>` 兼容路径
-
-这样可以保证：
-
-- 新回放前端统一使用 `path_id + s`
-- 旧数据仍能被读取
-
----
-
-## 9. 性能优化约束下的存储设计要求
-
-为了避免“为了保存更多而拖慢仿真”，存储设计需要满足以下约束。
-
-### 9.1 主循环不直接维护超大 JSON 对象
-
-建议：
-
-- 运行时使用紧凑结构缓存
-- 每累计一定数量的帧或一定时间窗后分块写盘
-- WebSocket `COMPLETE` 不再回传整份结果，只返回 `run_id + summary`
-
-### 9.2 路径几何只保存一次
-
-不允许在每帧重复存储整条折线。
-
-正确方式：
-
-- 路径几何在 manifest 中保存一次
-- 轨迹帧中仅保存 `path_id + s + offset`
-
-### 9.3 轨迹按时间块读取
-
-回放接口必须支持：
-
-- 按帧偏移读取
-- 按时间窗读取
-- 仅加载需要的块
-
-不能要求每次都把整个 run 的轨迹全部展开到内存。
-
-### 9.4 训练接口避免重新扫描全量轨迹
-
-训练接口应优先使用：
-
-- 已存在的 `ml_dataset`
-- 已存在的聚合指标
-- 预计算路径级特征
-
-只有在必要时才回退到重建逻辑。
+- 若没有 `path_geometry`，则用直线道路生成默认路径
+- 若没有 `path_id`，则按 `lane` 生成兼容路径
+- 若只有 `trajectory_data`，则转换为帧结构
 
 ---
 
 ## 10. 推荐的目录结构
 
-建议未来历史数据逐步演化为以下目录结构：
+推荐未来统一演进为：
 
 ```text
 data/
   simulations/
     run_20260314_101500/
-      manifest.json
       summary.json
+      manifest.json
       road_geometry.json
       trajectory/
         traj_0000.msgpack
@@ -691,47 +484,34 @@ data/
 
 说明：
 
-- `summary.json` 面向列表页和快速概览
-- `manifest.json` 面向程序读取和兼容判断
-- `road_geometry.json` 面向回放和路径投影
-- `trajectory/` 面向高频回放明细
-- `events/` 面向诊断和定位
-- `metrics/` 面向图表与训练特征
+- `summary.json`
+  面向概览
+- `manifest.json`
+  面向程序读取与版本判断
+- `road_geometry.json`
+  面向路径轨迹与回放投影
+- `trajectory/`
+  面向高频回放
+- `events/`
+  面向诊断与定位
+- `metrics/`
+  面向图表和训练特征
 
 ---
 
-## 11. 推荐的接口演进顺序
+## 11. 总结
 
-为降低回放、训练、分析同时受影响的风险，建议按以下顺序推进：
+历史系统的核心目标，不是单纯保存更多文件，而是让同一份运行结果同时服务于：
 
-1. 先新增 `run_id` 中心的查询接口，不删除旧接口
-2. 将历史索引从目录扫描逐步切换到索引层
-3. 在新运行结果中引入 manifest 与路径几何
-4. 让回放接口支持 `path_id + s`
-5. 让训练接口支持 `run_ids` 而非仅 `file_names`
-6. 最后再逐步减少对旧 `/api/files/*` 的依赖
+1. 回放
+2. 分析
+3. 训练
+4. 文件管理
 
----
+要做到这一点，必须坚持以下原则：
 
-## 12. 最终建议
-
-后续设计应坚持以下原则：
-
-- 主标识统一使用 `run_id`
-- 数据按“索引、几何、事件、时序、训练”分层
-- 路径轨迹以 `path_id + s + offset` 为主表达
-- 旧接口保留兼容期，避免一次性打断回放和训练
-- 大对象不经由 WebSocket 完整回传
-- 新增字段必须带版本号，避免隐式破坏兼容
-
-在这套方案下，历史数据不仅可以嵌入路径轨迹，还能为以下能力打基础：
-
-- 曲线路网回放
-- 匝道与多路径分析
-- 基于路径的训练特征提取
-- 更稳定的历史查询与性能扩展
-
-如果后续开始实施，可继续补充两类配套文档：
-
-- 接口迁移清单
-- 历史数据 schema 版本演进说明
+1. `run_id` 是历史系统主标识
+2. 数据按摘要、清单、事件、时序、几何分层
+3. 路径轨迹采用 `path_id + s + offset`
+4. 分析接口返回轻量聚合结果
+5. 旧接口保留兼容期，逐步桥接到新模型
