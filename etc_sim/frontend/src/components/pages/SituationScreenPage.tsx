@@ -353,10 +353,11 @@ export function SituationScreenPage() {
                         </ScreenPanel>
                     </section>
 
-                    <aside className="flex w-[360px] shrink-0 flex-col gap-4">
+                    <aside className="relative z-10 flex min-h-0 w-[380px] shrink-0 flex-col gap-4 overflow-y-auto pr-1">
                         <ScreenPanel
                             title="路网概览"
                             aside={<span className="text-xs text-cyan-300/70">更新于 {formatTimestamp(selectedRoadMeta?.updated_at)}</span>}
+                            className="shrink-0"
                         >
                             <div className="space-y-3 text-sm">
                                 <div className="flex justify-between gap-4 text-cyan-50/85">
@@ -386,6 +387,7 @@ export function SituationScreenPage() {
                         <ScreenPanel
                             title="区间态势"
                             aside={<span className="text-xs text-cyan-300/70">历史统计映射</span>}
+                            className="shrink-0"
                         >
                             <div className="grid grid-cols-2 gap-3">
                                 {rightSummaryItems.map(item => (
@@ -402,7 +404,7 @@ export function SituationScreenPage() {
                         <ScreenPanel
                             title="异常态势"
                             aside={<span className="text-xs text-cyan-300/70">{alertRecords.length} 条</span>}
-                            className="min-h-[240px]"
+                            className="shrink-0 min-h-[240px]"
                         >
                             <ScreenAlertList
                                 alerts={alertRecords}
@@ -414,7 +416,7 @@ export function SituationScreenPage() {
                         <ScreenPanel
                             title="详情卡"
                             aside={<span className="text-xs text-cyan-300/70">真实数据模式</span>}
-                            className="flex-1"
+                            className="shrink-0 min-h-[220px]"
                         >
                             <ScreenIncidentDetail
                                 gantry={selectedGantry}
