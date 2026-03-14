@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .files import OUTPUT_DIR, _get_frames_for_file
@@ -85,6 +86,16 @@ def _load_run_data_json(run_dir: Path) -> dict:
             return json.load(file)
     except (OSError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=500, detail=f"运行数据读取失败: {run_dir.name}") from exc
+
+
+def _list_run_image_files(run_dir: Path) -> list[Path]:
+    image_files = []
+    for pattern in ('*.png', '*.jpg', '*.jpeg', '*.webp'):
+        image_files.extend(run_dir.glob(pattern))
+    return sorted(
+        [path for path in image_files if path.is_file()],
+        key=lambda item: item.name.lower(),
+    )
 
 
 def _build_speed_timeline(segment_history: list[dict]) -> list[dict]:
@@ -421,6 +432,36 @@ async def open_run_folder(run_id: str):
     run_dir = _resolve_run(run_id)
     _open_folder_in_explorer(run_dir)
     return {"success": True, "folder": str(run_dir)}
+
+
+@router.get('/{run_id}/images')
+async def get_run_images(run_id: str):
+    """列出运行目录中的历史图像。"""
+    run_dir = _resolve_run(run_id)
+    images = _list_run_image_files(run_dir)
+    return {
+        'run_id': run_id,
+        'images': [
+            {
+                'name': path.name,
+                'url': f'/api/runs/{run_id}/images/{path.name}',
+            }
+            for path in images
+        ],
+    }
+
+
+@router.get('/{run_id}/images/{image_name}')
+async def get_run_image_file(run_id: str, image_name: str):
+    """返回运行目录中的历史图像文件。"""
+    run_dir = _resolve_run(run_id)
+    safe_name = Path(image_name).name
+    target = run_dir / safe_name
+    if target.suffix.lower() not in {'.png', '.jpg', '.jpeg', '.webp'}:
+        raise HTTPException(status_code=400, detail='不支持的图像类型')
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail=f'图像不存在: {safe_name}')
+    return FileResponse(target)
 
 
 @router.get('/{run_id}/gates')
