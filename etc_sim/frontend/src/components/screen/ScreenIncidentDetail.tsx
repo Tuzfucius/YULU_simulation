@@ -1,4 +1,4 @@
-import type { ScreenAlertRecord } from './ScreenAlertList';
+﻿import type { ScreenAlertRecord } from './ScreenAlertList';
 import type { ScreenGantry } from './ScreenMapStage';
 
 type ScreenIncidentDetailProps = {
@@ -10,7 +10,7 @@ export function ScreenIncidentDetail({ gantry, alert }: ScreenIncidentDetailProp
     if (!gantry || !alert) {
         return (
             <div className="flex h-full items-center justify-center text-sm text-cyan-200/65">
-                选择一个告警查看详情
+                选择一条告警后查看详情
             </div>
         );
     }
@@ -23,7 +23,7 @@ export function ScreenIncidentDetail({ gantry, alert }: ScreenIncidentDetailProp
                     {alert.title}
                 </div>
                 <div className="mt-2 text-sm text-amber-50/80">
-                    事件定位到 {gantry.name || gantry.id}，已与地图主舞台联动。下一步会接入真实异常事件和时间窗。
+                    事件定位到 {gantry.name || gantry.id}，已与地图主舞台联动。后续将继续接入真实异常时间窗、区间速度散点和轨迹热力层。
                 </div>
             </div>
 
