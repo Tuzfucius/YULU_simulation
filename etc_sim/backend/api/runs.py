@@ -5,10 +5,15 @@
 from __future__ import annotations
 
 import json
+import os
+import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from .files import OUTPUT_DIR, _get_frames_for_file
 from ..services.run_repository import (
@@ -21,6 +26,35 @@ from ..services.run_repository import (
 )
 
 router = APIRouter()
+
+
+class RunRenameModel(BaseModel):
+    new_name: str
+
+
+def _sanitize_run_name(name: str) -> str:
+    normalized = re.sub(r'[<>:"/\\|?*]+', "_", (name or "").strip())
+    normalized = re.sub(r"\s+", "_", normalized).strip("._")
+    if not normalized:
+        raise HTTPException(status_code=400, detail="运行名称不能为空")
+    return normalized
+
+
+def _open_folder_in_explorer(path: Path):
+    folder = path if path.is_dir() else path.parent
+    if os.name == "nt":
+        subprocess.Popen(["explorer", str(folder)])
+    else:
+        raise HTTPException(status_code=501, detail="当前仅支持 Windows 打开文件夹")
+
+
+def _available_copy_dir(source_path: Path) -> Path:
+    base_name = source_path.name
+    for index in range(1, 1000):
+        candidate = source_path.parent / f"{base_name}_copy{index}"
+        if not candidate.exists():
+            return candidate
+    raise HTTPException(status_code=500, detail="无法生成可用的复制名称")
 
 
 def _resolve_run(run_id: str) -> Path:
@@ -265,6 +299,57 @@ async def get_run_analysis(run_id: str):
             'anomaly_bucket_size': anomaly_bucket_size,
         },
     }
+
+
+@router.put('/{run_id}/rename')
+async def rename_run(run_id: str, request: RunRenameModel):
+    """重命名历史运行目录。"""
+    run_dir = _resolve_run(run_id)
+    new_name = _sanitize_run_name(request.new_name)
+    target_dir = run_dir.parent / new_name
+    if target_dir.exists():
+        raise HTTPException(status_code=409, detail=f"名称已存在: {new_name}")
+
+    try:
+        run_dir.rename(target_dir)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"重命名失败: {exc}") from exc
+
+    return {"success": True, "run_id": new_name}
+
+
+@router.post('/{run_id}/copy')
+async def copy_run(run_id: str):
+    """复制历史运行目录。"""
+    run_dir = _resolve_run(run_id)
+    target_dir = _available_copy_dir(run_dir)
+
+    try:
+        shutil.copytree(run_dir, target_dir)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"复制失败: {exc}") from exc
+
+    return {"success": True, "run_id": target_dir.name}
+
+
+@router.delete('/{run_id}')
+async def delete_run(run_id: str):
+    """删除历史运行目录。"""
+    run_dir = _resolve_run(run_id)
+    try:
+        shutil.rmtree(run_dir)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"删除失败: {exc}") from exc
+
+    return {"success": True, "message": f"运行已删除: {run_id}"}
+
+
+@router.post('/{run_id}/open-folder')
+async def open_run_folder(run_id: str):
+    """在资源管理器中打开运行目录。"""
+    run_dir = _resolve_run(run_id)
+    _open_folder_in_explorer(run_dir)
+    return {"success": True, "folder": str(run_dir)}
 
 
 @router.get('/{run_id}/gates')

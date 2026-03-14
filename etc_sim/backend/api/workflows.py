@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -79,6 +80,15 @@ def _sanitize_workflow_name(name: str) -> str:
 def _workflow_path(name: str) -> Path:
     workflow_name = _sanitize_workflow_name(name)
     return WORKFLOW_DIR / f"{workflow_name}.json"
+
+
+def _workflow_copy_path(name: str) -> Path:
+    source = _workflow_path(name)
+    for index in range(1, 1000):
+        candidate = WORKFLOW_DIR / f"{source.stem}_copy{index}.json"
+        if not candidate.exists():
+            return candidate
+    raise HTTPException(status_code=500, detail="无法生成可用的复制名称")
 
 
 def _read_workflow_file(path: Path) -> dict:
@@ -314,6 +324,45 @@ async def rename_workflow_file(request: WorkflowRenameModel):
             "path": target_path.stem,
         },
     }
+
+
+@router.post("/workflows/files/copy")
+async def copy_workflow_file(name: str):
+    """复制工作流文件。"""
+    source_path = _workflow_path(name)
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail="工作流不存在")
+
+    target_path = _workflow_copy_path(name)
+    payload = _read_workflow_file(source_path)
+    payload["name"] = target_path.stem
+    payload["saved_at"] = datetime.utcnow().isoformat()
+
+    with open(target_path, "w", encoding="utf-8") as file:
+        json.dump(payload, file, indent=2, ensure_ascii=False)
+
+    return {
+        "success": True,
+        "message": f"工作流已复制为: {target_path.stem}",
+        "data": {
+            "name": target_path.stem,
+            "file_name": target_path.name,
+            "path": target_path.stem,
+        },
+    }
+
+
+@router.delete("/workflows/files")
+async def delete_workflow_file(name: str):
+    """删除工作流文件。"""
+    path = _workflow_path(name)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="工作流不存在")
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"删除失败: {exc}") from exc
+    return {"success": True, "message": f"工作流已删除: {name}"}
 
 
 @router.post("/workflows/files/open-folder")

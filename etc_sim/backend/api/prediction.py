@@ -4,6 +4,7 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 import os
 import json
+import shutil
 import traceback
 import logging
 
@@ -621,6 +622,14 @@ class RenameRequest(BaseModel):
     new_name: str
 
 
+def _next_copy_name(directory: Path, stem: str, suffix: str) -> str:
+    for index in range(1, 1000):
+        candidate = f"{stem}_copy{index}"
+        if not (directory / f"{candidate}{suffix}").exists():
+            return candidate
+    raise HTTPException(status_code=500, detail="无法生成可用的复制名称")
+
+
 @router.put("/models/{model_id}/rename")
 async def rename_model(model_id: str, request: RenameRequest):
     """重命名模型文件（同步更新 meta.json 中的 model_id）"""
@@ -663,6 +672,30 @@ async def open_model_folder(model_id: str):
         return {"success": True, "folder": str(MODELS_DIR)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"打开文件夹失败: {e}")
+
+
+@router.post("/models/{model_id}/copy")
+async def copy_model(model_id: str):
+    """复制模型文件及其元数据。"""
+    src = MODELS_DIR / f"{model_id}.joblib"
+    src_meta = MODELS_DIR / f"{model_id}.meta.json"
+    if not src.exists():
+        raise HTTPException(status_code=404, detail=f"模型不存在: {model_id}")
+
+    new_name = _next_copy_name(MODELS_DIR, model_id, ".joblib")
+    dst = MODELS_DIR / f"{new_name}.joblib"
+    dst_meta = MODELS_DIR / f"{new_name}.meta.json"
+    try:
+        shutil.copy2(src, dst)
+        if src_meta.exists():
+            with open(src_meta, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            meta["model_id"] = new_name
+            with open(dst_meta, "w", encoding="utf-8") as f:
+                json.dump(meta, f, indent=2, ensure_ascii=False)
+        return {"success": True, "new_model_id": new_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"复制失败: {e}")
 
 
 # --- 数据集管理 ---
@@ -712,3 +745,19 @@ async def open_dataset_folder(dataset_name: str):
         return {"success": True, "folder": str(DATASETS_DIR)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"打开文件夹失败: {e}")
+
+
+@router.post("/datasets/{dataset_name}/copy")
+async def copy_dataset(dataset_name: str):
+    """复制数据集文件。"""
+    src = DATASETS_DIR / f"{dataset_name}.json"
+    if not src.exists():
+        raise HTTPException(status_code=404, detail=f"数据集不存在: {dataset_name}")
+
+    new_name = _next_copy_name(DATASETS_DIR, dataset_name, ".json")
+    dst = DATASETS_DIR / f"{new_name}.json"
+    try:
+        shutil.copy2(src, dst)
+        return {"success": True, "new_name": new_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"复制失败: {e}")
