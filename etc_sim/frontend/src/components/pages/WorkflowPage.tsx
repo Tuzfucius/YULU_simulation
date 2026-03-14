@@ -14,6 +14,7 @@ import {
     type Connection,
     BackgroundVariant,
 } from '@xyflow/react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import '@xyflow/react/dist/style.css';
 
@@ -21,14 +22,13 @@ import { WorkflowNode } from '../workflow/WorkflowNode';
 import { NodePalette } from '../workflow/NodePalette';
 import { NodePropertiesPanel } from '../workflow/NodePropertiesPanel';
 import {
-    WorkflowLibraryPanel,
     type DatasetInfo,
     type FileCategory,
     type HistoryRunItem,
     type ModelInfo,
     type SavedWorkflowItem,
 } from '../workflow/WorkflowLibraryPanel';
-import { WorkflowAnalysisView, type RunAnalysisPayload } from '../workflow/WorkflowAnalysisView';
+import { type RunAnalysisPayload } from '../workflow/WorkflowAnalysisView';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useI18nStore } from '../../stores/i18nStore';
 import { API } from '../../config/api';
@@ -85,6 +85,8 @@ export function WorkflowPage() {
         loadFromLocal,
     } = useWorkflowStore();
     const { t } = useI18nStore();
+    const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
@@ -404,6 +406,15 @@ export function WorkflowPage() {
             setIsLoading(false);
         }
     };
+
+    useEffect(() => {
+        const workflowToLoad = searchParams.get('load');
+        if (!workflowToLoad) {
+            return;
+        }
+        loadSavedWorkflow(workflowToLoad);
+        setSearchParams({}, { replace: true });
+    }, [loadSavedWorkflow, searchParams, setSearchParams]);
 
     const renameSavedWorkflow = async (targetName?: string | null) => {
         const target = targetName || selectedWorkflowName || workflowName;
@@ -828,87 +839,19 @@ export function WorkflowPage() {
     return (
         <div className="flex h-full overflow-hidden">
             <aside className="w-80 flex flex-col border-r border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-lg shrink-0">
-                <div className="grid grid-cols-2 gap-2 p-3 border-b border-[var(--glass-border)]">
-                    <button
-                        type="button"
-                        onClick={() => setSideTab('nodes')}
-                        className={`rounded-lg px-3 py-2 text-sm transition-colors ${sideTab === 'nodes' ? 'bg-[var(--accent-blue)]/15 text-[var(--accent-blue)]' : 'text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)]'}`}
-                    >
+                <div className="border-b border-[var(--glass-border)] p-3">
+                    <div className="rounded-lg bg-[var(--accent-blue)]/10 px-3 py-2 text-sm text-[var(--accent-blue)]">
                         节点面板
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setSideTab('files')}
-                        className={`rounded-lg px-3 py-2 text-sm transition-colors ${sideTab === 'files' ? 'bg-[var(--accent-blue)]/15 text-[var(--accent-blue)]' : 'text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)]'}`}
-                    >
-                        文件管理器
-                    </button>
-                </div>
-
-                {sideTab === 'nodes' ? (
-                    <div className="flex-1 min-h-0">
-                        <NodePalette />
                     </div>
-                ) : (
-                    <WorkflowLibraryPanel
-                        fileCategory={fileCategory}
-                        setFileCategory={setFileCategory}
-                        isLoading={isLoading}
-                        onRefresh={refreshFileManager}
-                        historyRuns={historyRuns}
-                        selectedRunId={selectedRunId}
-                        onSelectRun={setSelectedRunId}
-                        onAnalyzeRun={showRunAnalysis}
-                        onRenameRun={renameRun}
-                        onCopyRun={copyRun}
-                        onDeleteRun={deleteRun}
-                        onOpenRunFolder={openRunFolder}
-                        models={savedModels}
-                        selectedModelId={selectedModelId}
-                        onSelectModel={setSelectedModelId}
-                        onShowModel={showModelDetail}
-                        onOpenModelFolder={(id) => openPredictionFolder('model', id)}
-                        onRenameModel={(id) => renamePredictionItem('model', id)}
-                        onCopyModel={(id) => copyPredictionItem('model', id)}
-                        onDeleteModel={(id) => deletePredictionItem('model', id)}
-                        datasets={datasets}
-                        selectedDatasetName={selectedDatasetName}
-                        onSelectDataset={setSelectedDatasetName}
-                        onShowDataset={showDatasetDetail}
-                        onOpenDatasetFolder={(id) => openPredictionFolder('dataset', id)}
-                        onRenameDataset={(id) => renamePredictionItem('dataset', id)}
-                        onCopyDataset={(id) => copyPredictionItem('dataset', id)}
-                        onDeleteDataset={(id) => deletePredictionItem('dataset', id)}
-                        workflows={savedWorkflows}
-                        selectedWorkflowName={selectedWorkflowName}
-                        workflowName={workflowName}
-                        onSelectWorkflow={setSelectedWorkflowName}
-                        onLoadWorkflow={loadSavedWorkflow}
-                        onRenameWorkflow={renameSavedWorkflow}
-                        onCopyWorkflow={copyWorkflow}
-                        onDeleteWorkflow={deleteWorkflow}
-                        onOpenWorkflowFolder={openWorkflowFolder}
-                    />
-                )}
+                </div>
+                <div className="flex-1 min-h-0">
+                    <NodePalette />
+                </div>
             </aside>
 
             <main className="flex-1 flex flex-col relative">
                 <div className="min-h-16 flex items-center justify-between gap-4 px-4 py-3 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md z-10 shrink-0">
                     <div className="flex items-center gap-3">
-                        <button
-                            type="button"
-                            onClick={() => setActiveView('canvas')}
-                            className={`rounded-md px-3 py-1.5 text-xs transition-colors ${activeView === 'canvas' ? 'bg-[var(--accent-blue)]/15 text-[var(--accent-blue)]' : 'text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)]'}`}
-                        >
-                            画布
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setSideTab('files')}
-                            className={`rounded-md px-3 py-1.5 text-xs transition-colors ${activeView !== 'canvas' ? 'bg-[var(--accent-purple)]/15 text-[var(--accent-purple)]' : 'text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)]'}`}
-                        >
-                            文件分析视图
-                        </button>
                         <div className="flex flex-col gap-1">
                             <input
                                 type="text"
@@ -928,6 +871,13 @@ export function WorkflowPage() {
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap justify-end">
+                        <button
+                            type="button"
+                            onClick={() => navigate('/files')}
+                            className="text-[11px] px-3 py-1.5 rounded-md bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] hover:bg-[var(--accent-blue)]/25 transition-colors"
+                        >
+                            打开文件管理器
+                        </button>
                         <button
                             onClick={undo}
                             disabled={!canUndo}
@@ -996,73 +946,51 @@ export function WorkflowPage() {
                 </div>
 
                 <div className="flex-1 overflow-hidden relative">
-                    <AnimatePresence mode="wait">
-                        {activeView === 'canvas' ? (
-                            <motion.div
-                                key="canvas"
-                                initial={{ opacity: 0, x: 32 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: -32 }}
-                                transition={{ duration: 0.24 }}
-                                className="absolute inset-0"
+                    <motion.div
+                        key="canvas"
+                        initial={{ opacity: 0, x: 32 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.24 }}
+                        className="absolute inset-0"
+                    >
+                        <div ref={reactFlowWrapper} className="h-full">
+                            <ReactFlow
+                                nodes={nodes}
+                                edges={edges}
+                                onNodesChange={onNodesChange}
+                                onEdgesChange={onEdgesChange}
+                                onConnect={onConnect}
+                                onNodeClick={onNodeClick}
+                                onPaneClick={onPaneClick}
+                                onInit={setRfInstance as any}
+                                onDrop={onDrop}
+                                onDragOver={onDragOver}
+                                nodeTypes={nodeTypes}
+                                fitView
+                                proOptions={{ hideAttribution: true }}
+                                defaultEdgeOptions={{ animated: true, style: { stroke: '#a78bfa', strokeWidth: 1.5 } }}
+                                style={{ background: 'var(--bg-base)' }}
                             >
-                                <div ref={reactFlowWrapper} className="h-full">
-                                    <ReactFlow
-                                        nodes={nodes}
-                                        edges={edges}
-                                        onNodesChange={onNodesChange}
-                                        onEdgesChange={onEdgesChange}
-                                        onConnect={onConnect}
-                                        onNodeClick={onNodeClick}
-                                        onPaneClick={onPaneClick}
-                                        onInit={setRfInstance as any}
-                                        onDrop={onDrop}
-                                        onDragOver={onDragOver}
-                                        nodeTypes={nodeTypes}
-                                        fitView
-                                        proOptions={{ hideAttribution: true }}
-                                        defaultEdgeOptions={{ animated: true, style: { stroke: '#a78bfa', strokeWidth: 1.5 } }}
-                                        style={{ background: 'var(--bg-base)' }}
-                                    >
-                                        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255,255,255,0.06)" />
-                                        <Controls
-                                            style={{
-                                                background: 'var(--glass-bg)',
-                                                borderRadius: '8px',
-                                                border: '1px solid var(--glass-border)',
-                                            }}
-                                        />
-                                        <MiniMap
-                                            style={{
-                                                background: 'var(--glass-bg)',
-                                                borderRadius: '8px',
-                                                border: '1px solid var(--glass-border)',
-                                            }}
-                                            nodeColor={(node: any) => node.data?.color || '#888'}
-                                            maskColor="rgba(0,0,0,0.5)"
-                                        />
-                                    </ReactFlow>
-                                </div>
-                            </motion.div>
-                        ) : (
-                            <motion.div
-                                key={activeView}
-                                initial={{ opacity: 0, x: 56 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: -56 }}
-                                transition={{ duration: 0.3, ease: 'easeInOut' }}
-                                className="absolute inset-0 overflow-hidden bg-[var(--bg-base)]"
-                            >
-                                <WorkflowAnalysisView
-                                    activeView={activeView}
-                                    run={selectedRun}
-                                    analysis={runAnalysis}
-                                    model={selectedModel}
-                                    dataset={selectedDataset}
+                                <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255,255,255,0.06)" />
+                                <Controls
+                                    style={{
+                                        background: 'var(--glass-bg)',
+                                        borderRadius: '8px',
+                                        border: '1px solid var(--glass-border)',
+                                    }}
                                 />
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                                <MiniMap
+                                    style={{
+                                        background: 'var(--glass-bg)',
+                                        borderRadius: '8px',
+                                        border: '1px solid var(--glass-border)',
+                                    }}
+                                    nodeColor={(node: any) => node.data?.color || '#888'}
+                                    maskColor="rgba(0,0,0,0.5)"
+                                />
+                            </ReactFlow>
+                        </div>
+                    </motion.div>
                 </div>
 
                 {statusMsg && (

@@ -20,6 +20,7 @@ const ReplayPage = React.lazy(() => import('./components/pages/ReplayPage').then
 const DashboardPage = React.lazy(() => import('./components/pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const ScenariosPage = React.lazy(() => import('./components/pages/ScenariosPage').then(m => ({ default: m.ScenariosPage })));
 const WorkflowPage = React.lazy(() => import('./components/pages/WorkflowPage').then(m => ({ default: m.WorkflowPage })));
+const FileManagerPage = React.lazy(() => import('./components/pages/FileManagerPage').then(m => ({ default: m.FileManagerPage })));
 const RoadEditorPage = React.lazy(() => import('./components/pages/RoadEditorPage').then(m => ({ default: m.RoadEditorPage })));
 const PredictBuilderPage = React.lazy(() => import('./components/pages/PredictBuilderPage').then(m => ({ default: m.PredictBuilderPage })));
 
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { path: '/dashboard', icon: '📊', label: '预警仪表盘', labelEn: 'Dashboard' },
   { path: '/scenarios', icon: '🧩', label: '场景模板', labelEn: 'Scenarios' },
   { path: '/workflow', icon: '🧭', label: '工作流编辑', labelEn: 'Workflow' },
+  { path: '/files', icon: '🗂️', label: '文件管理器', labelEn: 'File Manager' },
   { path: '/editor', icon: '🛣️', label: '路径编辑', labelEn: 'Editor' },
   { path: '/predict-builder', icon: '📈', label: '时序预测工作台', labelEn: 'Predict Builder' },
   { path: '/screen', icon: '🖥️', label: '态势大屏', labelEn: 'Situation Screen' },
@@ -252,6 +254,7 @@ function AnimatedRoutes() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/scenarios" element={<ScenariosPage />} />
           <Route path="/workflow" element={<WorkflowPage />} />
+          <Route path="/files" element={<FileManagerPage />} />
           <Route path="/editor" element={<RoadEditorPage />} />
           <Route path="/predict-builder" element={<PredictBuilderPage />} />
           <Route path="/screen" element={<SituationScreenPage />} />

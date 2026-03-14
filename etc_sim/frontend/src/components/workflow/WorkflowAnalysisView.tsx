@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     ResponsiveContainer,
@@ -65,12 +65,17 @@ export interface RunAnalysisPayload {
 }
 
 interface WorkflowAnalysisViewProps {
-    activeView: 'run' | 'model' | 'dataset';
+    activeView: 'run' | 'model' | 'dataset' | 'workflow';
     run: HistoryRunItem | null;
     analysis: RunAnalysisPayload | null;
     model: ModelInfo | null;
     dataset: DatasetInfo | null;
 }
+
+type RunImageItem = {
+    name: string;
+    url: string;
+};
 
 function formatTime(value?: string | number) {
     if (value === undefined || value === null || value === '') {
@@ -195,6 +200,8 @@ function HistoryAnalysisContent({ analysis, run }: { analysis: RunAnalysisPayloa
     const navigate = useNavigate();
     const segmentOptions = analysis?.meta.segment_options || [];
     const [selectedSegment, setSelectedSegment] = useState<string | null>(null);
+    const [images, setImages] = useState<RunImageItem[]>([]);
+    const [imagesLoading, setImagesLoading] = useState(false);
 
     const effectiveSegment = useMemo(() => {
         if (selectedSegment) {
@@ -212,6 +219,41 @@ function HistoryAnalysisContent({ analysis, run }: { analysis: RunAnalysisPayloa
         }
         return analysis.charts.segment_series?.[effectiveSegment] || [];
     }, [analysis, effectiveSegment]);
+
+    useEffect(() => {
+        if (!run) {
+            setImages([]);
+            return;
+        }
+
+        let cancelled = false;
+        const loadImages = async () => {
+            setImagesLoading(true);
+            try {
+                const response = await fetch(`/api/runs/${encodeURIComponent(run.run_id)}/images`);
+                const payload = await response.json();
+                if (!response.ok) {
+                    throw new Error(payload.detail || '加载历史图像失败');
+                }
+                if (!cancelled) {
+                    setImages(Array.isArray(payload.images) ? payload.images : []);
+                }
+            } catch {
+                if (!cancelled) {
+                    setImages([]);
+                }
+            } finally {
+                if (!cancelled) {
+                    setImagesLoading(false);
+                }
+            }
+        };
+
+        loadImages();
+        return () => {
+            cancelled = true;
+        };
+    }, [run]);
 
     if (!analysis || !run) {
         return <EmptyPanel title="选择历史数据" description="从左侧文件管理器中点击历史运行，系统会切换到分析视图并展示对应图表。" />;
@@ -385,6 +427,38 @@ function HistoryAnalysisContent({ analysis, run }: { analysis: RunAnalysisPayloa
                     <div className="text-sm text-[var(--text-secondary)]">当前结果没有可用的异常锚点。</div>
                 )}
             </div>
+
+            <div className="rounded-xl border border-[var(--glass-border)] bg-[rgba(255,255,255,0.03)] p-4">
+                <div className="mb-3 flex items-center justify-between">
+                    <div>
+                        <div className="text-sm font-medium text-[var(--text-primary)]">历史输出图像</div>
+                        <div className="mt-1 text-xs text-[var(--text-muted)]">展示该历史运行目录中已生成的分析图像、热力图和轨迹图。</div>
+                    </div>
+                    <div className="text-xs text-[var(--text-muted)]">
+                        {imagesLoading ? '加载中...' : `${images.length} 张`}
+                    </div>
+                </div>
+                {images.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                        {images.map((image) => (
+                            <a
+                                key={image.name}
+                                href={image.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="overflow-hidden rounded-xl border border-[var(--glass-border)] bg-black/10 transition-colors hover:border-[var(--accent-blue)]/60 hover:bg-white/5"
+                            >
+                                <div className="aspect-[16/10] overflow-hidden bg-black/20">
+                                    <img src={image.url} alt={image.name} className="h-full w-full object-cover" loading="lazy" />
+                                </div>
+                                <div className="px-3 py-2 text-xs text-[var(--text-secondary)]">{image.name}</div>
+                            </a>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-sm text-[var(--text-secondary)]">当前运行目录没有可展示的历史图像。</div>
+                )}
+            </div>
         </div>
     );
 }
@@ -511,6 +585,9 @@ export function WorkflowAnalysisView(props: WorkflowAnalysisViewProps) {
 
     if (activeView === 'run') {
         return <HistoryAnalysisContent analysis={analysis} run={run} />;
+    }
+    if (activeView === 'workflow') {
+        return <EmptyPanel title="选择工作流文件" description="在左侧文件管理器中选择工作流后，可以继续编辑、重命名、复制或在文件夹中打开。" />;
     }
     if (activeView === 'model') {
         return <ModelDetailContent model={model} />;
