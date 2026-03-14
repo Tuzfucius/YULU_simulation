@@ -101,6 +101,7 @@ class TrajectoryStorage:
 
     @staticmethod
     def _save_json_fallback(sim_dir: str, trajectory_data: list, config: Optional[dict] = None):
+        os.makedirs(sim_dir, exist_ok=True)
         filepath = os.path.join(sim_dir, "trajectory.json")
         frames, meta, path_registry = TrajectoryStorage._flat_to_frames(trajectory_data, config=config)
         payload = {
@@ -137,6 +138,8 @@ class TrajectoryStorage:
         vehicle_meta = {}
         path_registry = TrajectoryStorage._build_path_registry(config, flat_data)
 
+        path_code_map = {path_id: int(code) for code, path_id in path_registry.items()}
+
         for point in flat_data:
             t = point.get("time", 0)
             vid = point.get("id", 0)
@@ -158,11 +161,7 @@ class TrajectoryStorage:
             anomaly_type = point.get("anomaly_type", 0)
 
             path_id = point.get("path_id") or path_registry.get(str(lane), f"main_lane_{lane}")
-            path_code = lane
-            for code, registry_path_id in path_registry.items():
-                if registry_path_id == path_id:
-                    path_code = int(code)
-                    break
+            path_code = path_code_map.get(path_id, lane)
 
             time_groups[t].append([vid, pos, lane, speed, anomaly_type, flags, path_code])
 

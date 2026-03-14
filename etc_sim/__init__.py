@@ -1,23 +1,19 @@
+"""ETC Simulation Package.
+
+基于 IDM 和 MOBIL 的交通流仿真系统。
 """
-ETC Simulation Package
-基于IDM和MOBIL的交通流仿真系统
-"""
 
-import sys
-from pathlib import Path
-
-# 确保当前包在路径中
-_package_path = Path(__file__).parent.resolve()
-if str(_package_path) not in sys.path:
-    sys.path.insert(0, str(_package_path))
-
-from .config.parameters import SimulationConfig, load_config
 from .config.defaults import DEFAULT_CONFIG
-from .simulation.engine import SimulationEngine
+from .config.parameters import SimulationConfig, load_config
 
-__all__ = [
-    'SimulationConfig',
-    'load_config',
-    'DEFAULT_CONFIG',
-    'SimulationEngine',
-]
+__all__ = ["SimulationConfig", "load_config", "DEFAULT_CONFIG", "SimulationEngine"]
+
+
+def __getattr__(name: str):
+    """延迟加载重量级模块，避免包初始化时引入不必要依赖。"""
+
+    if name == "SimulationEngine":
+        from .simulation.engine import SimulationEngine
+
+        return SimulationEngine
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
