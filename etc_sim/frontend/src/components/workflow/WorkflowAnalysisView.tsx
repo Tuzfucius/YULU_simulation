@@ -288,11 +288,11 @@ function HistoryAnalysisContent({ analysis, run }: { analysis: RunAnalysisPayloa
             <div className="rounded-xl border border-[var(--glass-border)] bg-[rgba(255,255,255,0.03)] p-4">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                     <div className="mr-2 text-sm font-medium text-[var(--text-primary)]">区段切换</div>
-                    {segmentOptions.length > 0 ? segmentOptions.map((item) => {
+                    {segmentOptions.length > 0 ? segmentOptions.map((item, index) => {
                         const active = effectiveSegment === item.key;
                         return (
                             <button
-                                key={item.key}
+                                key={`${item.key}-${index}`}
                                 type="button"
                                 onClick={() => setSelectedSegment(item.key)}
                                 className={`rounded-full px-3 py-1 text-xs transition-colors ${
