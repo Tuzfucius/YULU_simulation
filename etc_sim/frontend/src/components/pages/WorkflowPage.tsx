@@ -28,7 +28,7 @@ import {
     type ModelInfo,
     type SavedWorkflowItem,
 } from '../workflow/WorkflowLibraryPanel';
-import { WorkflowResourceView, type RunAnalysisPayload } from '../workflow/WorkflowResourceView';
+import { WorkflowAnalysisView, type RunAnalysisPayload } from '../workflow/WorkflowAnalysisView';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useI18nStore } from '../../stores/i18nStore';
 import { API } from '../../config/api';
@@ -1053,7 +1053,7 @@ export function WorkflowPage() {
                                 transition={{ duration: 0.3, ease: 'easeInOut' }}
                                 className="absolute inset-0 overflow-hidden bg-[var(--bg-base)]"
                             >
-                                <WorkflowResourceView
+                                <WorkflowAnalysisView
                                     activeView={activeView}
                                     run={selectedRun}
                                     analysis={runAnalysis}
