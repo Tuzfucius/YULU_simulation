@@ -23,6 +23,8 @@ class SimulationConfig:
     # 自定义路网参数（若存在则覆盖上方道路参数）
     custom_road_length_km: Optional[float] = None
     custom_gantry_positions: List[float] = field(default_factory=list)
+    custom_road_path: Optional[str] = None
+    custom_ramps: List[dict] = field(default_factory=list)
     
     # 仿真参数
     total_vehicles: int = 1200
@@ -91,6 +93,8 @@ class SimulationConfig:
             'lane_width': self.lane_width,
             'custom_road_length_km': self.custom_road_length_km,
             'custom_gantry_positions': self.custom_gantry_positions,
+            'custom_road_path': self.custom_road_path,
+            'custom_ramps': self.custom_ramps,
             'total_vehicles': self.total_vehicles,
             'simulation_dt': self.simulation_dt,
             'max_simulation_time': self.max_simulation_time,

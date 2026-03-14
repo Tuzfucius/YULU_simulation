@@ -8,8 +8,10 @@ import numpy as np
 from typing import Optional, Dict, Any
 from datetime import datetime
 import logging
+from pathlib import Path
 
 from etc_sim.backend.services.trajectory_storage import TrajectoryStorage
+from etc_sim.backend.services.run_repository import list_runs as list_saved_runs, persist_run_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +116,8 @@ class StorageService:
         
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(results_data, f, indent=2, ensure_ascii=False, cls=NumpyEncoder)
+
+        persist_run_metadata(Path(sim_dir), simulation_id, results_data)
         
         return filepath
     
@@ -135,26 +139,18 @@ class StorageService:
         return False
     
     def list_results(self) -> list:
-        """列出所有仿真结果"""
+        """?????????"""
         results = []
         if not os.path.exists(self.simulations_dir):
             return results
-        for dirname in os.listdir(self.simulations_dir):
-            sim_dir = os.path.join(self.simulations_dir, dirname)
-            if os.path.isdir(sim_dir) and (
-                os.path.exists(os.path.join(sim_dir, "data.json")) or
-                TrajectoryStorage.exists(sim_dir)
-            ):
-                simulation_id = dirname
-                result = self.load_results(simulation_id)
-                if result:
-                    metadata = result.get("_metadata", {})
-                    results.append({
-                        "id": simulation_id,
-                        "status": result.get("status", "unknown"),
-                        "created_at": metadata.get("saved_at")
-                    })
-        return sorted(results, key=lambda x: x.get("created_at", ""), reverse=True)
+
+        for run in list_saved_runs(Path(self.simulations_dir)):
+            results.append({
+                "id": run["run_id"],
+                "status": run.get("status", "unknown"),
+                "created_at": run.get("created_at"),
+            })
+        return results
     
     def export_results_csv(self, simulation_id: str, data_type: str = "vehicle_records") -> str:
         """导出结果为 CSV"""
