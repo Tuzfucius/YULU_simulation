@@ -1,5 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { API } from '../../config/api';
+import { ScreenAlertList, type ScreenAlertRecord } from '../screen/ScreenAlertList';
+import { ScreenHeader } from '../screen/ScreenHeader';
+import { ScreenIncidentDetail } from '../screen/ScreenIncidentDetail';
 import { ScreenMapStage, type ScreenRoadData } from '../screen/ScreenMapStage';
 import { ScreenMetricCard } from '../screen/ScreenMetricCard';
 import { ScreenPanel } from '../screen/ScreenPanel';
@@ -98,6 +101,19 @@ export function SituationScreenPage() {
     const selectedRoadMeta = roadFiles.find(file => file.filename === selectedRoadFile);
     const selectedGantry = roadData?.gantries.find(gantry => gantry.id === selectedGantryId) || null;
     const statMap = statistics as Record<string, unknown> | null;
+    const alertRecords = useMemo<ScreenAlertRecord[]>(() => {
+        return (roadData?.gantries ?? []).map((gantry, index) => {
+            const level = index === 0 ? 'high' : index < 3 ? 'medium' : 'low';
+            return {
+                id: gantry.id,
+                title: `${gantry.name || gantry.id} 状态预警`,
+                level,
+                timeLabel: `T+${(index + 1) * 2} min`,
+                locationLabel: `门架 ${gantry.id}`,
+            };
+        });
+    }, [roadData]);
+    const selectedAlert = alertRecords.find(alert => alert.id === selectedGantryId) || null;
     const activeStats = {
         avgSpeed: getMetricValue(statMap?.avgSpeed, '--'),
         activeVehicles: getMetricValue(statMap?.activeVehicles, config.totalVehicles),
@@ -108,31 +124,19 @@ export function SituationScreenPage() {
     return (
         <div className="screen-shell h-full overflow-hidden text-[var(--text-primary)]">
             <div className="flex h-full flex-col">
-                <header className="screen-header-bar px-6 py-4">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <div className="text-xs uppercase tracking-[0.35em] text-cyan-300/70">Expressway Screen</div>
-                            <h1 className="mt-1 text-3xl font-semibold tracking-[0.18em] text-cyan-200">
-                                {lang === 'en' ? 'Highway Situation Screen' : '高速态势感知大屏'}
-                            </h1>
-                        </div>
-                        <div className="flex items-center gap-4 text-sm text-cyan-100/85">
-                            <div className="rounded-full border border-cyan-400/30 px-4 py-1.5">
-                                {selectedRoadFile || '未选择路网'}
-                            </div>
-                            <div className="rounded-full border border-cyan-400/20 px-4 py-1.5">
-                                {new Date().toLocaleString(lang === 'en' ? 'en-US' : 'zh-CN', {
-                                    year: 'numeric',
-                                    month: '2-digit',
-                                    day: '2-digit',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                    second: '2-digit',
-                                })}
-                            </div>
-                        </div>
-                    </div>
-                </header>
+                <ScreenHeader
+                    title={lang === 'en' ? 'Highway Situation Screen' : '高速态势感知大屏'}
+                    subtitle="Expressway Screen"
+                    selectedRoadFile={selectedRoadFile || '未选择路网'}
+                    timestampLabel={new Date().toLocaleString(lang === 'en' ? 'en-US' : 'zh-CN', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                    })}
+                />
 
                 <div className="flex min-h-0 flex-1 gap-4 p-4">
                     <section className="flex min-w-0 flex-1 flex-col gap-4">
@@ -213,38 +217,15 @@ export function SituationScreenPage() {
                         </ScreenPanel>
 
                         <ScreenPanel
-                            title="重点门架"
-                            aside={<span className="text-xs text-cyan-300/70">{roadData?.gantries.length ?? 0} 个</span>}
+                            title="异常态势"
+                            aside={<span className="text-xs text-cyan-300/70">{alertRecords.length} 条</span>}
                             className="min-h-[240px]"
                         >
-                            <div className="space-y-2 overflow-y-auto pr-1">
-                                {(roadData?.gantries ?? []).map((gantry, index) => {
-                                    const active = gantry.id === selectedGantryId;
-                                    return (
-                                        <button
-                                            key={gantry.id}
-                                            onClick={() => setSelectedGantryId(gantry.id)}
-                                            className={`w-full rounded-xl border px-3 py-3 text-left transition ${
-                                                active
-                                                    ? 'border-cyan-300/45 bg-cyan-400/12'
-                                                    : 'border-[rgba(81,143,255,0.18)] bg-[rgba(4,13,30,0.72)] hover:bg-[rgba(8,28,56,0.9)]'
-                                            }`}
-                                        >
-                                            <div className="flex items-center justify-between">
-                                                <div className="text-sm font-medium text-cyan-50">
-                                                    {gantry.name || gantry.id}
-                                                </div>
-                                                <div className="text-[10px] tracking-[0.2em] text-cyan-300/65">
-                                                    G-{index + 1}
-                                                </div>
-                                            </div>
-                                            <div className="mt-2 text-xs text-cyan-100/70">
-                                                坐标 ({gantry.x.toFixed(0)}, {gantry.y.toFixed(0)})
-                                            </div>
-                                        </button>
-                                    );
-                                })}
-                            </div>
+                            <ScreenAlertList
+                                alerts={alertRecords}
+                                selectedAlertId={selectedGantryId}
+                                onSelectAlert={setSelectedGantryId}
+                            />
                         </ScreenPanel>
 
                         <ScreenPanel
@@ -252,45 +233,10 @@ export function SituationScreenPage() {
                             aside={<span className="text-xs text-cyan-300/70">Stage 1</span>}
                             className="flex-1"
                         >
-                            {selectedGantry ? (
-                                <div className="space-y-4">
-                                    <div className="rounded-2xl border border-amber-300/35 bg-[linear-gradient(135deg,rgba(102,38,14,0.7),rgba(63,17,17,0.22))] p-4">
-                                        <div className="text-xs tracking-[0.24em] text-amber-200/75">重点关注门架</div>
-                                        <div className="mt-2 text-2xl font-semibold text-amber-100">
-                                            {selectedGantry.name || selectedGantry.id}
-                                        </div>
-                                        <div className="mt-2 text-sm text-amber-50/80">
-                                            该门架已接入地图主舞台联动，下一阶段将接入异常事件、时间窗口和区间速度详情。
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="rounded-xl border border-cyan-300/20 bg-[rgba(4,13,30,0.76)] p-3">
-                                            <div className="text-xs text-cyan-300/65">门架坐标</div>
-                                            <div className="mt-2 text-lg text-cyan-50">
-                                                {selectedGantry.x.toFixed(0)} / {selectedGantry.y.toFixed(0)}
-                                            </div>
-                                        </div>
-                                        <div className="rounded-xl border border-cyan-300/20 bg-[rgba(4,13,30,0.76)] p-3">
-                                            <div className="text-xs text-cyan-300/65">关联状态</div>
-                                            <div className="mt-2 text-lg text-cyan-50">在线</div>
-                                        </div>
-                                    </div>
-
-                                    <div className="rounded-xl border border-cyan-300/20 bg-[rgba(4,13,30,0.76)] p-3">
-                                        <div className="mb-2 text-xs text-cyan-300/65">后续接入计划</div>
-                                        <ul className="space-y-2 text-sm text-cyan-50/80">
-                                            <li>接入异常列表与门架联动</li>
-                                            <li>接入区间速度散点图和时间窗</li>
-                                            <li>接入中央事件详情弹层</li>
-                                        </ul>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="flex h-full items-center justify-center text-sm text-cyan-200/65">
-                                    选择一个门架查看详情
-                                </div>
-                            )}
+                            <ScreenIncidentDetail
+                                gantry={selectedGantry}
+                                alert={selectedAlert}
+                            />
                         </ScreenPanel>
                     </aside>
                 </div>
