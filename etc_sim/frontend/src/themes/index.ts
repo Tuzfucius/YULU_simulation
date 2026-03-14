@@ -3,7 +3,7 @@
  * 定义所有可用主题的元数据，新增主题只需在此添加记录
  */
 
-export type ThemeId = 'light' | 'dark' | 'retro-tech';
+export type ThemeId = 'light' | 'dark' | 'retro-tech' | 'ops-screen';
 
 export interface ThemeMeta {
     id: ThemeId;
@@ -38,6 +38,14 @@ export const THEMES: ThemeMeta[] = [
         icon: '🔮',
         description: '赛博朋克科技风',
         descriptionEn: 'Cyberpunk retro-tech style',
+    },
+    {
+        id: 'ops-screen',
+        label: '指挥大屏',
+        labelEn: 'Ops Screen',
+        icon: '🖥️',
+        description: '高速预警指挥大屏风格',
+        descriptionEn: 'Highway operations screen theme',
     },
 ];
 

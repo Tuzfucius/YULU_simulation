@@ -43,8 +43,7 @@ type RoadData = {
     };
 };
 
-const panelClass =
-    'rounded-2xl border border-[var(--glass-border)] bg-[rgba(8,15,28,0.82)] shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur-md';
+const panelClass = 'screen-panel rounded-2xl';
 
 function formatTimestamp(epochSeconds?: number) {
     if (!epochSeconds) return '--';
@@ -326,9 +325,9 @@ export function SituationScreenPage() {
     };
 
     return (
-        <div className="h-full overflow-hidden bg-[#030913] text-[var(--text-primary)]">
+        <div className="screen-shell h-full overflow-hidden text-[var(--text-primary)]">
             <div className="flex h-full flex-col">
-                <header className="border-b border-[rgba(78,154,255,0.25)] bg-[linear-gradient(180deg,rgba(4,18,45,0.98),rgba(2,11,26,0.94))] px-6 py-4 shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
+                <header className="screen-header-bar px-6 py-4">
                     <div className="flex items-center justify-between">
                         <div>
                             <div className="text-xs uppercase tracking-[0.35em] text-cyan-300/70">Expressway Screen</div>
@@ -363,10 +362,10 @@ export function SituationScreenPage() {
                                 { label: '在途车辆', value: activeStats.activeVehicles, unit: '辆' },
                                 { label: '重点门架', value: activeStats.totalAlerts, unit: '处' },
                             ].map(item => (
-                                <div key={item.label} className={`${panelClass} px-4 py-3`}>
-                                    <div className="text-xs tracking-[0.22em] text-cyan-200/65">{item.label}</div>
+                                <div key={item.label} className={`screen-kpi ${panelClass} px-4 py-3`}>
+                                    <div className="screen-panel-title text-xs text-cyan-200/65">{item.label}</div>
                                     <div className="mt-2 flex items-end gap-2">
-                                        <div className="text-3xl font-semibold text-cyan-100">{item.value}</div>
+                                        <div className="screen-kpi-value text-3xl font-semibold">{item.value}</div>
                                         <div className="pb-1 text-xs uppercase tracking-[0.22em] text-cyan-300/70">{item.unit}</div>
                                     </div>
                                 </div>
@@ -375,7 +374,7 @@ export function SituationScreenPage() {
 
                         <div className={`${panelClass} relative min-h-0 flex-1 overflow-hidden`}>
                             <div className="absolute left-4 top-4 z-10 flex items-center gap-3">
-                                <div className="rounded-full border border-cyan-300/25 bg-[rgba(3,14,34,0.8)] px-3 py-1 text-xs text-cyan-100/85">
+                                <div className="screen-chip rounded-full px-3 py-1 text-xs">
                                     地图主舞台
                                 </div>
                                 <select
@@ -392,7 +391,7 @@ export function SituationScreenPage() {
                                 </select>
                             </div>
 
-                            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(31,101,224,0.16),transparent_30%),radial-gradient(circle_at_bottom,rgba(0,212,255,0.12),transparent_30%)]" />
+                            <div className="screen-map-overlay absolute inset-0" />
 
                             {loading ? (
                                 <div className="flex h-full items-center justify-center text-sm text-cyan-200/70">
@@ -411,7 +410,7 @@ export function SituationScreenPage() {
                     <aside className="flex w-[360px] shrink-0 flex-col gap-4">
                         <div className={`${panelClass} p-4`}>
                             <div className="mb-3 flex items-center justify-between">
-                                <h2 className="text-sm font-medium tracking-[0.18em] text-cyan-100">路网概览</h2>
+                                <h2 className="screen-panel-title text-sm font-medium">路网概览</h2>
                                 <span className="text-xs text-cyan-300/70">
                                     更新于 {formatTimestamp(selectedRoadMeta?.updated_at)}
                                 </span>
@@ -438,7 +437,7 @@ export function SituationScreenPage() {
 
                         <div className={`${panelClass} min-h-[240px] p-4`}>
                             <div className="mb-3 flex items-center justify-between">
-                                <h2 className="text-sm font-medium tracking-[0.18em] text-cyan-100">重点门架</h2>
+                                <h2 className="screen-panel-title text-sm font-medium">重点门架</h2>
                                 <span className="text-xs text-cyan-300/70">{roadData?.gantries.length ?? 0} 个</span>
                             </div>
                             <div className="space-y-2 overflow-y-auto pr-1">
@@ -473,7 +472,7 @@ export function SituationScreenPage() {
 
                         <div className={`${panelClass} flex-1 p-4`}>
                             <div className="mb-3 flex items-center justify-between">
-                                <h2 className="text-sm font-medium tracking-[0.18em] text-cyan-100">详情卡</h2>
+                                <h2 className="screen-panel-title text-sm font-medium">详情卡</h2>
                                 <span className="text-xs text-cyan-300/70">Stage 1</span>
                             </div>
                             {selectedGantry ? (
