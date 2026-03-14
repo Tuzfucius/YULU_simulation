@@ -26,6 +26,7 @@ const ScenariosPage = React.lazy(() => import('./components/pages/ScenariosPage'
 const WorkflowPage = React.lazy(() => import('./components/pages/WorkflowPage').then(m => ({ default: m.WorkflowPage })));
 const RoadEditorPage = React.lazy(() => import('./components/pages/RoadEditorPage').then(m => ({ default: m.RoadEditorPage })));
 const PredictBuilderPage = React.lazy(() => import('./components/pages/PredictBuilderPage').then(m => ({ default: m.PredictBuilderPage })));
+const SituationScreenPage = React.lazy(() => import('./components/pages/SituationScreenPage').then(m => ({ default: m.SituationScreenPage })));
 
 // 导航项
 const NAV_ITEMS = [
@@ -36,6 +37,7 @@ const NAV_ITEMS = [
   { path: '/workflow', icon: '🔀', label: '工作流编辑', labelEn: 'Workflow' },
   { path: '/editor', icon: '✏️', label: '路径编辑', labelEn: 'Editor' },
   { path: '/predict-builder', icon: '🧠', label: '时序预测工作台', labelEn: 'Predict Builder' },
+  { path: '/screen', icon: '🖥️', label: '态势大屏', labelEn: 'Situation Screen' },
 ];
 
 // 仿真主页面（原单页面内容）
@@ -275,6 +277,7 @@ function AnimatedRoutes() {
           <Route path="/workflow" element={<WorkflowPage />} />
           <Route path="/editor" element={<RoadEditorPage />} />
           <Route path="/predict-builder" element={<PredictBuilderPage />} />
+          <Route path="/screen" element={<SituationScreenPage />} />
         </Routes>
       </motion.div>
     </AnimatePresence>
