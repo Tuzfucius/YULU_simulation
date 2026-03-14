@@ -1,6 +1,6 @@
-/**
+﻿/**
  * 主题管理 Store
- * 支持 light / dark / retro-tech 三种主题切换
+ * 支持 light / dark 两种主题切换
  */
 
 import { create } from 'zustand';
@@ -43,5 +43,6 @@ export const useThemeStore = create<ThemeStore>()(
     )
 );
 
-// 兼容旧导出，方便已有代码直接引用 Theme 类型
+// 鍏煎鏃у鍑猴紝鏂逛究宸叉湁浠ｇ爜鐩存帴寮曠敤 Theme 绫诲瀷
 export type { ThemeId as Theme };
+
