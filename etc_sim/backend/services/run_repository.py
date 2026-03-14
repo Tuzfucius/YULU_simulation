@@ -34,6 +34,86 @@ def _safe_int(value: Any, default: int) -> int:
         return default
 
 
+def _pick_first(data: dict, *keys: str, default: Any = None) -> Any:
+    for key in keys:
+        value = data.get(key)
+        if value is not None:
+            return value
+    return default
+
+
+def _derive_simulation_time(results_data: dict, statistics: dict, config: dict) -> float:
+    direct_value = _pick_first(statistics, "simulation_time", "simulationTime")
+    if direct_value is not None:
+        return _safe_float(direct_value, 0.0)
+
+    trajectory_info = results_data.get("_trajectory_info", {})
+    if trajectory_info.get("record_count"):
+        sample_interval = _safe_float(config.get("trajectory_sample_interval"), 2.0)
+        return _safe_float(trajectory_info.get("record_count"), 0.0) * sample_interval
+
+    segment_history = results_data.get("segment_speed_history", [])
+    if segment_history:
+        last_entry = segment_history[-1]
+        if isinstance(last_entry, dict):
+            return _safe_float(_pick_first(last_entry, "time", "timestamp"), 0.0)
+
+    trajectory_data = results_data.get("trajectory_data", [])
+    if trajectory_data:
+        last_entry = trajectory_data[-1]
+        if isinstance(last_entry, dict):
+            return _safe_float(_pick_first(last_entry, "time", "timestamp"), 0.0)
+
+    return _safe_float(_pick_first(config, "max_simulation_time", "simulation_time"), 0.0)
+
+
+def _normalize_summary_fields(results_data: dict) -> dict:
+    config = results_data.get("config", {}) or {}
+    statistics = results_data.get("statistics", {}) or {}
+    ml_dataset = results_data.get("ml_dataset", {}) or {}
+
+    total_vehicles = _safe_int(
+        _pick_first(statistics, "total_vehicles", "totalVehicles", default=None),
+        0,
+    )
+    if total_vehicles <= 0:
+        total_vehicles = len(results_data.get("finished_vehicles", []))
+    if total_vehicles <= 0:
+        total_vehicles = _safe_int(_pick_first(config, "total_vehicles", "totalVehicles"), 0)
+
+    total_anomalies = _safe_int(
+        _pick_first(statistics, "total_anomalies", "totalAnomalies", default=None),
+        0,
+    )
+    if total_anomalies <= 0:
+        total_anomalies = len(results_data.get("anomaly_logs", []))
+
+    etc_alerts_count = _safe_int(
+        _pick_first(statistics, "etc_alerts_count", "etcAlertsCount", default=None),
+        0,
+    )
+    if etc_alerts_count <= 0:
+        etc_alerts_count = len(results_data.get("alert_logs", []))
+
+    etc_transactions_count = _safe_int(
+        _pick_first(statistics, "etc_transactions_count", "etcTransactionsCount", default=None),
+        0,
+    )
+    if etc_transactions_count <= 0:
+        etc_transactions_count = len(results_data.get("etc_transactions", []))
+
+    return {
+        "total_vehicles": total_vehicles,
+        "total_anomalies": total_anomalies,
+        "simulation_time": _derive_simulation_time(results_data, statistics, config),
+        "etc_alerts_count": etc_alerts_count,
+        "etc_transactions_count": etc_transactions_count,
+        "ml_samples": len(ml_dataset.get("samples", [])) if isinstance(ml_dataset, dict) else 0,
+        "queue_event_count": len(results_data.get("queue_events", [])),
+        "phantom_jam_event_count": len(results_data.get("phantom_jam_events", [])),
+    }
+
+
 def build_gate_descriptors(config: Optional[dict]) -> List[dict]:
     """Build stable gate descriptors from config."""
     config = config or {}
@@ -179,8 +259,7 @@ def build_path_geometry(config: Optional[dict]) -> dict:
 def build_run_summary(simulation_id: str, results_data: dict) -> dict:
     """Build summary payload persisted beside a run."""
     config = results_data.get("config", {})
-    statistics = results_data.get("statistics", {})
-    ml_dataset = results_data.get("ml_dataset", {})
+    summary_fields = _normalize_summary_fields(results_data)
 
     return {
         "run_id": simulation_id,
@@ -195,16 +274,7 @@ def build_run_summary(simulation_id: str, results_data: dict) -> dict:
             "trajectory_sample_interval": config.get("trajectory_sample_interval"),
             "custom_road_path": config.get("custom_road_path"),
         },
-        "summary": {
-            "total_vehicles": statistics.get("total_vehicles", 0),
-            "total_anomalies": statistics.get("total_anomalies", 0),
-            "simulation_time": statistics.get("simulation_time", 0),
-            "etc_alerts_count": statistics.get("etc_alerts_count", 0),
-            "etc_transactions_count": statistics.get("etc_transactions_count", 0),
-            "ml_samples": len(ml_dataset.get("samples", [])) if isinstance(ml_dataset, dict) else 0,
-            "queue_event_count": len(results_data.get("queue_events", [])),
-            "phantom_jam_event_count": len(results_data.get("phantom_jam_events", [])),
-        },
+        "summary": summary_fields,
     }
 
 
@@ -291,14 +361,17 @@ def load_run_manifest(run_dir: Path) -> Optional[dict]:
 
 def load_run_summary(run_dir: Path) -> Optional[dict]:
     summary = load_json_file(run_dir / SUMMARY_FILENAME)
-    if summary:
-        return summary
-
     data = load_json_file(run_dir / DATA_FILENAME)
+    if summary and not data:
+        return summary
     if not data:
         return None
 
-    return build_run_summary(run_dir.name, data)
+    rebuilt_summary = build_run_summary(run_dir.name, data)
+    if summary:
+        rebuilt_summary["created_at"] = summary.get("created_at", rebuilt_summary["created_at"])
+        rebuilt_summary["status"] = summary.get("status", rebuilt_summary["status"])
+    return rebuilt_summary
 
 
 def list_runs(simulations_dir: Path) -> List[dict]:
