@@ -167,12 +167,12 @@ async def read_output_file(path: str):
 # 澶ф枃浠跺垎鍧楀姞杞?API
 # ============================================
 
-def _default_path_id(lane: int, config: dict | None = None) -> str:
+def _default_path_id(lane: int, config: Optional[dict] = None) -> str:
     prefix = "custom_lane" if (config or {}).get("custom_road_path") else "main_lane"
     return f"{prefix}_{lane}"
 
 
-def _vehicle_path_fields(entry: dict, lane: int, config: dict | None = None) -> dict:
+def _vehicle_path_fields(entry: dict, lane: int, config: Optional[dict] = None) -> dict:
     x_pos = entry.get("pos", entry.get("x", 0))
     return {
         "path_id": entry.get("path_id", _default_path_id(lane, config)),
@@ -181,7 +181,11 @@ def _vehicle_path_fields(entry: dict, lane: int, config: dict | None = None) -> 
     }
 
 
-def _attach_gates_and_geometry(frames: list, config: dict | None = None, gates: list | None = None) -> list:
+def _attach_gates_and_geometry(
+    frames: list,
+    config: Optional[dict] = None,
+    gates: Optional[list] = None,
+) -> list:
     if not frames:
         return frames
 

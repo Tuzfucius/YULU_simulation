@@ -5,6 +5,7 @@ from os import getenv
 import logging
 import traceback
 import uuid
+from typing import Optional
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -23,8 +24,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-ws_manager: WebSocketManager | None = None
-storage_service: StorageService | None = None
+ws_manager: Optional[WebSocketManager] = None
+storage_service: Optional[StorageService] = None
 
 
 @asynccontextmanager
