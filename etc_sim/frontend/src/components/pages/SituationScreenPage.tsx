@@ -408,8 +408,8 @@ export function SituationScreenPage() {
     ];
 
     return (
-        <div className="screen-shell h-full overflow-hidden text-[var(--text-primary)]">
-            <div className="flex h-full flex-col">
+        <div className="screen-shell h-full overflow-y-auto overflow-x-hidden text-[var(--text-primary)]">
+            <div className="flex min-h-full flex-col">
                 <ScreenHeader
                     title={lang === 'en' ? 'Highway Situation Screen' : '高速态势感知大屏'}
                     subtitle="Expressway Screen"
@@ -424,7 +424,7 @@ export function SituationScreenPage() {
                     })}
                 />
 
-                <div className="flex min-h-0 flex-1 gap-4 p-4">
+                <div className="flex flex-1 gap-4 p-4">
                     <section className="flex min-w-0 flex-1 flex-col gap-4">
                         <div className="grid grid-cols-4 gap-3">
                             {[
@@ -442,7 +442,7 @@ export function SituationScreenPage() {
                             ))}
                         </div>
 
-                        <ScreenPanel className="relative min-h-0 flex-1 overflow-hidden p-0">
+                        <ScreenPanel className="relative min-h-[420px] flex-1 overflow-hidden p-0">
                             <div className="absolute left-4 top-4 z-10 flex items-center gap-3">
                                 <div className="screen-chip rounded-full px-3 py-1 text-xs">
                                     地图主舞台
@@ -578,7 +578,7 @@ export function SituationScreenPage() {
                         </ScreenPanel>
                     </section>
 
-                    <aside className="relative z-10 flex min-h-0 w-[360px] shrink-0 flex-col gap-4 overflow-y-auto pr-1">
+                    <aside className="relative z-10 flex w-[360px] shrink-0 flex-col gap-4 overflow-y-auto pr-1">
                         <ScreenPanel
                             title="路网概览"
                             aside={<span className="text-xs text-cyan-300/70">更新于 {formatTimestamp(selectedRoadMeta?.updated_at)}</span>}
