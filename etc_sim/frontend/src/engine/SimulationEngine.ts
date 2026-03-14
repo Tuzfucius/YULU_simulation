@@ -1,6 +1,6 @@
-/**
- * 仿真引擎
- * 完整移植自 模拟车流.py
+﻿/**
+ * 浠跨湡寮曟搸
+ * 瀹屾暣绉绘鑷?妯℃嫙杞︽祦.py
  */
 
 import { Vehicle } from './Vehicle';
@@ -23,7 +23,7 @@ import {
     type CurveSegment,
 } from './CurvatureProfile';
 
-// 异常日志
+// 寮傚父鏃ュ織
 interface AnomalyLog {
     id: number;
     type: AnomalyType;
@@ -32,7 +32,7 @@ interface AnomalyLog {
     segment: number;
 }
 
-// 轨迹点
+// 杞ㄨ抗鐐?
 export interface TrajectoryPoint {
     id: number;
     time: number;
@@ -45,47 +45,47 @@ export interface TrajectoryPoint {
 }
 
 
-// 区间速度记录
+// 鍖洪棿閫熷害璁板綍
 interface SegmentSpeedRecord {
     time: number;
     segment: number;
     avgSpeed: number;
     density: number;
     vehicleCount: number;
-    flow: number; // 流量 = 密度 * 速度
+    flow: number; // 娴侀噺 = 瀵嗗害 * 閫熷害
 }
 
-// 车道历史记录
+// 杞﹂亾鍘嗗彶璁板綍
 interface LaneHistoryRecord {
     time: number;
     counts: Record<string, number>; // lane index -> count
 }
 
-// 图表数据
+// 鍥捐〃鏁版嵁
 export interface ChartData {
-    // 速度分布
+    // 閫熷害鍒嗗竷
     speedDistribution: { range: string; count: number }[];
-    // 车辆类型
+    // 杞﹁締绫诲瀷
     vehicleTypeData: { name: string; value: number; color: string }[];
-    // 进度曲线
+    // 杩涘害鏇茬嚎
     progressData: { time: number; completed: number; active: number }[];
-    // 换道分析
+    // 鎹㈤亾鍒嗘瀽
     laneChangeData: {
         byReason: { reason: string; count: number }[];
         byStyle: { style: string; count: number; color: string }[];
     };
-    // 异常分布
+    // 寮傚父鍒嗗竷
     anomalyDistribution: { segment: string; type1: number; type2: number; type3: number }[];
-    // 区间速度热力图数据
+    // 鍖洪棿閫熷害鐑姏鍥炬暟鎹?
     speedHeatmap: { time: number; segment: number; speed: number }[];
-    // 车辆类型速度对比
+    // 杞﹁締绫诲瀷閫熷害瀵规瘮
     typeSpeedComparison: { type: string; avgSpeed: number; color: string }[];
-    // 驾驶风格分析
+    // 椹鹃┒椋庢牸鍒嗘瀽
     driverStyleAnalysis: {
         counts: { style: string; count: number; color: string }[];
         avgSpeeds: { style: string; speed: number; color: string }[];
     };
-    // 轨迹数据 (采样)
+    // 杞ㄨ抗鏁版嵁 (閲囨牱)
     trajectoryData: TrajectoryPoint[];
     speedProfile: { timeSegment: number; avgSpeed: number; label: string }[];
     simulationTime: number;
@@ -99,15 +99,15 @@ export class SimulationEngine {
     private spawnSchedule: number[] = [];
     private spawnIndex: number = 0;
 
-    // 动态路段参数（每次 start() 时根据 simStore 重新计算）
+    // 鍔ㄦ€佽矾娈靛弬鏁帮紙姣忔 start() 鏃舵牴鎹?simStore 閲嶆柊璁＄畻锛?
     private segmentLengthKm: number = SEGMENT_LENGTH_KM;
     private numSegments: number = NUM_SEGMENTS;
-    /** 区间边界里程（km）数组，长度为 numSegments+1，例如 [0, g1, g2, ..., roadLength] */
+    /** 鍖洪棿杈圭晫閲岀▼锛坘m锛夋暟缁勶紝闀垮害涓?numSegments+1锛屼緥濡?[0, g1, g2, ..., roadLength] */
     private segmentBoundaries: number[] = [];
-    /** 弯道曲率档案（load 自定义路网时构建） */
+    /** 寮亾鏇茬巼妗ｆ锛坙oad 鑷畾涔夎矾缃戞椂鏋勫缓锛?*/
     private curveProfile: CurveSegment[] = [];
 
-    // 记录数据
+    // 璁板綍鏁版嵁
     private anomalyLogs: AnomalyLog[] = [];
     private trajectoryData: TrajectoryPoint[] = [];
     private segmentSpeedHistory: SegmentSpeedRecord[] = [];
@@ -115,7 +115,7 @@ export class SimulationEngine {
     private progressHistory: { time: number; completed: number; active: number }[] = [];
 
 
-    // 统计
+    // 缁熻
     private typeCount: Record<VehicleType, number> = { CAR: 0, TRUCK: 0, BUS: 0 };
     private styleCount: Record<DriverStyle, number> = { aggressive: 0, normal: 0, conservative: 0 };
     private totalLaneChanges: number = 0;
@@ -124,19 +124,19 @@ export class SimulationEngine {
     private speedHistory: number[] = [];
     private sampledTrajectoryData: TrajectoryPoint[] = [];
 
-    // 匝道配置与累加器
+    // 鍖濋亾閰嶇疆涓庣疮鍔犲櫒
     private ramps: any[] = [];
     private onRampAccumulator: Map<string, number> = new Map();
 
     constructor() {
     }
 
-    // --- 生成投放计划 ---
+    // --- 鐢熸垚鎶曟斁璁″垝 ---
     private planSpawns(totalVehicles: number) {
         this.spawnSchedule = [];
         let tCycle = 0;
 
-        // 精确生成目标数量的投放时间戳
+        // 绮剧‘鐢熸垚鐩爣鏁伴噺鐨勬姇鏀炬椂闂存埑
         while (this.spawnSchedule.length < totalVehicles) {
             const remaining = totalVehicles - this.spawnSchedule.length;
             const n = Math.min(2 + Math.floor(Math.random() * 5), remaining);
@@ -145,42 +145,42 @@ export class SimulationEngine {
             tCycle += 10;
         }
 
-        // 确保精确为目标数量
+        // 纭繚绮剧‘涓虹洰鏍囨暟閲?
         this.spawnSchedule = this.spawnSchedule.slice(0, totalVehicles).sort((a, b) => a - b);
     }
 
 
-    // 循环控制
+    // 寰幆鎺у埗
     private timeoutId: any = null;
 
-    // --- 启动仿真 ---
+    // --- 鍚姩浠跨湡 ---
     async start() {
         const store = useSimStore.getState();
         const config = store.config;
 
-        // 动态计算路段参数
+        // 鍔ㄦ€佽绠楄矾娈靛弬鏁?
         const roadLengthKm = config.roadLengthKm;
         const gantryPositions = config.customGantryPositionsKm;
         if (gantryPositions && gantryPositions.length >= 1) {
-            // 自定义路网：按门架位置划分区间，区间数 = 门架数 + 1
-            // 边界：[0, g1, g2, ..., gN, roadLength]（含首尾）
+            // 鑷畾涔夎矾缃戯細鎸夐棬鏋朵綅缃垝鍒嗗尯闂达紝鍖洪棿鏁?= 闂ㄦ灦鏁?+ 1
+            // 杈圭晫锛歔0, g1, g2, ..., gN, roadLength]锛堝惈棣栧熬锛?
             this.segmentBoundaries = [0, ...gantryPositions, roadLengthKm];
             this.numSegments = gantryPositions.length + 1;
-            // segmentLengthKm 此时无意义（各区间不等长），置为平均值供兼容
+            // segmentLengthKm 姝ゆ椂鏃犳剰涔夛紙鍚勫尯闂翠笉绛夐暱锛夛紝缃负骞冲潎鍊间緵鍏煎
             this.segmentLengthKm = roadLengthKm / this.numSegments;
         } else {
-            // 无自定义路网：按 ETC 门架间距均匀划分区间
+            // 鏃犺嚜瀹氫箟璺綉锛氭寜 ETC 闂ㄦ灦闂磋窛鍧囧寑鍒掑垎鍖洪棿
             const intervalKm = (config.etcGateIntervalKm > 0) ? config.etcGateIntervalKm : 1;
             this.numSegments = Math.max(1, Math.ceil(roadLengthKm / intervalKm));
             this.segmentLengthKm = roadLengthKm / this.numSegments;
-            // 均匀分布的边界
+            // 鍧囧寑鍒嗗竷鐨勮竟鐣?
             this.segmentBoundaries = Array.from(
                 { length: this.numSegments + 1 },
                 (_, i) => i * this.segmentLengthKm
             );
         }
 
-        // 重置
+        // 閲嶇疆
         this.vehicles = [];
         this.finishedVehicles = [];
         this.vehicleIdCounter = 0;
@@ -198,11 +198,11 @@ export class SimulationEngine {
         this.speedHistory = [];
         this.sampledTrajectoryData = [];
 
-        // 初始化匝道
+        // 鍒濆鍖栧対閬?
         this.ramps = [...(config.customRamps || [])];
         this.onRampAccumulator.clear();
 
-        // 构建弯道曲率档案（仅自定义路网时有效）
+        // 鏋勫缓寮亾鏇茬巼妗ｆ锛堜粎鑷畾涔夎矾缃戞椂鏈夋晥锛?
         try {
             const customRoadPath = config.customRoadPath;
             if (customRoadPath) {
@@ -234,10 +234,10 @@ export class SimulationEngine {
             timestamp: 0,
             level: 'INFO',
             category: 'SYSTEM',
-            message: `Simulation started: ${roadLengthKm.toFixed(1)}km × ${config.numLanes} lanes (${this.numSegments} segments × ${this.segmentLengthKm.toFixed(2)}km), target ${config.totalVehicles} vehicles`,
+            message: `Simulation started: ${roadLengthKm.toFixed(1)}km 脳 ${config.numLanes} lanes (${this.numSegments} segments 脳 ${this.segmentLengthKm.toFixed(2)}km), target ${config.totalVehicles} vehicles`,
         });
 
-        // 启动循环
+        // 鍚姩寰幆
         this.runLoop();
     }
 
@@ -250,68 +250,68 @@ export class SimulationEngine {
         const isTurbo = store.turboMode;
 
         if (isTurbo) {
-            // 极速模式：批量执行
-            // 每次执行 20 次 step (即 100个时间步)，然后让出主线程
+            // 鏋侀€熸ā寮忥細鎵归噺鎵ц
+            // 姣忔鎵ц 20 娆?step (鍗?100涓椂闂存)锛岀劧鍚庤鍑轰富绾跨▼
             const batchSize = 20;
             for (let i = 0; i < batchSize; i++) {
-                // 如果中途停止或完成，立即退出
+                // 濡傛灉涓€斿仠姝㈡垨瀹屾垚锛岀珛鍗抽€€鍑?
                 const currentStore = useSimStore.getState();
                 if (!currentStore.isRunning || currentStore.isPaused || currentStore.isComplete) return;
 
                 this.step(true); // suppress UI updates
             }
-            // 批量执行完后更新一次 UI
+            // 鎵归噺鎵ц瀹屽悗鏇存柊涓€娆?UI
             this.updateUI();
 
-            // 立即调度下一次
+            // 绔嬪嵆璋冨害涓嬩竴娆?
             this.timeoutId = setTimeout(() => this.runLoop(), 0);
         } else {
-            // 普通模式：执行一次，等待 100ms
+            // 鏅€氭ā寮忥細鎵ц涓€娆★紝绛夊緟 100ms
             this.step(false);
             this.timeoutId = setTimeout(() => this.runLoop(), 100);
         }
     }
 
-    // --- 单步仿真 ---
+    // --- 鍗曟浠跨湡 ---
     private step(suppressUI: boolean = false) {
         const store = useSimStore.getState();
         const config = store.config;
 
-        // 每次 step 模拟 5 个时间步 (5 * simulationDt)
+        // 姣忔 step 妯℃嫙 5 涓椂闂存 (5 * simulationDt)
         for (let i = 0; i < 5; i++) {
             this.currentTime += SIMULATION_DT;
 
-            // 生成车辆
+            // 鐢熸垚杞﹁締
             this.spawnVehicles(config);
 
-            // 处理匝道流量
+            // 澶勭悊鍖濋亾娴侀噺
             this.processRamps(config, SIMULATION_DT);
 
-            // 更新车辆
+            // 鏇存柊杞﹁締
             this.updateVehicles();
 
-            // 记录轨迹（可配置采样间隔，从运行时配置读取）
+            // 璁板綍杞ㄨ抗锛堝彲閰嶇疆閲囨牱闂撮殧锛屼粠杩愯鏃堕厤缃鍙栵級
             const sampleInterval = config.trajectorySampleInterval ?? TRAJECTORY_SAMPLE_INTERVAL;
             if (Math.floor(this.currentTime) % sampleInterval === 0) {
                 this.recordTrajectory();
-                // 触发一次轨迹向下采样，以供前端热更新
+                // 瑙﹀彂涓€娆¤建杩瑰悜涓嬮噰鏍凤紝浠ヤ緵鍓嶇鐑洿鏂?
                 this.prepareTrajectorySamples();
             }
 
-            // 记录区间速度（每30秒）
+            // 璁板綍鍖洪棿閫熷害锛堟瘡30绉掞級
             if (Math.floor(this.currentTime) % 30 === 0) {
                 this.recordSegmentSpeed();
             }
         }
 
-        // 更新 UI (仅在不抑制时更新)
+        // 鏇存柊 UI (浠呭湪涓嶆姂鍒舵椂鏇存柊)
         if (!suppressUI) {
             this.updateUI();
         }
 
-        // 检查完成条件
-        // 修复：如果还有活跃车辆，允许延长仿真时间，直到所有车辆完成或达到 2倍最大时间
-        // 这解决了 "Completed Vehicles" 远小于 "Target" 的问题
+        // 妫€鏌ュ畬鎴愭潯浠?
+        // 淇锛氬鏋滆繕鏈夋椿璺冭溅杈嗭紝鍏佽寤堕暱浠跨湡鏃堕棿锛岀洿鍒版墍鏈夎溅杈嗗畬鎴愭垨杈惧埌 2鍊嶆渶澶ф椂闂?
+        // 杩欒В鍐充簡 "Completed Vehicles" 杩滃皬浜?"Target" 鐨勯棶棰?
         const activeVehiclesCount = this.vehicles.length;
         const allSpawned = this.spawnIndex >= this.spawnSchedule.length;
         const hardTimeLimit = config.maxSimulationTime * 2; // 2x buffer
@@ -321,9 +321,9 @@ export class SimulationEngine {
         } else if (this.currentTime >= hardTimeLimit) {
             this.complete('Simulation stopped (Hard time limit reached)');
         } else if (this.currentTime >= config.maxSimulationTime) {
-            // 超过预期时间，但还有车辆
+            // 瓒呰繃棰勬湡鏃堕棿锛屼絾杩樻湁杞﹁締
             if (activeVehiclesCount > 0) {
-                // 继续运行，但在 log 中提示 (可选)
+                // 缁х画杩愯锛屼絾鍦?log 涓彁绀?(鍙€?
                 if (Math.floor(this.currentTime) % 100 === 0) {
                     // store.addLog(...) // Optional: log extension
                 }
@@ -333,13 +333,13 @@ export class SimulationEngine {
         }
     }
 
-    // --- 生成车辆 ---
+    // --- 鐢熸垚杞﹁締 ---
     private spawnVehicles(config: any) {
-        // 检查是否还有需要投放的车辆且当前时间已到
+        // 妫€鏌ユ槸鍚﹁繕鏈夐渶瑕佹姇鏀剧殑杞﹁締涓斿綋鍓嶆椂闂村凡鍒?
         while (this.spawnIndex < this.spawnSchedule.length && this.spawnSchedule[this.spawnIndex] <= this.currentTime) {
-            // 检查是否已达到目标数量
+            // 妫€鏌ユ槸鍚﹀凡杈惧埌鐩爣鏁伴噺
             if (this.vehicleIdCounter >= config.totalVehicles) {
-                this.spawnIndex = this.spawnSchedule.length; // 跳过剩余
+                this.spawnIndex = this.spawnSchedule.length; // 璺宠繃鍓╀綑
                 break;
             }
 
@@ -357,14 +357,14 @@ export class SimulationEngine {
                 if (clear) {
                     const isPotentialAnomaly = Math.random() < config.anomalyRatio;
 
-                    // 确定车辆类型
+                    // 纭畾杞﹁締绫诲瀷
                     const typeRand = Math.random();
                     let type: VehicleType = 'CAR';
                     if (typeRand < config.carRatio) type = 'CAR';
                     else if (typeRand < config.carRatio + config.truckRatio) type = 'TRUCK';
                     else type = 'BUS';
 
-                    // 确定驾驶风格
+                    // 纭畾椹鹃┒椋庢牸
                     const styleRand = Math.random();
                     let style: DriverStyle = 'normal';
                     if (styleRand < config.aggressiveRatio) style = 'aggressive';
@@ -381,7 +381,7 @@ export class SimulationEngine {
                     );
                     this.vehicles.push(vehicle);
 
-                    // 统计
+                    // 缁熻
                     this.typeCount[vehicle.type]++;
                     this.styleCount[vehicle.driverStyle]++;
                     this.speedHistory.push(vehicle.speed * 3.6);
@@ -390,19 +390,19 @@ export class SimulationEngine {
                 }
             }
 
-            // 无论是否放置成功，都移动到下一个投放时间（避免无限循环）
+            // 鏃犺鏄惁鏀剧疆鎴愬姛锛岄兘绉诲姩鍒颁笅涓€涓姇鏀炬椂闂达紙閬垮厤鏃犻檺寰幆锛?
             this.spawnIndex++;
         }
     }
 
-    // --- 匝道处理 ---
+    // --- 鍖濋亾澶勭悊 ---
     private processRamps(config: any, dt: number) {
         if (!this.ramps || this.ramps.length === 0) return;
 
-        // 1. 入口匝道 (On-Ramps)
+        // 1. 鍏ュ彛鍖濋亾 (On-Ramps)
         const onRamps = this.ramps.filter(r => r.type === 'on_ramp');
         for (const ramp of onRamps) {
-            // flowRate 为 veh/h，转换为 veh/s
+            // flowRate 涓?veh/h锛岃浆鎹负 veh/s
             const ratePerSec = ramp.flowRate / 3600;
             const prob = ratePerSec * dt;
 
@@ -410,7 +410,7 @@ export class SimulationEngine {
             accum += prob;
 
             while (accum >= 1) {
-                // 检查总数限制
+                // 妫€鏌ユ€绘暟闄愬埗
                 if (ramp.totalVehicles !== undefined && ramp.totalVehicles !== null) {
                     const spawnedCount = ramp._spawnedCount || 0;
                     if (spawnedCount >= ramp.totalVehicles) {
@@ -420,11 +420,11 @@ export class SimulationEngine {
                     ramp._spawnedCount = spawnedCount + 1;
                 }
 
-                // 尝试在最外侧车道生成车辆
+                // 灏濊瘯鍦ㄦ渶澶栦晶杞﹂亾鐢熸垚杞﹁締
                 const targetLane = config.numLanes - 1;
                 const spawnPos = ramp.position_km * 1000;
 
-                // 检查空间（前后 15 米无车）
+                // 妫€鏌ョ┖闂达紙鍓嶅悗 15 绫虫棤杞︼級
                 const isSpaceFree = !this.vehicles.some(v =>
                     v.lane === targetLane &&
                     Math.abs(v.pos - spawnPos) < 15
@@ -433,14 +433,14 @@ export class SimulationEngine {
                 if (isSpaceFree) {
                     const isPotentialAnomaly = Math.random() < config.anomalyRatio;
 
-                    // 车辆类型
+                    // 杞﹁締绫诲瀷
                     const typeRand = Math.random();
                     let type: VehicleType = 'CAR';
                     if (typeRand < config.carRatio) type = 'CAR';
                     else if (typeRand < config.carRatio + config.truckRatio) type = 'TRUCK';
                     else type = 'BUS';
 
-                    // 驾驶风格
+                    // 椹鹃┒椋庢牸
                     const styleRand = Math.random();
                     let style: DriverStyle = 'normal';
                     if (styleRand < config.aggressiveRatio) style = 'aggressive';
@@ -456,9 +456,9 @@ export class SimulationEngine {
                         style
                     );
                     v.pos = spawnPos;
-                    // 入口匝道汇入车辆速度略低，假设 30km/h (约 8.3m/s)
+                    // 鍏ュ彛鍖濋亾姹囧叆杞﹁締閫熷害鐣ヤ綆锛屽亣璁?30km/h (绾?8.3m/s)
                     v.speed = 8.3;
-                    v.color = '#10b981'; // 特殊涂装：绿色表示是从入口进来的
+                    v.color = '#10b981'; // 鐗规畩娑傝锛氱豢鑹茶〃绀烘槸浠庡叆鍙ｈ繘鏉ョ殑
 
                     this.vehicles.push(v);
 
@@ -468,14 +468,14 @@ export class SimulationEngine {
 
                     accum -= 1;
                 } else {
-                    // 空间不足，等待下一帧
+                    // 绌洪棿涓嶈冻锛岀瓑寰呬笅涓€甯?
                     break;
                 }
             }
             this.onRampAccumulator.set(ramp.id, accum);
         }
 
-        // 2. 出口匝道 (Off-Ramps)
+        // 2. 鍑哄彛鍖濋亾 (Off-Ramps)
         const offRamps = this.ramps.filter(r => r.type === 'off_ramp');
         for (const ramp of offRamps) {
             const rampPosM = ramp.position_km * 1000;
@@ -485,10 +485,10 @@ export class SimulationEngine {
             let accum = this.onRampAccumulator.get(ramp.id) || 0;
             accum += targetExitProb;
 
-            // 倒序遍历车辆，方便删除
+            // 鍊掑簭閬嶅巻杞﹁締锛屾柟渚垮垹闄?
             for (let i = this.vehicles.length - 1; i >= 0; i--) {
                 const v = this.vehicles[i];
-                // 如果车辆在最外侧车道，且途径出口匝道附近区间（+/- 15米）
+                // 濡傛灉杞﹁締鍦ㄦ渶澶栦晶杞﹂亾锛屼笖閫斿緞鍑哄彛鍖濋亾闄勮繎鍖洪棿锛?/- 15绫筹級
                 if (accum >= 1 && v.lane === config.numLanes - 1 && Math.abs(v.pos - rampPosM) < 15) {
 
                     if (ramp.totalVehicles !== undefined && ramp.totalVehicles !== null) {
@@ -500,7 +500,7 @@ export class SimulationEngine {
                         ramp._despawnedCount = despawnedCount + 1;
                     }
 
-                    // 车辆驶出路网
+                    // 杞﹁締椹跺嚭璺綉
                     this.finishedVehicles.push(v);
                     this.vehicles.splice(i, 1);
                     accum -= 1;
@@ -510,25 +510,25 @@ export class SimulationEngine {
         }
     }
 
-    // --- 更新车辆 ---
+    // --- 鏇存柊杞﹁締 ---
     private updateVehicles() {
         const store = useSimStore.getState();
         const roadLengthM = store.config.roadLengthKm * 1000;
         const blockedLanes = new Set<number>();
         const completedIds: number[] = [];
 
-        // 准备路段边界（米），用于 Vehicle.update 修正区间统计
+        // 鍑嗗璺杈圭晫锛堢背锛夛紝鐢ㄤ簬 Vehicle.update 淇鍖洪棿缁熻
         const boundariesM = this.segmentBoundaries.map(k => k * 1000);
 
-        // 更新每辆车
+        // 鏇存柊姣忚締杞?
         for (const v of this.vehicles) {
-            // 每帧注入弯道半径（加错返回 Infinity）
+            // 姣忓抚娉ㄥ叆寮亾鍗婂緞锛堝姞閿欒繑鍥?Infinity锛?
             v.currentCurveRadius = getCurveRadius(v.pos / 1000, this.curveProfile);
 
-            // 尝试触发异常
+            // 灏濊瘯瑙﹀彂寮傚父
             const anomalyResult = v.triggerAnomaly(this.currentTime);
             if (anomalyResult) {
-                // 修复：直接使用车辆当前维护的 segment，保证与统计逻辑一致
+                // 淇锛氱洿鎺ヤ娇鐢ㄨ溅杈嗗綋鍓嶇淮鎶ょ殑 segment锛屼繚璇佷笌缁熻閫昏緫涓€鑷?
                 const segmentIdx = v.currentSegment;
                 this.anomalyLogs.push({
                     id: v.id,
@@ -546,16 +546,16 @@ export class SimulationEngine {
                 });
             }
 
-            // 更新物理状态
+            // 鏇存柊鐗╃悊鐘舵€?
             v.update(SIMULATION_DT, this.vehicles, blockedLanes, this.currentTime, boundariesM);
 
-            // 检查完成
+            // 妫€鏌ュ畬鎴?
             if (v.pos >= roadLengthM) {
                 completedIds.push(v.id);
                 this.finishedVehicles.push(v);
                 this.speedHistory.push(v.speed * 3.6);
 
-                // 统计换道
+                // 缁熻鎹㈤亾
                 this.totalLaneChanges += v.laneChangeCount;
                 this.laneChangeByReason.free += v.laneChangeReasons.free;
                 this.laneChangeByReason.forced += v.laneChangeReasons.forced;
@@ -563,11 +563,11 @@ export class SimulationEngine {
             }
         }
 
-        // 移除完成车辆
+        // 绉婚櫎瀹屾垚杞﹁締
         this.vehicles = this.vehicles.filter(v => !completedIds.includes(v.id));
     }
 
-    // --- 记录轨迹 ---
+    // --- 璁板綍杞ㄨ抗 ---
     private recordTrajectory() {
         for (const v of this.vehicles) {
             this.trajectoryData.push({
@@ -583,14 +583,14 @@ export class SimulationEngine {
         }
     }
 
-    // --- 记录区间速度 ---
+    // --- 璁板綍鍖洪棿閫熷害 ---
     private recordSegmentSpeed() {
         const store = useSimStore.getState();
         const config = store.config;
 
-        // 读取科研噪声配置
+        // 璇诲彇绉戠爺鍣０閰嶇疆
         const enableNoise = config.enableNoise || false;
-        const stdDev = config.speedVariance || 0; // 视为标准差 km/h
+        const stdDev = config.speedVariance || 0; // 瑙嗕负鏍囧噯宸?km/h
         const dropRate = config.dropRate || 0;
 
         for (let seg = 0; seg < this.numSegments; seg++) {
@@ -600,30 +600,30 @@ export class SimulationEngine {
 
             let vehiclesInSeg = this.vehicles.filter(v => v.pos >= segStartM && v.pos < segEndM);
 
-            // 1. 模拟门架丢包 (随机丢弃记录)
+            // 1. 妯℃嫙闂ㄦ灦涓㈠寘 (闅忔満涓㈠純璁板綍)
             if (enableNoise && dropRate > 0) {
                 vehiclesInSeg = vehiclesInSeg.filter(() => Math.random() >= dropRate);
             }
 
             if (vehiclesInSeg.length > 0) {
-                // 2. 模拟高斯测速漂移误差
+                // 2. 妯℃嫙楂樻柉娴嬮€熸紓绉昏宸?
                 let speedSum = 0;
                 for (const v of vehiclesInSeg) {
                     let vSpeedKmH = v.speed * 3.6;
                     if (enableNoise && stdDev > 0) {
-                        // Box-Muller 生成标准正态分布随机数
+                        // Box-Muller 鐢熸垚鏍囧噯姝ｆ€佸垎甯冮殢鏈烘暟
                         const u1 = Math.max(Number.MIN_VALUE, Math.random());
                         const u2 = Math.random();
                         const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
                         vSpeedKmH += z0 * stdDev;
-                        vSpeedKmH = Math.max(0, vSpeedKmH); // 防止速度为负
+                        vSpeedKmH = Math.max(0, vSpeedKmH); // 闃叉閫熷害涓鸿礋
                     }
                     speedSum += vSpeedKmH / 3.6;
                 }
 
                 const avgSpeed = speedSum / vehiclesInSeg.length;
                 const density = (vehiclesInSeg.length / Math.max(segLenM, 1)) * 1000 * config.numLanes;
-                const flow = density * avgSpeed; // 流量公式: q = k * v
+                const flow = density * avgSpeed; // 娴侀噺鍏紡: q = k * v
 
                 this.segmentSpeedHistory.push({
                     time: this.currentTime,
@@ -636,14 +636,14 @@ export class SimulationEngine {
             }
         }
 
-        // 记录车道分布
+        // 璁板綍杞﹂亾鍒嗗竷
         const laneCounts: Record<string, number> = {};
         for (let lane = 0; lane < config.numLanes; lane++) {
             laneCounts[String(lane)] = this.vehicles.filter(v => v.lane === lane).length;
         }
         this.laneHistory.push({ time: this.currentTime, counts: laneCounts });
 
-        // 记录进度历史
+        // 璁板綍杩涘害鍘嗗彶
         if (this.progressHistory.length < 200) {
             this.progressHistory.push({
                 time: this.currentTime,
@@ -653,17 +653,17 @@ export class SimulationEngine {
         }
     }
 
-    // --- 更新 UI ---
+    // --- 鏇存柊 UI ---
     private updateUI() {
         const store = useSimStore.getState();
         const config = store.config;
 
-        // 修复进度条计算：如果超时运行，动态延长总时间，避免提前满格
-        // 保持至少 10秒 或 5% 的缓冲，让用户知道仿真还在进行
+        // 淇杩涘害鏉¤绠楋細濡傛灉瓒呮椂杩愯锛屽姩鎬佸欢闀挎€绘椂闂达紝閬垮厤鎻愬墠婊℃牸
+        // 淇濇寔鑷冲皯 10绉?鎴?5% 鐨勭紦鍐诧紝璁╃敤鎴风煡閬撲豢鐪熻繕鍦ㄨ繘琛?
         const isOvertime = this.currentTime >= config.maxSimulationTime;
         const activeVehicles = this.vehicles.length;
 
-        // 动态总时间：如果超时且有车，总时间 = 当前时间 + 缓冲
+        // 鍔ㄦ€佹€绘椂闂达細濡傛灉瓒呮椂涓旀湁杞︼紝鎬绘椂闂?= 褰撳墠鏃堕棿 + 缂撳啿
         const displayTotalTime = (isOvertime && activeVehicles > 0)
             ? this.currentTime + 30
             : config.maxSimulationTime;
@@ -676,14 +676,14 @@ export class SimulationEngine {
 
         store.setProgress({
             currentTime: this.currentTime,
-            totalTime: displayTotalTime, // 传给 UI 显示动态总时间
+            totalTime: displayTotalTime, // 浼犵粰 UI 鏄剧ず鍔ㄦ€佹€绘椂闂?
             progress,
             activeVehicles: this.vehicles.length,
             completedVehicles: this.finishedVehicles.length,
             activeAnomalies: this.vehicles.filter(v => v.anomalyState === 'active').length,
         });
 
-        // 实时更新统计
+        // 瀹炴椂鏇存柊缁熻
         store.setStatistics({
             totalVehicles: this.vehicleIdCounter,
             completedVehicles: this.finishedVehicles.length,
@@ -692,21 +692,21 @@ export class SimulationEngine {
                 ? (config.roadLengthKm * 1000) / ((avgSpeed / 3.6) || 1)
                 : 0,
             totalAnomalies: this.anomalyLogs.length,
-            // 修复：仅统计当前活跃受影响车辆（实时量）
+            // 淇锛氫粎缁熻褰撳墠娲昏穬鍙楀奖鍝嶈溅杈嗭紙瀹炴椂閲忥級
             affectedByAnomaly: this.vehicles.filter(v => v.isAffected).length,
             totalLaneChanges: this.totalLaneChanges,
             maxCongestionLength: 0, // TODO
             simulationTime: this.currentTime,
-            // 将数据实时抛给前端供图表渲染
+            // 灏嗘暟鎹疄鏃舵姏缁欏墠绔緵鍥捐〃娓叉煋
             segmentSpeedHistory: [...this.segmentSpeedHistory],
             segmentBoundaries: this.segmentBoundaries,
             sampledTrajectory: this.sampledTrajectoryData,
         });
     }
 
-    // --- 生成图表数据 ---
+    // --- 鐢熸垚鍥捐〃鏁版嵁 ---
     private generateChartData(): ChartData {
-        // 速度分布
+        // 閫熷害鍒嗗竷
         const speedBins = [0, 20, 40, 60, 80, 100, 120, 140];
         const speedDistribution = speedBins.slice(0, -1).map((min, i) => {
             const max = speedBins[i + 1];
@@ -714,21 +714,21 @@ export class SimulationEngine {
             return { range: `${min}-${max}`, count };
         });
 
-        // 车辆类型
+        // 杞﹁締绫诲瀷
         const vehicleTypeData = [
             { name: 'Car', value: this.typeCount.CAR, color: COLORS.CAR },
             { name: 'Truck', value: this.typeCount.TRUCK, color: COLORS.TRUCK },
             { name: 'Bus', value: this.typeCount.BUS, color: COLORS.BUS },
         ];
 
-        // 进度曲线
+        // 杩涘害鏇茬嚎
         const progressData = this.progressHistory.map(p => ({
             time: Math.floor(p.time),
             completed: p.completed,
             active: p.active,
         }));
 
-        // 换道分析
+        // 鎹㈤亾鍒嗘瀽
         const laneChangeData = {
             byReason: [
                 { reason: 'Free Flow', count: this.laneChangeByReason.free },
@@ -742,7 +742,7 @@ export class SimulationEngine {
             distribution: this.calcLaneChangeDistribution(),
         };
 
-        // 异常分布
+        // 寮傚父鍒嗗竷
         const anomalyDistribution = Array.from({ length: this.numSegments }, (_, i) => ({
             segment: `${(i * this.segmentLengthKm).toFixed(1)}-${((i + 1) * this.segmentLengthKm).toFixed(1)}km`,
             type1: this.anomalyLogs.filter(a => a.segment === i && a.type === 1).length,
@@ -750,14 +750,14 @@ export class SimulationEngine {
             type3: this.anomalyLogs.filter(a => a.segment === i && a.type === 3).length,
         }));
 
-        // 速度热力图数据
+        // 閫熷害鐑姏鍥炬暟鎹?
         const speedHeatmap = this.segmentSpeedHistory.map(r => ({
-            time: Math.floor(r.time / 60), // 分钟
+            time: Math.floor(r.time / 60), // 鍒嗛挓
             segment: r.segment,
             speed: r.avgSpeed * 3.6,
         }));
 
-        // 车辆类型速度对比
+        // 杞﹁締绫诲瀷閫熷害瀵规瘮
         const typeSpeedComparison = (['CAR', 'TRUCK', 'BUS'] as VehicleType[]).map(type => {
             const speeds = this.finishedVehicles.filter(v => v.type === type).map(v => v.speed * 3.6);
             const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
@@ -768,7 +768,7 @@ export class SimulationEngine {
             };
         });
 
-        // 驾驶风格分析
+        // 椹鹃┒椋庢牸鍒嗘瀽
         const driverStyleAnalysis = {
             counts: (['aggressive', 'normal', 'conservative'] as DriverStyle[]).map(style => ({
                 style: DRIVER_STYLE_CONFIG[style].name,
@@ -788,21 +788,21 @@ export class SimulationEngine {
             }),
         };
 
-        // 轨迹数据 (下采样以提高性能，限制最大点数)
-        // 假设最大显示 5000 个点，随机采样或均匀采样
+        // 杞ㄨ抗鏁版嵁 (涓嬮噰鏍蜂互鎻愰珮鎬ц兘锛岄檺鍒舵渶澶х偣鏁?
+        // 鍋囪鏈€澶ф樉绀?5000 涓偣锛岄殢鏈洪噰鏍锋垨鍧囧寑閲囨牱
         const maxPoints = 5000;
         const samplingRate = Math.max(1, Math.floor(this.trajectoryData.length / maxPoints));
         const trajectoryData = this.trajectoryData.filter((_, i) => i % samplingRate === 0);
 
-        // 车流速度画像 - 按时间段统计平均速度
-        const SEGMENT_DURATION = 30; // 30秒一段
+        // 杞︽祦閫熷害鐢诲儚 - 鎸夋椂闂存缁熻骞冲潎閫熷害
+        const SEGMENT_DURATION = 30; // 30绉掍竴娈?
         const speedProfile: { timeSegment: number; avgSpeed: number; label: string }[] = [];
         const maxTime = this.currentTime;
 
         for (let t = 0; t < maxTime; t += SEGMENT_DURATION) {
             const speedsInSegment: number[] = [];
 
-            // 从轨迹数据中提取该时间段的速度
+            // 浠庤建杩规暟鎹腑鎻愬彇璇ユ椂闂存鐨勯€熷害
             for (const point of this.trajectoryData) {
                 if (point.time >= t && point.time < t + SEGMENT_DURATION) {
                     speedsInSegment.push(point.speed);
@@ -845,14 +845,14 @@ export class SimulationEngine {
             .map(([changes, count]) => ({ changes, count }));
     }
 
-    // 当前主题（light / dark；retro-tech 在引擎层映射为 dark）
+    // 当前主题（仅支持 light / dark）
     private currentTheme: string = 'dark';
 
     setTheme(theme: string) {
         this.currentTheme = theme;
     }
 
-    // --- 上传数据到后端生成图表 ---
+    // --- 涓婁紶鏁版嵁鍒板悗绔敓鎴愬浘琛?---
     private async uploadData() {
         const store = useSimStore.getState();
         const config = store.config;
@@ -865,12 +865,12 @@ export class SimulationEngine {
             message: 'Uploading data for chart generation...',
         });
 
-        // 1. 准备车辆信息映射 (用于补全轨迹数据)
+        // 1. 鍑嗗杞﹁締淇℃伅鏄犲皠 (鐢ㄤ簬琛ュ叏杞ㄨ抗鏁版嵁)
         const vehicleInfoMap = new Map<number, { type: string; style: string }>();
         this.finishedVehicles.forEach(v => vehicleInfoMap.set(v.id, { type: v.type, style: v.driverStyle }));
         this.vehicles.forEach(v => vehicleInfoMap.set(v.id, { type: v.type, style: v.driverStyle }));
 
-        // 2. 转换 finishedValues (camelCase -> snake_case)
+        // 2. 杞崲 finishedValues (camelCase -> snake_case)
         const snakeVehicles = this.finishedVehicles.map(v => {
             const logsObj: Record<string, any> = {};
             v.logs.forEach((val, key) => { logsObj[key.toString()] = val; });
@@ -884,27 +884,27 @@ export class SimulationEngine {
                 driver_style: v.driverStyle,// camel -> snake
                 anomaly_type: v.anomalyType,// camel -> snake
                 anomaly_state: v.anomalyState,// camel -> snake
-                is_affected: v.isAffected,  // camel -> snake (当前状态)
-                was_affected: v.wasAffected, // 永久记录：是否曾经受影响
+                is_affected: v.isAffected,  // camel -> snake (褰撳墠鐘舵€?
+                was_affected: v.wasAffected, // 姘镐箙璁板綍锛氭槸鍚︽浘缁忓彈褰卞搷
                 lane_changes: v.laneChangeCount,
                 lane_change_reasons: v.laneChangeReasons,
                 logs: logsObj,
                 entry_time: v.entryTime,
                 v0: v.v0,
-                desired_speed: v.desiredSpeed, // 用于计算延误
-                // 这里假设 Vehicle 类里可能有这些字段但 VehicleData 接口没暴露，或者就留空
+                desired_speed: v.desiredSpeed, // 鐢ㄤ簬璁＄畻寤惰
+                // 杩欓噷鍋囪 Vehicle 绫婚噷鍙兘鏈夎繖浜涘瓧娈典絾 VehicleData 鎺ュ彛娌℃毚闇诧紝鎴栬€呭氨鐣欑┖
                 etc_detection_time: (v as any).etcDetectionTime,
                 anomaly_response_times: (v as any).anomalyResponseTimes,
             };
         });
 
 
-        // 3. 采样并转换轨迹数据 (现在统一在 complete 中处理，这里直接使用)
-        const sampledTrajectory = this.sampledTrajectoryData; // 使用已缓存的数据
+        // 3. 閲囨牱骞惰浆鎹㈣建杩规暟鎹?(鐜板湪缁熶竴鍦?complete 涓鐞嗭紝杩欓噷鐩存帴浣跨敤)
+        const sampledTrajectory = this.sampledTrajectoryData; // 浣跨敤宸茬紦瀛樼殑鏁版嵁
 
         console.log(`Trajectory points: ${this.trajectoryData.length} -> ${sampledTrajectory.length}`);
 
-        // 4. 转换其他数据
+        // 4. 杞崲鍏朵粬鏁版嵁
         const snakeAnomalyLogs = this.anomalyLogs.map(l => ({
             id: l.id,
             type: l.type,
@@ -919,7 +919,7 @@ export class SimulationEngine {
             avg_speed: r.avgSpeed, // camel -> snake
             density: r.density,
             vehicle_count: r.vehicleCount, // camel -> snake
-            flow: r.flow // 流量
+            flow: r.flow // 娴侀噺
         }));
 
 
@@ -928,25 +928,25 @@ export class SimulationEngine {
             num_lanes: config.numLanes,
             segment_length_km: this.segmentLengthKm,
             num_segments: this.numSegments,
-            segment_boundaries: this.segmentBoundaries,  // 区间边界里程，含首尾
+            segment_boundaries: this.segmentBoundaries,  // 鍖洪棿杈圭晫閲岀▼锛屽惈棣栧熬
             total_vehicles: config.totalVehicles
         };
 
-        // 弯道曲率档案（供后端绘图分析）
+        // 寮亾鏇茬巼妗ｆ锛堜緵鍚庣缁樺浘鍒嗘瀽锛?
         const snakeCurveProfile = this.curveProfile.map(seg => ({
             start_m: seg.startM,
             end_m: seg.endM,
-            radius_m: isFinite(seg.radiusM) ? seg.radiusM : null, // null 表示直道
+            radius_m: isFinite(seg.radiusM) ? seg.radiusM : null, // null 琛ㄧず鐩撮亾
         }));
 
-        // 采样 lane_history (每10秒一条，加快载入速度)
+        // 閲囨牱 lane_history (姣?0绉掍竴鏉★紝鍔犲揩杞藉叆閫熷害)
         const laneHistoryStep = Math.max(1, Math.floor(10 / (store.config.simulationDt || 1)));
         const snakeLaneHistory = this.laneHistory
             .filter((_, i) => i % laneHistoryStep === 0)
             .map(r => ({ time: r.time, counts: r.counts }));
 
-        // 后端绘图不需要 10万点，从 Store 的高精度数据中再抽样 (例如 1万点)
-        // 解决 fetch timeout 问题
+        // 鍚庣缁樺浘涓嶉渶瑕?10涓囩偣锛屼粠 Store 鐨勯珮绮惧害鏁版嵁涓啀鎶芥牱 (渚嬪 1涓囩偣)
+        // 瑙ｅ喅 fetch timeout 闂
         const backendTrajectoryStep = 10;
         const backendTrajectory = this.sampledTrajectoryData.filter((_, i) => i % backendTrajectoryStep === 0);
 
@@ -954,10 +954,10 @@ export class SimulationEngine {
             config: snakeConfig,
             finished_vehicles: snakeVehicles,
             anomaly_logs: snakeAnomalyLogs,
-            trajectory_data: backendTrajectory, // 使用更稀疏的数据传给后端
+            trajectory_data: backendTrajectory, // 浣跨敤鏇寸█鐤忕殑鏁版嵁浼犵粰鍚庣
             segment_speed_history: snakeSpeedHistory,
             lane_history: snakeLaneHistory,
-            curve_profile: snakeCurveProfile, // 弯道曲率档案
+            curve_profile: snakeCurveProfile, // 寮亾鏇茬巼妗ｆ
             theme: this.currentTheme, // Pass current theme
         };
 
@@ -975,18 +975,18 @@ export class SimulationEngine {
                 const resData = await response.json();
                 console.log("Chart generation started.", resData);
 
-                // 显示保存位置提示 (Requested feature)
+                // 鏄剧ず淇濆瓨浣嶇疆鎻愮ず (Requested feature)
                 if (resData.output_path) {
-                    // 使用 confirm 让用户不得不看到，或者 alert
-                    // alert 会阻塞 UI，但如果是仿真结束时，也许可以接受。
-                    // 更好的方式是用 addLog 强调，以及 ChartsPanel 的通知。
-                    // 但用户明确要求 "弹出提示"。
-                    // 为了不阻塞太久，我们只 Log，然后尝试非阻塞通知如果可能。
-                    // 由于这是后台逻辑，alert 是最直接的“弹出”。
-                    // 但如果在自动跑大量仿真，alert 会很烦。
-                    // 我们可以只在 SimulationEngine 中 log，并在 UI 侧处理。
-                    // 但 UI侧不知道何时结束。
-                    // 还是弹个 alert 吧，简单直接。如果是 Turbo 模式可能会有点烦，加个判断？
+                    // 浣跨敤 confirm 璁╃敤鎴蜂笉寰椾笉鐪嬪埌锛屾垨鑰?alert
+                    // alert 浼氶樆濉?UI锛屼絾濡傛灉鏄豢鐪熺粨鏉熸椂锛屼篃璁稿彲浠ユ帴鍙椼€?
+                    // 鏇村ソ鐨勬柟寮忔槸鐢?addLog 寮鸿皟锛屼互鍙?ChartsPanel 鐨勯€氱煡銆?
+                    // 浣嗙敤鎴锋槑纭姹?"寮瑰嚭鎻愮ず"銆?
+                    // 涓轰簡涓嶉樆濉炲お涔咃紝鎴戜滑鍙?Log锛岀劧鍚庡皾璇曢潪闃诲閫氱煡濡傛灉鍙兘銆?
+                    // 鐢变簬杩欐槸鍚庡彴閫昏緫锛宎lert 鏄渶鐩存帴鐨勨€滃脊鍑衡€濄€?
+                    // 浣嗗鏋滃湪鑷姩璺戝ぇ閲忎豢鐪燂紝alert 浼氬緢鐑︺€?
+                    // 鎴戜滑鍙互鍙湪 SimulationEngine 涓?log锛屽苟鍦?UI 渚у鐞嗐€?
+                    // 浣?UI渚т笉鐭ラ亾浣曟椂缁撴潫銆?
+                    // 杩樻槸寮逛釜 alert 鍚э紝绠€鍗曠洿鎺ャ€傚鏋滄槸 Turbo 妯″紡鍙兘浼氭湁鐐圭儲锛屽姞涓垽鏂紵
                     if (!store.turboMode) {
                         alert(`Charts generation started.\nSaved to: ${resData.output_path}`);
                     }
@@ -1019,7 +1019,7 @@ export class SimulationEngine {
         }
     }
 
-    // --- 完成仿真 ---
+    // --- 瀹屾垚浠跨湡 ---
     private complete(reason: string) {
         if (this.timeoutId) {
             clearTimeout(this.timeoutId);
@@ -1032,7 +1032,7 @@ export class SimulationEngine {
             ? this.speedHistory.reduce((a, b) => a + b, 0) / this.speedHistory.length
             : 0;
 
-        // 预先生成采样轨迹数据
+        // 棰勫厛鐢熸垚閲囨牱杞ㄨ抗鏁版嵁
         this.prepareTrajectorySamples();
 
         store.setRunning(false);
@@ -1049,11 +1049,11 @@ export class SimulationEngine {
             totalLaneChanges: this.totalLaneChanges,
             maxCongestionLength: 0,
             simulationTime: this.currentTime,
-            // 暴露原始数据供前端详细分析图表使用
+            // 鏆撮湶鍘熷鏁版嵁渚涘墠绔缁嗗垎鏋愬浘琛ㄤ娇鐢?
             segmentSpeedHistory: this.segmentSpeedHistory,
             segmentBoundaries: this.segmentBoundaries,
             sampledTrajectory: this.sampledTrajectoryData,
-            anomalyLogs: this.anomalyLogs, // 增加透传
+            anomalyLogs: this.anomalyLogs, // 澧炲姞閫忎紶
         });
         store.setChartData(this.generateChartData());
 
@@ -1064,15 +1064,15 @@ export class SimulationEngine {
             message: `${reason} | Completed: ${this.finishedVehicles.length} | Anomalies: ${this.anomalyLogs.length} | Lane Changes: ${this.totalLaneChanges}`,
         });
 
-        // 触发后端图表生成
+        // 瑙﹀彂鍚庣鍥捐〃鐢熸垚
         this.uploadData();
     }
 
-    // --- 准备轨迹采样数据 ---
+    // --- 鍑嗗杞ㄨ抗閲囨牱鏁版嵁 ---
     private prepareTrajectorySamples() {
-        // 构建车辆信息映射表 (ID -> Info)
+        // 鏋勫缓杞﹁締淇℃伅鏄犲皠琛?(ID -> Info)
         const vehicleInfoMap = new Map<number, { type: string, style: string }>();
-        // 包括所有车辆（完成的 + 活跃的）
+        // 鍖呮嫭鎵€鏈夎溅杈嗭紙瀹屾垚鐨?+ 娲昏穬鐨勶級
         [...this.finishedVehicles, ...this.vehicles].forEach(v => {
             vehicleInfoMap.set(v.id, { type: v.type, style: v.style });
         });
@@ -1081,7 +1081,7 @@ export class SimulationEngine {
         const targetPoints = 100000;
         const step = Math.max(1, Math.ceil(totalPoints / targetPoints));
 
-        // 生成采样数据并缓存
+        // 鐢熸垚閲囨牱鏁版嵁骞剁紦瀛?
         this.sampledTrajectoryData = (step > 1
             ? this.trajectoryData.filter((_, i) => i % step === 0)
             : this.trajectoryData).map(p => ({
@@ -1090,17 +1090,17 @@ export class SimulationEngine {
                 pos: p.pos,
                 lane: p.lane,
                 speed: p.speed,
-                anomaly_type: p.anomalyType,   // camel -> snake (前端也用 snake 兼容)
+                anomaly_type: p.anomalyType,   // camel -> snake (鍓嶇涔熺敤 snake 鍏煎)
                 anomaly_state: p.anomalyState,
                 is_affected: p.isAffected,
-                // 补全车辆类型和风格
+                // 琛ュ叏杞﹁締绫诲瀷鍜岄鏍?
                 vehicle_type: vehicleInfoMap.get(p.id)?.type || 'CAR',
                 driver_style: vehicleInfoMap.get(p.id)?.style || 'normal',
             }));
     }
 
-    // 重构 step，在每过一定时间或达到特定条件时调用缓存重构
-    // 以支撑前端实时热渲染
+    // 閲嶆瀯 step锛屽湪姣忚繃涓€瀹氭椂闂存垨杈惧埌鐗瑰畾鏉′欢鏃惰皟鐢ㄧ紦瀛橀噸鏋?
+    // 浠ユ敮鎾戝墠绔疄鏃剁儹娓叉煋
     pause() {
         const store = useSimStore.getState();
         store.setPaused(true);
@@ -1137,5 +1137,5 @@ export class SimulationEngine {
     }
 }
 
-// 导出单例
+// 瀵煎嚭鍗曚緥
 export const engine = new SimulationEngine();
