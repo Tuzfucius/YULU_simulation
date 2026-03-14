@@ -1,4 +1,4 @@
-[data-theme="ops-screen"] {
+﻿.screen-shell {
     --bg-base: #030913;
     --bg-surface: #071425;
     --glass-bg: rgba(5, 18, 39, 0.82);
@@ -12,15 +12,7 @@
     --text-primary: #d8eeff;
     --text-secondary: #8cb9dd;
     --text-muted: #4f7195;
-}
-
-[data-theme="ops-screen"] body {
-    background:
-        radial-gradient(circle at top, rgba(31, 101, 224, 0.12), transparent 28%),
-        linear-gradient(180deg, #071120 0%, #020812 100%);
-}
-
-.screen-shell {
+    min-height: 100%;
     background:
         radial-gradient(circle at top, rgba(31, 101, 224, 0.16), transparent 28%),
         radial-gradient(circle at bottom, rgba(0, 212, 255, 0.1), transparent 22%),
