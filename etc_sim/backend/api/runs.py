@@ -162,6 +162,65 @@ def _build_event_breakdown(data: dict) -> list[dict]:
     ]
 
 
+def _build_segment_series(segment_history: list[dict]) -> dict[str, list[dict]]:
+    grouped: dict[str, list[dict]] = {}
+    for entry in segment_history:
+        segment_key = str(entry.get('segment', '0'))
+        grouped.setdefault(segment_key, []).append(
+            {
+                'time': float(entry.get('time', 0.0)),
+                'avg_speed': round(float(entry.get('avg_speed', 0.0)), 3),
+                'density': round(float(entry.get('density', 0.0)), 3),
+                'flow': round(float(entry.get('flow', 0.0)), 3),
+                'vehicle_count': int(entry.get('vehicle_count', 0)),
+            }
+        )
+    return {
+        key: sorted(values, key=lambda item: item['time'])
+        for key, values in sorted(grouped.items(), key=lambda item: float(item[0]))
+    }
+
+
+def _detect_event_type(entry: dict) -> str:
+    event_type = (
+        entry.get('type')
+        or entry.get('anomaly_type')
+        or entry.get('event_type')
+        or entry.get('category')
+        or 'unknown'
+    )
+    return str(event_type)
+
+
+def _build_anomaly_type_distribution(anomaly_logs: list[dict]) -> list[dict]:
+    buckets: dict[str, int] = {}
+    for entry in anomaly_logs:
+        event_type = _detect_event_type(entry)
+        buckets[event_type] = buckets.get(event_type, 0) + 1
+    return [
+        {'name': key, 'value': value}
+        for key, value in sorted(buckets.items(), key=lambda item: (-item[1], item[0]))
+    ]
+
+
+def _build_replay_anchors(anomaly_logs: list[dict]) -> list[dict]:
+    anchors = []
+    for index, entry in enumerate(anomaly_logs[:12]):
+        time_value = float(entry.get('time', entry.get('timestamp', 0.0)))
+        position = float(entry.get('position', entry.get('x', entry.get('segment', 0.0))))
+        anchors.append(
+            {
+                'id': entry.get('id') or f'anomaly-{index}',
+                'time': round(time_value, 3),
+                'position': round(position, 3),
+                'segment': str(entry.get('segment', '0')),
+                'event_type': _detect_event_type(entry),
+                'label': entry.get('description') or entry.get('message') or entry.get('vehicle_id') or f'异常事件 {index + 1}',
+            }
+        )
+    return anchors
+
+
 @router.get('')
 async def get_runs():
     """列出历史运行。"""
@@ -282,6 +341,13 @@ async def get_run_analysis(run_id: str):
 
     anomaly_bucket_size = max(60, int(simulation_time // 24) or 60)
     speed_timeline = _build_speed_timeline(segment_history)
+    segment_series = _build_segment_series(segment_history)
+    anomaly_type_breakdown = _build_anomaly_type_distribution(anomaly_logs)
+    replay_anchors = _build_replay_anchors(anomaly_logs)
+    segment_options = [
+        {'key': key, 'label': f'区段 {key}'}
+        for key in segment_series.keys()
+    ]
 
     return {
         'run_id': run_id,
@@ -291,13 +357,18 @@ async def get_run_analysis(run_id: str):
             'segment_heatmap': _build_segment_heatmap(segment_history),
             'anomaly_timeline': _build_anomaly_timeline(anomaly_logs, anomaly_bucket_size),
             'event_breakdown': _build_event_breakdown(data),
+            'segment_series': segment_series,
+            'anomaly_type_breakdown': anomaly_type_breakdown,
         },
         'meta': {
             'time_bins': len({item['time'] for item in speed_timeline}),
             'max_position': max((float(entry.get('segment', 0)) for entry in segment_history), default=0.0) + 1.0,
             'duration': simulation_time,
             'anomaly_bucket_size': anomaly_bucket_size,
+            'segment_options': segment_options,
+            'default_segment': segment_options[0]['key'] if segment_options else None,
         },
+        'replay_anchors': replay_anchors,
     }
 
 
