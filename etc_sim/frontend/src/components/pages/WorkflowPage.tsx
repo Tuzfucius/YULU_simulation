@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ReactFlow,
     Background,
@@ -14,26 +14,31 @@ import {
     type Connection,
     BackgroundVariant,
 } from '@xyflow/react';
+import { AnimatePresence, motion } from 'framer-motion';
 import '@xyflow/react/dist/style.css';
 
 import { WorkflowNode } from '../workflow/WorkflowNode';
 import { NodePalette } from '../workflow/NodePalette';
 import { NodePropertiesPanel } from '../workflow/NodePropertiesPanel';
+import {
+    WorkflowLibraryPanel,
+    type DatasetInfo,
+    type FileCategory,
+    type HistoryRunItem,
+    type ModelInfo,
+    type SavedWorkflowItem,
+} from '../workflow/WorkflowLibraryPanel';
+import { WorkflowResourceView, type RunAnalysisPayload } from '../workflow/WorkflowResourceView';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useI18nStore } from '../../stores/i18nStore';
 import { API } from '../../config/api';
 
 const nodeTypes = { workflowNode: WorkflowNode };
 const API_BASE = API.WORKFLOWS;
-
-interface SavedWorkflowItem {
-    name: string;
-    file_name: string;
-    path: string;
-    description?: string;
-    rule_count: number;
-    modified_at: string;
-}
+const RUNS_API = `${API.BASE}/runs`;
+const PREDICTION_API = `${API.BASE}/prediction`;
+type SideTab = 'nodes' | 'files';
+type ActiveView = 'canvas' | 'run' | 'model' | 'dataset';
 
 interface WorkflowFilePayload {
     name?: string;
@@ -41,9 +46,13 @@ interface WorkflowFilePayload {
     rules?: unknown[];
 }
 
-function formatTime(value: string) {
-    if (!value) {
+function formatTime(value?: string | number) {
+    if (value === undefined || value === null || value === '') {
         return '--';
+    }
+
+    if (typeof value === 'number') {
+        return new Date(value * 1000).toLocaleString('zh-CN', { hour12: false });
     }
 
     const date = new Date(value);
@@ -81,13 +90,27 @@ export function WorkflowPage() {
     const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
     const [statusMsg, setStatusMsg] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [sideTab, setSideTab] = useState<SideTab>('nodes');
+    const [fileCategory, setFileCategory] = useState<FileCategory>('runs');
+    const [activeView, setActiveView] = useState<ActiveView>('canvas');
     const [savedWorkflows, setSavedWorkflows] = useState<SavedWorkflowItem[]>([]);
+    const [historyRuns, setHistoryRuns] = useState<HistoryRunItem[]>([]);
+    const [savedModels, setSavedModels] = useState<ModelInfo[]>([]);
+    const [datasets, setDatasets] = useState<DatasetInfo[]>([]);
     const [selectedWorkflowName, setSelectedWorkflowName] = useState<string | null>(null);
+    const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+    const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+    const [selectedDatasetName, setSelectedDatasetName] = useState<string | null>(null);
+    const [runAnalysis, setRunAnalysis] = useState<RunAnalysisPayload | null>(null);
 
     const showStatus = useCallback((message: string) => {
         setStatusMsg(message);
         window.setTimeout(() => setStatusMsg(null), 3000);
     }, []);
+
+    const selectedRun = historyRuns.find((item) => item.run_id === selectedRunId) || null;
+    const selectedModel = savedModels.find((item) => item.model_id === selectedModelId) || null;
+    const selectedDataset = datasets.find((item) => item.name === selectedDatasetName) || null;
 
     const fetchSavedWorkflows = useCallback(async (keepSelection = true) => {
         try {
@@ -109,13 +132,63 @@ export function WorkflowPage() {
         }
     }, [showStatus]);
 
+    const fetchHistoryRuns = useCallback(async () => {
+        try {
+            const response = await fetch(RUNS_API);
+            const payload = await response.json();
+            const items = Array.isArray(payload.runs) ? payload.runs : [];
+            setHistoryRuns(items);
+            setSelectedRunId((current) => current && items.some((item: HistoryRunItem) => item.run_id === current) ? current : items[0]?.run_id ?? null);
+        } catch (error) {
+            showStatus(`读取历史运行失败: ${String(error)}`);
+        }
+    }, [showStatus]);
+
+    const fetchSavedModels = useCallback(async () => {
+        try {
+            const response = await fetch(`${PREDICTION_API}/models`);
+            const payload = await response.json();
+            const items = Array.isArray(payload.models) ? payload.models : [];
+            setSavedModels(items);
+            setSelectedModelId((current) => current && items.some((item: ModelInfo) => item.model_id === current) ? current : items[0]?.model_id ?? null);
+        } catch (error) {
+            showStatus(`读取模型列表失败: ${String(error)}`);
+        }
+    }, [showStatus]);
+
+    const fetchDatasets = useCallback(async () => {
+        try {
+            const response = await fetch(`${PREDICTION_API}/datasets`);
+            const payload = await response.json();
+            const items = Array.isArray(payload.datasets) ? payload.datasets : [];
+            setDatasets(items);
+            setSelectedDatasetName((current) => current && items.some((item: DatasetInfo) => item.name === current) ? current : items[0]?.name ?? null);
+        } catch (error) {
+            showStatus(`读取数据集列表失败: ${String(error)}`);
+        }
+    }, [showStatus]);
+
+    const refreshFileManager = useCallback(async () => {
+        setIsLoading(true);
+        try {
+            await Promise.all([
+                fetchSavedWorkflows(),
+                fetchHistoryRuns(),
+                fetchSavedModels(),
+                fetchDatasets(),
+            ]);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [fetchDatasets, fetchHistoryRuns, fetchSavedModels, fetchSavedWorkflows]);
+
     useEffect(() => {
         const restored = loadFromLocal();
         if (restored) {
             showStatus('已从本地草稿恢复当前工作流');
         }
-        fetchSavedWorkflows(false);
-    }, [fetchSavedWorkflows, loadFromLocal, showStatus]);
+        refreshFileManager();
+    }, [loadFromLocal, refreshFileManager, showStatus]);
 
     useEffect(() => {
         const handler = (event: KeyboardEvent) => {
@@ -236,6 +309,8 @@ export function WorkflowPage() {
             const payload = await response.json();
             if (payload.success && payload.data.length > 0) {
                 loadRules(payload.data);
+                setSideTab('nodes');
+                setActiveView('canvas');
                 showStatus(t('workflow.loadedRules').replace('{count}', String(payload.data.length)));
             } else {
                 showStatus(t('workflow.noRulesInBackend'));
@@ -254,6 +329,8 @@ export function WorkflowPage() {
             const payload = await response.json();
             if (payload.success) {
                 loadRules(payload.data);
+                setSideTab('nodes');
+                setActiveView('canvas');
                 showStatus(t('workflow.loadedDefaultRules').replace('{count}', String(payload.data.length)));
             }
         } catch (error) {
@@ -318,6 +395,8 @@ export function WorkflowPage() {
             loadRules(rules as any);
             setWorkflowMeta(workflow.name || name, workflow.description || '');
             setSelectedWorkflowName(workflow.name || name);
+            setSideTab('nodes');
+            setActiveView('canvas');
             showStatus(`已加载工作流: ${workflow.name || name}`);
         } catch (error) {
             showStatus(`加载工作流失败: ${String(error)}`);
@@ -385,6 +464,78 @@ export function WorkflowPage() {
         }
     };
 
+    const openPredictionFolder = async (type: 'model' | 'dataset', id: string | null) => {
+        if (!id) {
+            showStatus(type === 'model' ? '请先选择一个模型' : '请先选择一个数据集');
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            const response = await fetch(
+                `${PREDICTION_API}/${type === 'model' ? 'models' : 'datasets'}/${encodeURIComponent(id)}/open-folder`,
+                { method: 'POST' }
+            );
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '打开失败');
+            }
+            showStatus(`已打开${type === 'model' ? '模型' : '数据集'}目录: ${id}`);
+        } catch (error) {
+            showStatus(`打开目录失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const showRunAnalysis = async (runId: string | null) => {
+        if (!runId) {
+            showStatus('请先选择一条历史运行');
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            const response = await fetch(`${RUNS_API}/${encodeURIComponent(runId)}/analysis`);
+            const payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload.detail || '分析加载失败');
+            }
+            setSelectedRunId(runId);
+            setRunAnalysis(payload);
+            setSideTab('files');
+            setFileCategory('runs');
+            setActiveView('run');
+            showStatus(`已切换到历史数据分析视图: ${runId}`);
+        } catch (error) {
+            showStatus(`历史分析加载失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const showModelDetail = (modelId: string | null) => {
+        if (!modelId) {
+            showStatus('请先选择一个模型');
+            return;
+        }
+        setSelectedModelId(modelId);
+        setSideTab('files');
+        setFileCategory('models');
+        setActiveView('model');
+    };
+
+    const showDatasetDetail = (datasetName: string | null) => {
+        if (!datasetName) {
+            showStatus('请先选择一个数据集');
+            return;
+        }
+        setSelectedDatasetName(datasetName);
+        setSideTab('files');
+        setFileCategory('datasets');
+        setActiveView('dataset');
+    };
+
     const exportJSON = () => {
         const rules = exportToRules();
         const blob = new Blob([JSON.stringify({ rules }, null, 2)], { type: 'application/json' });
@@ -420,6 +571,8 @@ export function WorkflowPage() {
                     if (payload.name || payload.description) {
                         setWorkflowMeta(payload.name || workflowName, payload.description || '');
                     }
+                    setSideTab('nodes');
+                    setActiveView('canvas');
                     showStatus(t('workflow.importedRules').replace('{count}', String(payload.rules.length)));
                 } catch (error) {
                     showStatus(`${t('workflow.invalidJson')}: ${String(error)}`);
@@ -433,88 +586,75 @@ export function WorkflowPage() {
     return (
         <div className="flex h-full overflow-hidden">
             <aside className="w-80 flex flex-col border-r border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-lg shrink-0">
-                <div className="flex-[1.2] min-h-0 border-b border-[var(--glass-border)]">
-                    <NodePalette />
+                <div className="grid grid-cols-2 gap-2 p-3 border-b border-[var(--glass-border)]">
+                    <button
+                        type="button"
+                        onClick={() => setSideTab('nodes')}
+                        className={`rounded-lg px-3 py-2 text-sm transition-colors ${sideTab === 'nodes' ? 'bg-[var(--accent-blue)]/15 text-[var(--accent-blue)]' : 'text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)]'}`}
+                    >
+                        节点面板
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setSideTab('files')}
+                        className={`rounded-lg px-3 py-2 text-sm transition-colors ${sideTab === 'files' ? 'bg-[var(--accent-blue)]/15 text-[var(--accent-blue)]' : 'text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)]'}`}
+                    >
+                        文件管理器
+                    </button>
                 </div>
 
-                <section className="flex-1 min-h-0 flex flex-col">
-                    <div className="p-3 border-b border-[var(--glass-border)]">
-                        <div className="flex items-center justify-between gap-2">
-                            <div>
-                                <h3 className="text-sm font-semibold text-[var(--text-primary)]">已保存工作流</h3>
-                                <p className="text-[10px] text-[var(--text-muted)] mt-1">选择历史文件继续编辑或管理</p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => fetchSavedWorkflows(false)}
-                                className="px-2 py-1 rounded-md text-[10px] text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)]"
-                            >
-                                刷新
-                            </button>
-                        </div>
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                            <button
-                                type="button"
-                                onClick={() => loadSavedWorkflow(selectedWorkflowName || workflowName)}
-                                disabled={!selectedWorkflowName || isLoading}
-                                className="px-2 py-1.5 rounded-md text-[11px] bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] disabled:opacity-40"
-                            >
-                                编辑
-                            </button>
-                            <button
-                                type="button"
-                                onClick={renameSavedWorkflow}
-                                disabled={(!selectedWorkflowName && !workflowName) || isLoading}
-                                className="px-2 py-1.5 rounded-md text-[11px] bg-[var(--accent-purple)]/15 text-[var(--accent-purple)] disabled:opacity-40"
-                            >
-                                重命名
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => openWorkflowFolder(selectedWorkflowName)}
-                                disabled={isLoading}
-                                className="col-span-2 px-2 py-1.5 rounded-md text-[11px] text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] disabled:opacity-40"
-                            >
-                                在文件夹中打开
-                            </button>
-                        </div>
+                {sideTab === 'nodes' ? (
+                    <div className="flex-1 min-h-0">
+                        <NodePalette />
                     </div>
-
-                    <div className="flex-1 overflow-y-auto p-2 space-y-2 scrollbar-thin">
-                        {savedWorkflows.length === 0 && (
-                            <div className="px-3 py-6 text-center text-xs text-[var(--text-muted)]">暂无已保存工作流</div>
-                        )}
-                        {savedWorkflows.map((item) => {
-                            const isSelected = item.name === selectedWorkflowName;
-                            return (
-                                <button
-                                    key={item.file_name}
-                                    type="button"
-                                    onClick={() => setSelectedWorkflowName(item.name)}
-                                    onDoubleClick={() => loadSavedWorkflow(item.name)}
-                                    className={`w-full text-left rounded-lg border px-3 py-2 transition-colors ${
-                                        isSelected
-                                            ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)]/10'
-                                            : 'border-transparent hover:border-[var(--glass-border)] hover:bg-[rgba(255,255,255,0.04)]'
-                                    }`}
-                                >
-                                    <div className="flex items-center justify-between gap-3">
-                                        <span className="text-xs font-medium text-[var(--text-primary)] truncate">{item.name}</span>
-                                        <span className="text-[10px] text-[var(--text-muted)] shrink-0">{item.rule_count} 条</span>
-                                    </div>
-                                    <div className="mt-1 text-[10px] text-[var(--text-muted)] line-clamp-2">{item.description || '无描述'}</div>
-                                    <div className="mt-2 text-[10px] text-[var(--text-muted)]">更新时间: {formatTime(item.modified_at)}</div>
-                                </button>
-                            );
-                        })}
-                    </div>
-                </section>
+                ) : (
+                    <WorkflowLibraryPanel
+                        fileCategory={fileCategory}
+                        setFileCategory={setFileCategory}
+                        isLoading={isLoading}
+                        onRefresh={refreshFileManager}
+                        historyRuns={historyRuns}
+                        selectedRunId={selectedRunId}
+                        onSelectRun={setSelectedRunId}
+                        onAnalyzeRun={showRunAnalysis}
+                        models={savedModels}
+                        selectedModelId={selectedModelId}
+                        onSelectModel={setSelectedModelId}
+                        onShowModel={showModelDetail}
+                        onOpenModelFolder={(id) => openPredictionFolder('model', id)}
+                        datasets={datasets}
+                        selectedDatasetName={selectedDatasetName}
+                        onSelectDataset={setSelectedDatasetName}
+                        onShowDataset={showDatasetDetail}
+                        onOpenDatasetFolder={(id) => openPredictionFolder('dataset', id)}
+                        workflows={savedWorkflows}
+                        selectedWorkflowName={selectedWorkflowName}
+                        workflowName={workflowName}
+                        onSelectWorkflow={setSelectedWorkflowName}
+                        onLoadWorkflow={loadSavedWorkflow}
+                        onRenameWorkflow={renameSavedWorkflow}
+                        onOpenWorkflowFolder={openWorkflowFolder}
+                    />
+                )}
             </aside>
 
             <main className="flex-1 flex flex-col relative">
                 <div className="min-h-16 flex items-center justify-between gap-4 px-4 py-3 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md z-10 shrink-0">
                     <div className="flex items-center gap-3">
-                        <span className="text-lg">流程</span>
+                        <button
+                            type="button"
+                            onClick={() => setActiveView('canvas')}
+                            className={`rounded-md px-3 py-1.5 text-xs transition-colors ${activeView === 'canvas' ? 'bg-[var(--accent-blue)]/15 text-[var(--accent-blue)]' : 'text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)]'}`}
+                        >
+                            画布
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setSideTab('files')}
+                            className={`rounded-md px-3 py-1.5 text-xs transition-colors ${activeView !== 'canvas' ? 'bg-[var(--accent-purple)]/15 text-[var(--accent-purple)]' : 'text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)]'}`}
+                        >
+                            文件分析视图
+                        </button>
                         <div className="flex flex-col gap-1">
                             <input
                                 type="text"
@@ -601,42 +741,74 @@ export function WorkflowPage() {
                     </div>
                 </div>
 
-                <div ref={reactFlowWrapper} className="flex-1">
-                    <ReactFlow
-                        nodes={nodes}
-                        edges={edges}
-                        onNodesChange={onNodesChange}
-                        onEdgesChange={onEdgesChange}
-                        onConnect={onConnect}
-                        onNodeClick={onNodeClick}
-                        onPaneClick={onPaneClick}
-                        onInit={setRfInstance as any}
-                        onDrop={onDrop}
-                        onDragOver={onDragOver}
-                        nodeTypes={nodeTypes}
-                        fitView
-                        proOptions={{ hideAttribution: true }}
-                        defaultEdgeOptions={{ animated: true, style: { stroke: '#a78bfa', strokeWidth: 1.5 } }}
-                        style={{ background: 'var(--bg-base)' }}
-                    >
-                        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255,255,255,0.06)" />
-                        <Controls
-                            style={{
-                                background: 'var(--glass-bg)',
-                                borderRadius: '8px',
-                                border: '1px solid var(--glass-border)',
-                            }}
-                        />
-                        <MiniMap
-                            style={{
-                                background: 'var(--glass-bg)',
-                                borderRadius: '8px',
-                                border: '1px solid var(--glass-border)',
-                            }}
-                            nodeColor={(node: any) => node.data?.color || '#888'}
-                            maskColor="rgba(0,0,0,0.5)"
-                        />
-                    </ReactFlow>
+                <div className="flex-1 overflow-hidden relative">
+                    <AnimatePresence mode="wait">
+                        {activeView === 'canvas' ? (
+                            <motion.div
+                                key="canvas"
+                                initial={{ opacity: 0, x: 32 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -32 }}
+                                transition={{ duration: 0.24 }}
+                                className="absolute inset-0"
+                            >
+                                <div ref={reactFlowWrapper} className="h-full">
+                                    <ReactFlow
+                                        nodes={nodes}
+                                        edges={edges}
+                                        onNodesChange={onNodesChange}
+                                        onEdgesChange={onEdgesChange}
+                                        onConnect={onConnect}
+                                        onNodeClick={onNodeClick}
+                                        onPaneClick={onPaneClick}
+                                        onInit={setRfInstance as any}
+                                        onDrop={onDrop}
+                                        onDragOver={onDragOver}
+                                        nodeTypes={nodeTypes}
+                                        fitView
+                                        proOptions={{ hideAttribution: true }}
+                                        defaultEdgeOptions={{ animated: true, style: { stroke: '#a78bfa', strokeWidth: 1.5 } }}
+                                        style={{ background: 'var(--bg-base)' }}
+                                    >
+                                        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255,255,255,0.06)" />
+                                        <Controls
+                                            style={{
+                                                background: 'var(--glass-bg)',
+                                                borderRadius: '8px',
+                                                border: '1px solid var(--glass-border)',
+                                            }}
+                                        />
+                                        <MiniMap
+                                            style={{
+                                                background: 'var(--glass-bg)',
+                                                borderRadius: '8px',
+                                                border: '1px solid var(--glass-border)',
+                                            }}
+                                            nodeColor={(node: any) => node.data?.color || '#888'}
+                                            maskColor="rgba(0,0,0,0.5)"
+                                        />
+                                    </ReactFlow>
+                                </div>
+                            </motion.div>
+                        ) : (
+                            <motion.div
+                                key={activeView}
+                                initial={{ opacity: 0, x: 56 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -56 }}
+                                transition={{ duration: 0.3, ease: 'easeInOut' }}
+                                className="absolute inset-0 overflow-hidden bg-[var(--bg-base)]"
+                            >
+                                <WorkflowResourceView
+                                    activeView={activeView}
+                                    run={selectedRun}
+                                    analysis={runAnalysis}
+                                    model={selectedModel}
+                                    dataset={selectedDataset}
+                                />
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
 
                 {statusMsg && (
