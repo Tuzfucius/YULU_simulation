@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+ï»¿import { useEffect, useMemo, useState } from 'react';
 import { API } from '../../config/api';
+import { useI18nStore } from '../../stores/i18nStore';
+import { useSimStore } from '../../stores/simStore';
 import { ScreenAlertList, type ScreenAlertRecord } from '../screen/ScreenAlertList';
 import { ScreenHeader } from '../screen/ScreenHeader';
 import { ScreenIncidentDetail } from '../screen/ScreenIncidentDetail';
 import { ScreenMapStage, type ScreenRoadData } from '../screen/ScreenMapStage';
 import { ScreenMetricCard } from '../screen/ScreenMetricCard';
 import { ScreenPanel } from '../screen/ScreenPanel';
-import { useI18nStore } from '../../stores/i18nStore';
-import { useSimStore } from '../../stores/simStore';
+import { ScreenSummaryTile } from '../screen/ScreenSummaryTile';
 
 type RoadFile = {
     filename: string;
@@ -60,6 +61,21 @@ function getMetricValue(input: unknown, fallback: string | number = '--') {
         return input;
     }
     return typeof fallback === 'number' ? fallback.toLocaleString() : fallback;
+}
+
+function getNumericValue(...values: unknown[]) {
+    for (const value of values) {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            return value;
+        }
+        if (typeof value === 'string') {
+            const parsed = Number(value);
+            if (Number.isFinite(parsed)) {
+                return parsed;
+            }
+        }
+    }
+    return null;
 }
 
 export function SituationScreenPage() {
@@ -180,10 +196,10 @@ export function SituationScreenPage() {
                 const timeValue = log.time ?? log.timestamp ?? log.start_time ?? `T+${(index + 1) * 2} min`;
                 return {
                     id: gateId,
-                    title: String(log.type_name ?? log.description ?? log.event ?? `Òì³£ÊÂ¼ş ${index + 1}`),
+                    title: String(log.type_name ?? log.description ?? log.event ?? `å¼‚å¸¸äº‹ä»¶ ${index + 1}`),
                     level,
                     timeLabel: String(timeValue),
-                    locationLabel: `ÃÅ¼Ü ${gateId}`,
+                    locationLabel: `é—¨æ¶ ${gateId}`,
                 };
             });
         }
@@ -192,10 +208,10 @@ export function SituationScreenPage() {
             const level = index === 0 ? 'high' : index < 3 ? 'medium' : 'low';
             return {
                 id: gantry.id,
-                title: `${gantry.name || gantry.id} ×´Ì¬Ô¤¾¯`,
+                title: `${gantry.name || gantry.id} çŠ¶æ€é¢„è­¦`,
                 level,
                 timeLabel: `T+${(index + 1) * 2} min`,
-                locationLabel: `ÃÅ¼Ü ${gantry.id}`,
+                locationLabel: `é—¨æ¶ ${gantry.id}`,
             };
         });
     }, [historyData?.anomaly_logs, roadData]);
@@ -214,13 +230,54 @@ export function SituationScreenPage() {
         ),
     };
 
+    const roadLengthValue = getNumericValue(
+        roadData?.meta?.total_length_km,
+        selectedRoadMeta?.total_length_km,
+        historyData?.config?.custom_road_length_km,
+        historyData?.config?.road_length_km,
+        config.roadLengthKm
+    );
+    const avgSpeedValue = getNumericValue(statMap?.avgSpeed);
+    const laneCountValue = getNumericValue(historyData?.config?.num_lanes, config.numLanes);
+    const simulationTimeValue = getNumericValue(
+        statMap?.simulationTime,
+        statMap?.simulation_time,
+        historyData?.statistics?.simulationTime,
+        historyData?.statistics?.simulation_time
+    );
+    const estimatedMinutes = roadLengthValue && avgSpeedValue && avgSpeedValue > 0
+        ? (roadLengthValue / avgSpeedValue) * 60
+        : null;
+    const rightSummaryItems = [
+        {
+            label: 'åŒºé—´è·ç¦»',
+            value: roadLengthValue ? `${roadLengthValue.toFixed(1)} km` : '--',
+            hint: 'æŒ‰å½“å‰å¯¼å…¥è·¯ç½‘è®¡ç®—',
+        },
+        {
+            label: 'ä»¿çœŸè½¦é“',
+            value: laneCountValue ? `${laneCountValue}` : '--',
+            hint: 'æ¥è‡ªå†å² JSON æˆ–å½“å‰é…ç½®',
+        },
+        {
+            label: 'å»ºè®®é©¶å‡ºæ—¶é—´',
+            value: estimatedMinutes ? `${Math.max(1, Math.round(estimatedMinutes))} åˆ†é’Ÿ` : '--',
+            hint: 'æ ¹æ®è·¯é•¿ä¸å¹³å‡é€Ÿåº¦ä¼°ç®—',
+        },
+        {
+            label: 'ä»¿çœŸæ—¶é•¿',
+            value: simulationTimeValue ? `${Math.round(simulationTimeValue)} ç§’` : '--',
+            hint: 'å†å²æ•°æ®ä¼˜å…ˆ',
+        },
+    ];
+
     return (
         <div className="screen-shell h-full overflow-hidden text-[var(--text-primary)]">
             <div className="flex h-full flex-col">
                 <ScreenHeader
-                    title={lang === 'en' ? 'Highway Situation Screen' : '¸ßËÙÌ¬ÊÆ¸ĞÖª´óÆÁ'}
+                    title={lang === 'en' ? 'Highway Situation Screen' : 'é«˜é€Ÿæ€åŠ¿æ„ŸçŸ¥å¤§å±'}
                     subtitle="Expressway Screen"
-                    selectedRoadFile={selectedRoadFile || 'Î´Ñ¡ÔñÂ·Íø'}
+                    selectedRoadFile={selectedRoadFile || 'æœªé€‰æ‹©è·¯ç½‘'}
                     timestampLabel={new Date().toLocaleString(lang === 'en' ? 'en-US' : 'zh-CN', {
                         year: 'numeric',
                         month: '2-digit',
@@ -235,10 +292,10 @@ export function SituationScreenPage() {
                     <section className="flex min-w-0 flex-1 flex-col gap-4">
                         <div className="grid grid-cols-4 gap-3">
                             {[
-                                { label: 'Â·Íø³¤¶È', value: activeStats.roadLength, unit: 'km' },
-                                { label: 'Æ½¾ùËÙ¶È', value: activeStats.avgSpeed, unit: 'km/h' },
-                                { label: 'ÔÚÍ¾³µÁ¾', value: activeStats.activeVehicles, unit: 'Á¾' },
-                                { label: 'Òì³£ÊıÁ¿', value: activeStats.totalAlerts, unit: 'Ìõ' },
+                                { label: 'è·¯ç½‘é•¿åº¦', value: activeStats.roadLength, unit: 'km' },
+                                { label: 'å¹³å‡é€Ÿåº¦', value: activeStats.avgSpeed, unit: 'km/h' },
+                                { label: 'åœ¨é€”è½¦è¾†', value: activeStats.activeVehicles, unit: 'è¾†' },
+                                { label: 'å¼‚å¸¸æ•°é‡', value: activeStats.totalAlerts, unit: 'æ¡' },
                             ].map(item => (
                                 <ScreenMetricCard
                                     key={item.label}
@@ -252,14 +309,14 @@ export function SituationScreenPage() {
                         <ScreenPanel className="relative min-h-0 flex-1 overflow-hidden p-0">
                             <div className="absolute left-4 top-4 z-10 flex items-center gap-3">
                                 <div className="screen-chip rounded-full px-3 py-1 text-xs">
-                                    µØÍ¼Ö÷ÎèÌ¨
+                                    åœ°å›¾ä¸»èˆå°
                                 </div>
                                 <select
                                     value={selectedRoadFile}
                                     onChange={(event) => setSelectedRoadFile(event.target.value)}
                                     className="rounded-full border border-cyan-300/20 bg-[rgba(2,10,24,0.92)] px-3 py-1.5 text-xs text-cyan-50 outline-none"
                                 >
-                                    {roadFiles.length === 0 && <option value="">ÔİÎŞÂ·Íø</option>}
+                                    {roadFiles.length === 0 && <option value="">æš‚æ— è·¯ç½‘</option>}
                                     {roadFiles.map(file => (
                                         <option key={file.filename} value={file.filename}>
                                             {file.filename}
@@ -269,9 +326,9 @@ export function SituationScreenPage() {
                                 <select
                                     value={selectedHistoryPath}
                                     onChange={(event) => setSelectedHistoryPath(event.target.value)}
-                                    className="rounded-full border border-cyan-300/20 bg-[rgba(2,10,24,0.92)] px-3 py-1.5 text-xs text-cyan-50 outline-none max-w-[320px]"
+                                    className="max-w-[320px] rounded-full border border-cyan-300/20 bg-[rgba(2,10,24,0.92)] px-3 py-1.5 text-xs text-cyan-50 outline-none"
                                 >
-                                    {historyFiles.length === 0 && <option value="">ÔİÎŞÀúÊ· JSON</option>}
+                                    {historyFiles.length === 0 && <option value="">æš‚æ— å†å² JSON</option>}
                                     {historyFiles.map(file => (
                                         <option key={file.path} value={file.path}>
                                             {file.path}
@@ -284,7 +341,7 @@ export function SituationScreenPage() {
 
                             {loading ? (
                                 <div className="flex h-full items-center justify-center text-sm text-cyan-200/70">
-                                    ÕıÔÚ¼ÓÔØÂ·ÍøÊı¾İ...
+                                    æ­£åœ¨åŠ è½½è·¯ç½‘æ•°æ®...
                                 </div>
                             ) : (
                                 <ScreenMapStage
@@ -298,37 +355,53 @@ export function SituationScreenPage() {
 
                     <aside className="flex w-[360px] shrink-0 flex-col gap-4">
                         <ScreenPanel
-                            title="Â·Íø¸ÅÀÀ"
-                            aside={<span className="text-xs text-cyan-300/70">¸üĞÂÓÚ {formatTimestamp(selectedRoadMeta?.updated_at)}</span>}
+                            title="è·¯ç½‘æ¦‚è§ˆ"
+                            aside={<span className="text-xs text-cyan-300/70">æ›´æ–°äº {formatTimestamp(selectedRoadMeta?.updated_at)}</span>}
                         >
                             <div className="space-y-3 text-sm">
-                                <div className="flex justify-between text-cyan-50/85 gap-4">
-                                    <span className="text-cyan-300/65">ÀúÊ·Êı¾İ</span>
+                                <div className="flex justify-between gap-4 text-cyan-50/85">
+                                    <span className="text-cyan-300/65">å†å²æ•°æ®</span>
                                     <span className="max-w-[180px] truncate">{selectedHistoryMeta?.path ?? '--'}</span>
                                 </div>
                                 <div className="flex justify-between text-cyan-50/85">
-                                    <span className="text-cyan-300/65">ÒÑÑ¡Â·¾¶</span>
+                                    <span className="text-cyan-300/65">å·²é€‰è·¯å¾„</span>
                                     <span>{selectedRoadFile || '--'}</span>
                                 </div>
                                 <div className="flex justify-between text-cyan-50/85">
-                                    <span className="text-cyan-300/65">ÃÅ¼ÜÊıÁ¿</span>
+                                    <span className="text-cyan-300/65">é—¨æ¶æ•°é‡</span>
                                     <span>{roadData?.gantries.length ?? selectedRoadMeta?.num_gantries ?? 0}</span>
                                 </div>
                                 <div className="flex justify-between text-cyan-50/85">
-                                    <span className="text-cyan-300/65">ÔÑµÀÊıÁ¿</span>
+                                    <span className="text-cyan-300/65">åŒé“æ•°é‡</span>
                                     <span>{roadData?.ramps?.length ?? 0}</span>
                                 </div>
                                 <div className="flex justify-between text-cyan-50/85">
-                                    <span className="text-cyan-300/65">·ÂÕæ³µµÀ</span>
+                                    <span className="text-cyan-300/65">ä»¿çœŸè½¦é“</span>
                                     <span>{historyData?.config?.num_lanes ?? config.numLanes}</span>
                                 </div>
-                                {historyLoading ? <div className="text-xs text-cyan-300/65">ÕıÔÚÔØÈëÀúÊ·Êı¾İ...</div> : null}
+                                {historyLoading ? <div className="text-xs text-cyan-300/65">æ­£åœ¨è½½å…¥å†å²æ•°æ®...</div> : null}
                             </div>
                         </ScreenPanel>
 
                         <ScreenPanel
-                            title="Òì³£Ì¬ÊÆ"
-                            aside={<span className="text-xs text-cyan-300/70">{alertRecords.length} Ìõ</span>}
+                            title="åŒºé—´æ€åŠ¿"
+                            aside={<span className="text-xs text-cyan-300/70">å†å²ç»Ÿè®¡æ˜ å°„</span>}
+                        >
+                            <div className="grid grid-cols-2 gap-3">
+                                {rightSummaryItems.map(item => (
+                                    <ScreenSummaryTile
+                                        key={item.label}
+                                        label={item.label}
+                                        value={item.value}
+                                        hint={item.hint}
+                                    />
+                                ))}
+                            </div>
+                        </ScreenPanel>
+
+                        <ScreenPanel
+                            title="å¼‚å¸¸æ€åŠ¿"
+                            aside={<span className="text-xs text-cyan-300/70">{alertRecords.length} æ¡</span>}
                             className="min-h-[240px]"
                         >
                             <ScreenAlertList
@@ -339,8 +412,8 @@ export function SituationScreenPage() {
                         </ScreenPanel>
 
                         <ScreenPanel
-                            title="ÏêÇé¿¨"
-                            aside={<span className="text-xs text-cyan-300/70">ÕæÊµÊı¾İÄ£Ê½</span>}
+                            title="è¯¦æƒ…å¡"
+                            aside={<span className="text-xs text-cyan-300/70">çœŸå®æ•°æ®æ¨¡å¼</span>}
                             className="flex-1"
                         >
                             <ScreenIncidentDetail
