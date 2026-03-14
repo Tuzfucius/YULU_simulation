@@ -271,6 +271,39 @@ export function SituationScreenPage() {
         },
     ];
 
+    const historySummaryItems = [
+        {
+            label: '总车辆数',
+            value: getMetricValue(statMap?.total_vehicles ?? statMap?.activeVehicles, '--'),
+            hint: '历史运行统计',
+        },
+        {
+            label: 'ETC 交易数',
+            value: getMetricValue(statMap?.etc_transactions_count, '--'),
+            hint: '来自历史记录',
+        },
+        {
+            label: '规则告警数',
+            value: getMetricValue(statMap?.etc_alerts_count ?? historyData?.anomaly_logs?.length, '--'),
+            hint: '异常与告警综合',
+        },
+        {
+            label: '平均速度',
+            value: avgSpeedValue ? `${avgSpeedValue.toFixed(1)} km/h` : '--',
+            hint: '历史统计优先',
+        },
+        {
+            label: '仿真时长',
+            value: simulationTimeValue ? `${Math.round(simulationTimeValue)} 秒` : '--',
+            hint: '运行总时长',
+        },
+        {
+            label: '当前选中门架',
+            value: selectedGantry?.name || selectedGantry?.id || '--',
+            hint: '与详情卡联动',
+        },
+    ];
+
     return (
         <div className="screen-shell h-full overflow-hidden text-[var(--text-primary)]">
             <div className="flex h-full flex-col">
@@ -351,9 +384,63 @@ export function SituationScreenPage() {
                                 />
                             )}
                         </ScreenPanel>
+
+                        <ScreenPanel
+                            title="历史统计详情"
+                            aside={<span className="text-xs text-cyan-300/70">地图下方联动区域</span>}
+                            className="shrink-0 min-h-[320px]"
+                        >
+                            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_1fr_1fr]">
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {historySummaryItems.map(item => (
+                                            <ScreenSummaryTile
+                                                key={item.label}
+                                                label={item.label}
+                                                value={item.value}
+                                                hint={item.hint}
+                                            />
+                                        ))}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 text-sm text-cyan-50/85">
+                                        <div className="rounded-2xl border border-cyan-400/10 bg-[rgba(2,10,24,0.5)] px-4 py-3">
+                                            <div className="text-xs text-cyan-300/65">历史数据文件</div>
+                                            <div className="mt-2 truncate">{selectedHistoryMeta?.path ?? '--'}</div>
+                                        </div>
+                                        <div className="rounded-2xl border border-cyan-400/10 bg-[rgba(2,10,24,0.5)] px-4 py-3">
+                                            <div className="text-xs text-cyan-300/65">异常记录条数</div>
+                                            <div className="mt-2">{historyData?.anomaly_logs?.length ?? 0}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="min-h-[260px] rounded-2xl border border-cyan-400/10 bg-[rgba(2,10,24,0.5)] p-3">
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <span className="text-sm text-cyan-100">异常态势</span>
+                                        <span className="text-xs text-cyan-300/70">{alertRecords.length} 条</span>
+                                    </div>
+                                    <ScreenAlertList
+                                        alerts={alertRecords}
+                                        selectedAlertId={selectedGantryId}
+                                        onSelectAlert={setSelectedGantryId}
+                                    />
+                                </div>
+
+                                <div className="min-h-[260px] rounded-2xl border border-cyan-400/10 bg-[rgba(2,10,24,0.5)] p-3">
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <span className="text-sm text-cyan-100">事件详情</span>
+                                        <span className="text-xs text-cyan-300/70">历史模式</span>
+                                    </div>
+                                    <ScreenIncidentDetail
+                                        gantry={selectedGantry}
+                                        alert={selectedAlert}
+                                    />
+                                </div>
+                            </div>
+                        </ScreenPanel>
                     </section>
 
-                    <aside className="relative z-10 flex min-h-0 w-[380px] shrink-0 flex-col gap-4 overflow-y-auto pr-1">
+                    <aside className="relative z-10 flex min-h-0 w-[360px] shrink-0 flex-col gap-4 overflow-y-auto pr-1">
                         <ScreenPanel
                             title="路网概览"
                             aside={<span className="text-xs text-cyan-300/70">更新于 {formatTimestamp(selectedRoadMeta?.updated_at)}</span>}
@@ -399,29 +486,6 @@ export function SituationScreenPage() {
                                     />
                                 ))}
                             </div>
-                        </ScreenPanel>
-
-                        <ScreenPanel
-                            title="异常态势"
-                            aside={<span className="text-xs text-cyan-300/70">{alertRecords.length} 条</span>}
-                            className="shrink-0 min-h-[240px]"
-                        >
-                            <ScreenAlertList
-                                alerts={alertRecords}
-                                selectedAlertId={selectedGantryId}
-                                onSelectAlert={setSelectedGantryId}
-                            />
-                        </ScreenPanel>
-
-                        <ScreenPanel
-                            title="详情卡"
-                            aside={<span className="text-xs text-cyan-300/70">真实数据模式</span>}
-                            className="shrink-0 min-h-[220px]"
-                        >
-                            <ScreenIncidentDetail
-                                gantry={selectedGantry}
-                                alert={selectedAlert}
-                            />
                         </ScreenPanel>
                     </aside>
                 </div>
