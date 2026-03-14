@@ -405,8 +405,8 @@ export function WorkflowPage() {
         }
     };
 
-    const renameSavedWorkflow = async () => {
-        const target = selectedWorkflowName || workflowName;
+    const renameSavedWorkflow = async (targetName?: string | null) => {
+        const target = targetName || selectedWorkflowName || workflowName;
         if (!target) {
             showStatus('请先选择一个工作流');
             return;
@@ -483,6 +483,248 @@ export function WorkflowPage() {
             showStatus(`已打开${type === 'model' ? '模型' : '数据集'}目录: ${id}`);
         } catch (error) {
             showStatus(`打开目录失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const renameRun = async (runId: string | null) => {
+        if (!runId) {
+            showStatus('请先选择一条历史运行');
+            return;
+        }
+        const nextName = window.prompt('请输入新的历史运行名称', runId);
+        if (!nextName || nextName.trim() === '' || nextName.trim() === runId) {
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const response = await fetch(`${RUNS_API}/${encodeURIComponent(runId)}/rename`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ new_name: nextName.trim() }),
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '重命名失败');
+            }
+            await fetchHistoryRuns();
+            if (selectedRunId === runId) {
+                setSelectedRunId(payload.run_id || nextName.trim());
+            }
+            showStatus(`历史运行已重命名为: ${payload.run_id || nextName.trim()}`);
+        } catch (error) {
+            showStatus(`重命名失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const copyRun = async (runId: string | null) => {
+        if (!runId) {
+            showStatus('请先选择一条历史运行');
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const response = await fetch(`${RUNS_API}/${encodeURIComponent(runId)}/copy`, { method: 'POST' });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '复制失败');
+            }
+            await fetchHistoryRuns();
+            showStatus(`历史运行已复制为: ${payload.run_id}`);
+        } catch (error) {
+            showStatus(`复制失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const deleteRun = async (runId: string | null) => {
+        if (!runId) {
+            showStatus('请先选择一条历史运行');
+            return;
+        }
+        if (!window.confirm(`确认删除历史运行 "${runId}"？此操作不可恢复。`)) {
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const response = await fetch(`${RUNS_API}/${encodeURIComponent(runId)}`, { method: 'DELETE' });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '删除失败');
+            }
+            if (selectedRunId === runId) {
+                setRunAnalysis(null);
+            }
+            await fetchHistoryRuns();
+            showStatus(`历史运行已删除: ${runId}`);
+        } catch (error) {
+            showStatus(`删除失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const openRunFolder = async (runId: string | null) => {
+        if (!runId) {
+            showStatus('请先选择一条历史运行');
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const response = await fetch(`${RUNS_API}/${encodeURIComponent(runId)}/open-folder`, { method: 'POST' });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '打开失败');
+            }
+            showStatus(`已打开历史运行目录: ${runId}`);
+        } catch (error) {
+            showStatus(`打开目录失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const renamePredictionItem = async (type: 'model' | 'dataset', id: string | null) => {
+        if (!id) {
+            showStatus(type === 'model' ? '请先选择一个模型' : '请先选择一个数据集');
+            return;
+        }
+        const nextName = window.prompt(`请输入新的${type === 'model' ? '模型' : '数据集'}名称`, id);
+        if (!nextName || nextName.trim() === '' || nextName.trim() === id) {
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const response = await fetch(
+                `${PREDICTION_API}/${type === 'model' ? 'models' : 'datasets'}/${encodeURIComponent(id)}/rename`,
+                {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ new_name: nextName.trim() }),
+                }
+            );
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '重命名失败');
+            }
+            if (type === 'model') {
+                await fetchSavedModels();
+                setSelectedModelId(payload.new_model_id || nextName.trim());
+            } else {
+                await fetchDatasets();
+                setSelectedDatasetName(payload.new_name || nextName.trim());
+            }
+            showStatus(`${type === 'model' ? '模型' : '数据集'}已重命名为: ${nextName.trim()}`);
+        } catch (error) {
+            showStatus(`重命名失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const copyPredictionItem = async (type: 'model' | 'dataset', id: string | null) => {
+        if (!id) {
+            showStatus(type === 'model' ? '请先选择一个模型' : '请先选择一个数据集');
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const response = await fetch(
+                `${PREDICTION_API}/${type === 'model' ? 'models' : 'datasets'}/${encodeURIComponent(id)}/copy`,
+                { method: 'POST' }
+            );
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '复制失败');
+            }
+            if (type === 'model') {
+                await fetchSavedModels();
+            } else {
+                await fetchDatasets();
+            }
+            showStatus(`${type === 'model' ? '模型' : '数据集'}已复制`);
+        } catch (error) {
+            showStatus(`复制失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const deletePredictionItem = async (type: 'model' | 'dataset', id: string | null) => {
+        if (!id) {
+            showStatus(type === 'model' ? '请先选择一个模型' : '请先选择一个数据集');
+            return;
+        }
+        if (!window.confirm(`确认删除${type === 'model' ? '模型' : '数据集'} "${id}"？此操作不可恢复。`)) {
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const response = await fetch(
+                `${PREDICTION_API}/${type === 'model' ? 'models' : 'datasets'}/${encodeURIComponent(id)}`,
+                { method: 'DELETE' }
+            );
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '删除失败');
+            }
+            if (type === 'model') {
+                await fetchSavedModels();
+            } else {
+                await fetchDatasets();
+            }
+            showStatus(`${type === 'model' ? '模型' : '数据集'}已删除: ${id}`);
+        } catch (error) {
+            showStatus(`删除失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const copyWorkflow = async (name: string | null) => {
+        if (!name) {
+            showStatus('请先选择一个工作流');
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const response = await fetch(`${API_BASE}/workflows/files/copy?name=${encodeURIComponent(name)}`, { method: 'POST' });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '复制失败');
+            }
+            await fetchSavedWorkflows(false);
+            showStatus(`工作流已复制为: ${payload.data?.name || payload.data?.path}`);
+        } catch (error) {
+            showStatus(`复制失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const deleteWorkflow = async (name: string | null) => {
+        if (!name) {
+            showStatus('请先选择一个工作流');
+            return;
+        }
+        if (!window.confirm(`确认删除工作流 "${name}"？此操作不可恢复。`)) {
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const response = await fetch(`${API_BASE}/workflows/files?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '删除失败');
+            }
+            await fetchSavedWorkflows(false);
+            showStatus(`工作流已删除: ${name}`);
+        } catch (error) {
+            showStatus(`删除失败: ${String(error)}`);
         } finally {
             setIsLoading(false);
         }
@@ -617,22 +859,34 @@ export function WorkflowPage() {
                         selectedRunId={selectedRunId}
                         onSelectRun={setSelectedRunId}
                         onAnalyzeRun={showRunAnalysis}
+                        onRenameRun={renameRun}
+                        onCopyRun={copyRun}
+                        onDeleteRun={deleteRun}
+                        onOpenRunFolder={openRunFolder}
                         models={savedModels}
                         selectedModelId={selectedModelId}
                         onSelectModel={setSelectedModelId}
                         onShowModel={showModelDetail}
                         onOpenModelFolder={(id) => openPredictionFolder('model', id)}
+                        onRenameModel={(id) => renamePredictionItem('model', id)}
+                        onCopyModel={(id) => copyPredictionItem('model', id)}
+                        onDeleteModel={(id) => deletePredictionItem('model', id)}
                         datasets={datasets}
                         selectedDatasetName={selectedDatasetName}
                         onSelectDataset={setSelectedDatasetName}
                         onShowDataset={showDatasetDetail}
                         onOpenDatasetFolder={(id) => openPredictionFolder('dataset', id)}
+                        onRenameDataset={(id) => renamePredictionItem('dataset', id)}
+                        onCopyDataset={(id) => copyPredictionItem('dataset', id)}
+                        onDeleteDataset={(id) => deletePredictionItem('dataset', id)}
                         workflows={savedWorkflows}
                         selectedWorkflowName={selectedWorkflowName}
                         workflowName={workflowName}
                         onSelectWorkflow={setSelectedWorkflowName}
                         onLoadWorkflow={loadSavedWorkflow}
                         onRenameWorkflow={renameSavedWorkflow}
+                        onCopyWorkflow={copyWorkflow}
+                        onDeleteWorkflow={deleteWorkflow}
                         onOpenWorkflowFolder={openWorkflowFolder}
                     />
                 )}

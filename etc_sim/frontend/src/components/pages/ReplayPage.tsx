@@ -16,6 +16,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useI18nStore } from '../../stores/i18nStore';
+import { ContextMenu, type ContextMenuState } from '../charts/ContextMenu';
 import { RangeSelector } from './RangeSelector';
 import {
   type TrajectoryFrame,
@@ -80,6 +81,7 @@ export const ReplayPage: React.FC = () => {
   const [loadingChunk, setLoadingChunk] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
   const [currentFilePath, setCurrentFilePath] = useState('');
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   // 防止重复预取
   const fetchingRef = useRef(false);
@@ -96,6 +98,11 @@ export const ReplayPage: React.FC = () => {
   // 素材
   const vehicleImagesRef = useRef<VehicleImages | null>(null);
   const [imagesLoaded, setImagesLoaded] = useState(false);
+
+  const deriveRunId = useCallback((file: OutputFile) => {
+    const normalized = file.path.replace(/\\/g, '/');
+    return normalized.split('/')[0] || file.name.replace(/\.json$/i, '');
+  }, []);
 
   // ==================== 素材预加载 ====================
   useEffect(() => {
@@ -262,6 +269,62 @@ export const ReplayPage: React.FC = () => {
     } catch { /* 后端未启动 */ }
     setLoadingFiles(false);
   }, []);
+
+  const showFileMenu = useCallback((event: React.MouseEvent, file: OutputFile) => {
+    event.preventDefault();
+    const runId = deriveRunId(file);
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        {
+          label: '重命名',
+          icon: '✏️',
+          onClick: async () => {
+            const nextName = prompt('请输入新的历史记录名称', runId);
+            if (!nextName || nextName.trim() === '' || nextName.trim() === runId) return;
+            const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/rename`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ new_name: nextName.trim() }),
+            });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.detail || '重命名失败');
+            await refreshOutputFiles();
+          },
+        },
+        {
+          label: '复制',
+          icon: '📄',
+          onClick: async () => {
+            const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/copy`, { method: 'POST' });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.detail || '复制失败');
+            await refreshOutputFiles();
+          },
+        },
+        {
+          label: '删除',
+          icon: '🗑️',
+          danger: true,
+          onClick: async () => {
+            if (!confirm(`确认删除 "${runId}"？此操作不可恢复。`)) return;
+            const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.detail || '删除失败');
+            await refreshOutputFiles();
+          },
+        },
+        {
+          label: '在文件夹中打开',
+          icon: '📂',
+          onClick: async () => {
+            await fetch(`/api/runs/${encodeURIComponent(runId)}/open-folder`, { method: 'POST' });
+          },
+        },
+      ],
+    });
+  }, [deriveRunId, refreshOutputFiles]);
 
   useEffect(() => { refreshOutputFiles(); }, [refreshOutputFiles]);
 
@@ -713,7 +776,7 @@ export const ReplayPage: React.FC = () => {
             ) : (
               <div className="py-1">
                 {outputFiles.map(file => (
-                  <button key={file.path} onClick={() => loadFileChunked(file)} disabled={loadingFile === file.path}
+                  <button key={file.path} onClick={() => loadFileChunked(file)} onContextMenu={(e) => showFileMenu(e, file)} disabled={loadingFile === file.path}
                     className={`w-full text-left px-4 py-2.5 hover:bg-[rgba(255,255,255,0.05)] transition-colors border-b border-[var(--glass-border)]/50 group ${loadedFileName === file.name ? 'bg-[var(--accent-blue)]/5' : ''}`}>
                     <div className="flex items-center gap-2">
                       <span className="text-sm">{file.extension === '.json' ? '📄' : '📊'}</span>
@@ -849,6 +912,7 @@ export const ReplayPage: React.FC = () => {
           </div>
         )}
       </div>
+      <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
     </div>
   );
 };

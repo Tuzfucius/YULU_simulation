@@ -13,6 +13,7 @@ import { TimelineChart } from '../charts/TimelineChart';
 import { HeatmapChart } from '../charts/HeatmapChart';
 import { SensitivityChart } from '../charts/SensitivityChart';
 import { GantryStatsPanel, type GantryStat } from '../charts/GantryStatsPanel';
+import { ContextMenu, type ContextMenuState } from '../charts/ContextMenu';
 
 const API_BASE = '/api/evaluation';
 const FILES_API = '/api/files';
@@ -71,6 +72,7 @@ function CMCell({ value, label, colorClass, bgClass }: {
             <span className={`text-3xl font-bold font-mono ${colorClass}`}>{value}</span>
             <span className="text-[10px] text-[var(--text-muted)]">{label}</span>
         </div>
+        <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
     );
 }
 
@@ -109,6 +111,7 @@ export function EvaluationPage() {
     const [selectedFile, setSelectedFile] = useState('');
     const [fileInfo, setFileInfo] = useState<any>(null);
     const [showFilePanel, setShowFilePanel] = useState(true);
+    const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
     // 加载 output 文件列表
     const refreshOutputFiles = useCallback(async () => {
@@ -122,6 +125,67 @@ export function EvaluationPage() {
         } catch { /* 后端未启动 */ }
         setLoadingFiles(false);
     }, []);
+
+    const deriveRunId = useCallback((file: OutputFile) => {
+        const normalized = file.path.replace(/\\/g, '/');
+        return normalized.split('/')[0] || file.name.replace(/\.json$/i, '');
+    }, []);
+
+    const showFileMenu = useCallback((event: React.MouseEvent, file: OutputFile) => {
+        event.preventDefault();
+        const runId = deriveRunId(file);
+        setContextMenu({
+            x: event.clientX,
+            y: event.clientY,
+            items: [
+                {
+                    label: '重命名',
+                    icon: '✏️',
+                    onClick: async () => {
+                        const nextName = prompt('请输入新的历史记录名称', runId);
+                        if (!nextName || nextName.trim() === '' || nextName.trim() === runId) return;
+                        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/rename`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ new_name: nextName.trim() }),
+                        });
+                        const data = await res.json();
+                        if (!data.success) throw new Error(data.detail || '重命名失败');
+                        await refreshOutputFiles();
+                    },
+                },
+                {
+                    label: '复制',
+                    icon: '📄',
+                    onClick: async () => {
+                        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/copy`, { method: 'POST' });
+                        const data = await res.json();
+                        if (!data.success) throw new Error(data.detail || '复制失败');
+                        await refreshOutputFiles();
+                    },
+                },
+                {
+                    label: '删除',
+                    icon: '🗑️',
+                    danger: true,
+                    onClick: async () => {
+                        if (!confirm(`确认删除 "${runId}"？此操作不可恢复。`)) return;
+                        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { method: 'DELETE' });
+                        const data = await res.json();
+                        if (!data.success) throw new Error(data.detail || '删除失败');
+                        await refreshOutputFiles();
+                    },
+                },
+                {
+                    label: '在文件夹中打开',
+                    icon: '📂',
+                    onClick: async () => {
+                        await fetch(`/api/runs/${encodeURIComponent(runId)}/open-folder`, { method: 'POST' });
+                    },
+                },
+            ],
+        });
+    }, [deriveRunId, refreshOutputFiles]);
 
     const fetchMetrics = useCallback(async () => {
         setLoading(true);
@@ -288,6 +352,7 @@ export function EvaluationPage() {
                                 {outputFiles.map(file => (
                                     <button
                                         key={file.path}
+                                        onContextMenu={(e) => showFileMenu(e, file)}
                                         onClick={() => {
                                             setSelectedFile(file.path);
                                             evaluateFromFile(file.path);

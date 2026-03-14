@@ -10,6 +10,7 @@ import { ContextMenu, type ContextMenuState } from '../charts/ContextMenu';
 interface FileInfo {
     name: string;
     path: string;
+    run_id?: string;
     size: number;
     modified: number;
     meta?: {
@@ -188,12 +189,84 @@ export function PredictBuilderPage() {
         try { await fetch(url, { method: 'POST' }); } catch { /* 后端未启动 */ }
     }, []);
 
+    const copyItem = useCallback(async (type: 'model' | 'dataset', id: string) => {
+        const url = type === 'model'
+            ? `/api/prediction/models/${encodeURIComponent(id)}/copy`
+            : `/api/prediction/datasets/${encodeURIComponent(id)}/copy`;
+        try {
+            const res = await fetch(url, { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                type === 'model' ? refreshModels() : refreshDatasets();
+            } else {
+                alert(data.detail || '复制失败');
+            }
+        } catch { alert('网络错误'); }
+    }, []);
+
+    const renameRun = useCallback(async (file: FileInfo) => {
+        const runId = file.run_id || file.path.replace(/[\\/]data\.json$/, '');
+        const nextName = prompt('请输入新的历史记录名称', runId);
+        if (!nextName || nextName.trim() === '' || nextName.trim() === runId) return;
+        try {
+            const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/rename`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ new_name: nextName.trim() }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                fetch('/api/prediction/results').then(r => r.json()).then(payload => { if (payload.files) setAvailableFiles(payload.files); });
+            } else {
+                alert(data.detail || '重命名失败');
+            }
+        } catch { alert('网络错误'); }
+    }, []);
+
+    const copyRun = useCallback(async (file: FileInfo) => {
+        const runId = file.run_id || file.path.replace(/[\\/]data\.json$/, '');
+        try {
+            const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/copy`, { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                fetch('/api/prediction/results').then(r => r.json()).then(payload => { if (payload.files) setAvailableFiles(payload.files); });
+            } else {
+                alert(data.detail || '复制失败');
+            }
+        } catch { alert('网络错误'); }
+    }, []);
+
+    const deleteRun = useCallback(async (file: FileInfo) => {
+        const runId = file.run_id || file.path.replace(/[\\/]data\.json$/, '');
+        if (!confirm(`确认删除 "${runId}"？此操作不可恢复。`)) return;
+        try {
+            const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) {
+                setSelectedFiles(prev => prev.filter(item => item !== file.path));
+                fetch('/api/prediction/results').then(r => r.json()).then(payload => { if (payload.files) setAvailableFiles(payload.files); });
+            } else {
+                alert(data.detail || '删除失败');
+            }
+        } catch { alert('网络错误'); }
+    }, []);
+
+    const openRunFolder = useCallback(async (file: FileInfo) => {
+        const runId = file.run_id || file.path.replace(/[\\/]data\.json$/, '');
+        try { await fetch(`/api/runs/${encodeURIComponent(runId)}/open-folder`, { method: 'POST' }); } catch { /* noop */ }
+    }, []);
+
     /** 构建模型右键菜单项 */
     const modelCtxItems = useCallback((model_id: string) => [
         {
             label: '重命名',
             icon: '✏️',
             onClick: () => { setRenamingId({ type: 'model', id: model_id }); setRenameValue(model_id); setTimeout(() => renameInputRef.current?.focus(), 50); },
+        },
+        {
+            label: '复制',
+            icon: '📄',
+            onClick: () => copyItem('model', model_id),
         },
         {
             label: '打开文件夹',
@@ -206,7 +279,7 @@ export function PredictBuilderPage() {
             danger: true,
             onClick: () => deleteItem('model', model_id, model_id),
         },
-    ], [openFolder, deleteItem]);
+    ], [copyItem, openFolder, deleteItem]);
 
     /** 构建数据集右键菜单项 */
     const datasetCtxItems = useCallback((ds_name: string) => [
@@ -214,6 +287,11 @@ export function PredictBuilderPage() {
             label: '重命名',
             icon: '✏️',
             onClick: () => { setRenamingId({ type: 'dataset', id: ds_name }); setRenameValue(ds_name); setTimeout(() => renameInputRef.current?.focus(), 50); },
+        },
+        {
+            label: '复制',
+            icon: '📄',
+            onClick: () => copyItem('dataset', ds_name),
         },
         {
             label: '打开文件夹',
@@ -226,7 +304,31 @@ export function PredictBuilderPage() {
             danger: true,
             onClick: () => deleteItem('dataset', ds_name, ds_name),
         },
-    ], [openFolder, deleteItem]);
+    ], [copyItem, openFolder, deleteItem]);
+
+    const runCtxItems = useCallback((file: FileInfo) => [
+        {
+            label: '重命名',
+            icon: '✏️',
+            onClick: () => renameRun(file),
+        },
+        {
+            label: '复制',
+            icon: '📄',
+            onClick: () => copyRun(file),
+        },
+        {
+            label: '删除',
+            icon: '🗑️',
+            danger: true,
+            onClick: () => deleteRun(file),
+        },
+        {
+            label: '打开文件夹',
+            icon: '📂',
+            onClick: () => openRunFolder(file),
+        },
+    ], [renameRun, copyRun, deleteRun, openRunFolder]);
 
     const toggleFile = (filePath: string) => {
         setSelectedFiles(prev =>
@@ -485,6 +587,7 @@ export function PredictBuilderPage() {
                                                 <div
                                                     key={file.path}
                                                     onClick={() => toggleFile(file.path)}
+                                                    onContextMenu={e => showCtxMenu(e, runCtxItems(file))}
                                                     className={`p-2.5 rounded-lg border cursor-pointer transition-all text-xs ${selectedFiles.includes(file.path)
                                                         ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)]/10 ring-1 ring-[var(--accent-blue)]'
                                                         : 'border-[var(--glass-border)] hover:bg-[rgba(255,255,255,0.05)]'

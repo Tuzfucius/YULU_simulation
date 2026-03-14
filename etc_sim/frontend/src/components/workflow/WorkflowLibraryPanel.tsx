@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
+import { ContextMenu, type ContextMenuState } from '../charts/ContextMenu';
 
 export type FileCategory = 'runs' | 'models' | 'datasets' | 'workflows';
 
@@ -68,22 +69,34 @@ interface WorkflowLibraryPanelProps {
     selectedRunId: string | null;
     onSelectRun: (runId: string) => void;
     onAnalyzeRun: (runId: string | null) => void;
+    onRenameRun: (runId: string | null) => void;
+    onCopyRun: (runId: string | null) => void;
+    onDeleteRun: (runId: string | null) => void;
+    onOpenRunFolder: (runId: string | null) => void;
     models: ModelInfo[];
     selectedModelId: string | null;
     onSelectModel: (modelId: string) => void;
     onShowModel: (modelId: string | null) => void;
     onOpenModelFolder: (modelId: string | null) => void;
+    onRenameModel: (modelId: string | null) => void;
+    onCopyModel: (modelId: string | null) => void;
+    onDeleteModel: (modelId: string | null) => void;
     datasets: DatasetInfo[];
     selectedDatasetName: string | null;
     onSelectDataset: (datasetName: string) => void;
     onShowDataset: (datasetName: string | null) => void;
     onOpenDatasetFolder: (datasetName: string | null) => void;
+    onRenameDataset: (datasetName: string | null) => void;
+    onCopyDataset: (datasetName: string | null) => void;
+    onDeleteDataset: (datasetName: string | null) => void;
     workflows: SavedWorkflowItem[];
     selectedWorkflowName: string | null;
     workflowName: string;
     onSelectWorkflow: (workflowName: string) => void;
     onLoadWorkflow: (workflowName: string | null) => void;
-    onRenameWorkflow: () => void;
+    onRenameWorkflow: (workflowName: string | null) => void;
+    onCopyWorkflow: (workflowName: string | null) => void;
+    onDeleteWorkflow: (workflowName: string | null) => void;
     onOpenWorkflowFolder: (workflowName: string | null) => void;
 }
 
@@ -139,24 +152,42 @@ export function WorkflowLibraryPanel(props: WorkflowLibraryPanelProps) {
         selectedRunId,
         onSelectRun,
         onAnalyzeRun,
+        onRenameRun,
+        onCopyRun,
+        onDeleteRun,
+        onOpenRunFolder,
         models,
         selectedModelId,
         onSelectModel,
         onShowModel,
         onOpenModelFolder,
+        onRenameModel,
+        onCopyModel,
+        onDeleteModel,
         datasets,
         selectedDatasetName,
         onSelectDataset,
         onShowDataset,
         onOpenDatasetFolder,
+        onRenameDataset,
+        onCopyDataset,
+        onDeleteDataset,
         workflows,
         selectedWorkflowName,
         workflowName,
         onSelectWorkflow,
         onLoadWorkflow,
         onRenameWorkflow,
+        onCopyWorkflow,
+        onDeleteWorkflow,
         onOpenWorkflowFolder,
     } = props;
+    const [menu, setMenu] = useState<ContextMenuState | null>(null);
+
+    const showMenu = useCallback((event: React.MouseEvent, items: ContextMenuState['items']) => {
+        event.preventDefault();
+        setMenu({ x: event.clientX, y: event.clientY, items });
+    }, []);
 
     return (
         <section className="flex-1 min-h-0 flex flex-col">
@@ -223,6 +254,12 @@ export function WorkflowLibraryPanel(props: WorkflowLibraryPanelProps) {
                                     type="button"
                                     onClick={() => onSelectRun(item.run_id)}
                                     onDoubleClick={() => onAnalyzeRun(item.run_id)}
+                                    onContextMenu={(event) => showMenu(event, [
+                                        { label: '重命名', icon: '✏️', onClick: () => onRenameRun(item.run_id) },
+                                        { label: '复制', icon: '📄', onClick: () => onCopyRun(item.run_id) },
+                                        { label: '删除', icon: '🗑️', danger: true, onClick: () => onDeleteRun(item.run_id) },
+                                        { label: '在文件夹中打开', icon: '📂', onClick: () => onOpenRunFolder(item.run_id) },
+                                    ])}
                                     className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${active ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)]/10' : 'border-transparent hover:border-[var(--glass-border)] hover:bg-[rgba(255,255,255,0.04)]'}`}
                                 >
                                     <div className="flex items-center justify-between gap-2">
@@ -250,6 +287,12 @@ export function WorkflowLibraryPanel(props: WorkflowLibraryPanelProps) {
                                         onSelectModel(item.model_id);
                                         onShowModel(item.model_id);
                                     }}
+                                    onContextMenu={(event) => showMenu(event, [
+                                        { label: '重命名', icon: '✏️', onClick: () => onRenameModel(item.model_id) },
+                                        { label: '复制', icon: '📄', onClick: () => onCopyModel(item.model_id) },
+                                        { label: '删除', icon: '🗑️', danger: true, onClick: () => onDeleteModel(item.model_id) },
+                                        { label: '在文件夹中打开', icon: '📂', onClick: () => onOpenModelFolder(item.model_id) },
+                                    ])}
                                     className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${active ? 'border-[var(--accent-purple)] bg-[var(--accent-purple)]/10' : 'border-transparent hover:border-[var(--glass-border)] hover:bg-[rgba(255,255,255,0.04)]'}`}
                                 >
                                     <div className="flex items-center justify-between gap-2">
@@ -276,6 +319,12 @@ export function WorkflowLibraryPanel(props: WorkflowLibraryPanelProps) {
                                         onSelectDataset(item.name);
                                         onShowDataset(item.name);
                                     }}
+                                    onContextMenu={(event) => showMenu(event, [
+                                        { label: '重命名', icon: '✏️', onClick: () => onRenameDataset(item.name) },
+                                        { label: '复制', icon: '📄', onClick: () => onCopyDataset(item.name) },
+                                        { label: '删除', icon: '🗑️', danger: true, onClick: () => onDeleteDataset(item.name) },
+                                        { label: '在文件夹中打开', icon: '📂', onClick: () => onOpenDatasetFolder(item.name) },
+                                    ])}
                                     className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${active ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)]/10' : 'border-transparent hover:border-[var(--glass-border)] hover:bg-[rgba(255,255,255,0.04)]'}`}
                                 >
                                     <div className="flex items-center justify-between gap-2">
@@ -300,6 +349,12 @@ export function WorkflowLibraryPanel(props: WorkflowLibraryPanelProps) {
                                     type="button"
                                     onClick={() => onSelectWorkflow(item.name)}
                                     onDoubleClick={() => onLoadWorkflow(item.name)}
+                                    onContextMenu={(event) => showMenu(event, [
+                                        { label: '重命名', icon: '✏️', onClick: () => onRenameWorkflow(item.name) },
+                                        { label: '复制', icon: '📄', onClick: () => onCopyWorkflow(item.name) },
+                                        { label: '删除', icon: '🗑️', danger: true, onClick: () => onDeleteWorkflow(item.name) },
+                                        { label: '在文件夹中打开', icon: '📂', onClick: () => onOpenWorkflowFolder(item.name) },
+                                    ])}
                                     className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${active ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)]/10' : 'border-transparent hover:border-[var(--glass-border)] hover:bg-[rgba(255,255,255,0.04)]'}`}
                                 >
                                     <div className="flex items-center justify-between gap-2">
@@ -314,6 +369,7 @@ export function WorkflowLibraryPanel(props: WorkflowLibraryPanelProps) {
                     </>
                 )}
             </div>
+            <ContextMenu menu={menu} onClose={() => setMenu(null)} />
         </section>
     );
 }
