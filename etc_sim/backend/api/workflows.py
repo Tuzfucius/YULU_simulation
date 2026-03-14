@@ -8,6 +8,11 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import json
 import logging
+import os
+import re
+import subprocess
+from datetime import datetime
+from pathlib import Path
 
 from etc_sim.models.alert_conditions import get_all_condition_types, Condition
 from etc_sim.models.alert_rules import (
@@ -17,6 +22,8 @@ from etc_sim.models.alert_rules import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+WORKFLOW_DIR = Path(__file__).resolve().parents[2] / "data" / "workflows"
+WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
 
 # 全局规则引擎实例（会在仿真会话中由 WebSocket Manager 引用）
 # 此处作为独立管理用途，仿真运行时使用 engine 内部的实例
@@ -48,6 +55,48 @@ class RuleModel(BaseModel):
 
 class WorkflowImportModel(BaseModel):
     rules: List[RuleModel]
+
+
+class WorkflowFileSaveModel(BaseModel):
+    name: str
+    description: str = ""
+    rules: List[RuleModel]
+
+
+class WorkflowRenameModel(BaseModel):
+    old_name: str
+    new_name: str
+
+
+def _sanitize_workflow_name(name: str) -> str:
+    normalized = re.sub(r'[<>:"/\\|?*]+', "_", (name or "").strip())
+    normalized = re.sub(r"\s+", "_", normalized).strip("._")
+    if not normalized:
+        raise HTTPException(status_code=400, detail="工作流名称不能为空")
+    return normalized
+
+
+def _workflow_path(name: str) -> Path:
+    workflow_name = _sanitize_workflow_name(name)
+    return WORKFLOW_DIR / f"{workflow_name}.json"
+
+
+def _read_workflow_file(path: Path) -> dict:
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="工作流不存在") from exc
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail="工作流文件格式错误") from exc
+
+
+def _open_folder_in_explorer(path: Path):
+    folder = path if path.is_dir() else path.parent
+    if os.name == "nt":
+        subprocess.Popen(["explorer", str(folder)])
+    else:
+        raise HTTPException(status_code=501, detail="当前仅支持 Windows 打开文件夹")
 
 
 # ==================== 条件/动作类型查询 ====================
@@ -183,6 +232,98 @@ async def export_workflow():
         "success": True,
         "data": _standalone_engine.export_to_json()
     }
+
+
+@router.get("/workflows/files")
+async def list_workflow_files():
+    """列出已保存的工作流文件。"""
+    files = []
+    for path in sorted(WORKFLOW_DIR.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+        payload = _read_workflow_file(path)
+        stat = path.stat()
+        rules = payload.get("rules", [])
+        files.append(
+            {
+                "name": payload.get("name", path.stem),
+                "file_name": path.name,
+                "path": path.stem,
+                "description": payload.get("description", ""),
+                "rule_count": len(rules),
+                "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            }
+        )
+    return {"success": True, "data": files}
+
+
+@router.get("/workflows/files/read")
+async def read_workflow_file(name: str):
+    """读取指定的工作流文件。"""
+    path = _workflow_path(name)
+    payload = _read_workflow_file(path)
+    return {"success": True, "data": payload}
+
+
+@router.post("/workflows/files/save")
+async def save_workflow_file(workflow: WorkflowFileSaveModel):
+    """保存工作流文件。"""
+    path = _workflow_path(workflow.name)
+    payload = {
+        "name": workflow.name,
+        "description": workflow.description,
+        "rules": [rule.dict() for rule in workflow.rules],
+        "saved_at": datetime.utcnow().isoformat(),
+    }
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(payload, file, indent=2, ensure_ascii=False)
+    return {
+        "success": True,
+        "message": f"工作流已保存: {path.stem}",
+        "data": {
+            "name": workflow.name,
+            "file_name": path.name,
+            "path": path.stem,
+        },
+    }
+
+
+@router.put("/workflows/files/rename")
+async def rename_workflow_file(request: WorkflowRenameModel):
+    """重命名工作流文件。"""
+    source_path = _workflow_path(request.old_name)
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail="工作流不存在")
+
+    target_path = _workflow_path(request.new_name)
+    if target_path.exists():
+        raise HTTPException(status_code=409, detail="目标工作流名称已存在")
+
+    payload = _read_workflow_file(source_path)
+    payload["name"] = request.new_name
+    payload["saved_at"] = datetime.utcnow().isoformat()
+
+    with open(target_path, "w", encoding="utf-8") as file:
+        json.dump(payload, file, indent=2, ensure_ascii=False)
+    source_path.unlink()
+
+    return {
+        "success": True,
+        "message": f"工作流已重命名为: {request.new_name}",
+        "data": {
+            "name": request.new_name,
+            "file_name": target_path.name,
+            "path": target_path.stem,
+        },
+    }
+
+
+@router.post("/workflows/files/open-folder")
+async def open_workflow_folder(name: Optional[str] = None):
+    """在资源管理器中打开工作流目录。"""
+    path = WORKFLOW_DIR if not name else _workflow_path(name)
+    if name and not path.exists():
+        raise HTTPException(status_code=404, detail="工作流不存在")
+    _open_folder_in_explorer(path)
+    return {"success": True, "data": {"folder": str(path.parent if name else path)}}
 
 
 @router.post("/workflows/reset")
