@@ -40,13 +40,13 @@ export function ScreenAlertList({
 }: ScreenAlertListProps) {
     return (
         <div className="space-y-2 overflow-y-auto pr-1">
-            {alerts.map(alert => {
+            {alerts.map((alert, index) => {
                 const levelStyle = levelStyleMap[alert.level];
                 const active = alert.id === selectedAlertId;
 
                 return (
                     <button
-                        key={alert.id}
+                        key={`${alert.id}-${index}`}
                         onClick={() => onSelectAlert(alert.id)}
                         className={`w-full rounded-xl border px-3 py-3 text-left transition ${levelStyle.border} ${levelStyle.background} ${
                             active ? 'shadow-[0_0_0_1px_rgba(186,230,253,0.35)]' : ''
