@@ -1,13 +1,4 @@
-/**
- * 可视化工作流编辑器页面
- * 
- * 三栏布局：
- *  - 左侧：节点面板（拖拽添加）
- *  - 中间：React Flow 画布
- *  - 右侧：属性编辑面板
- */
-
-import React, { useCallback, useRef, useState, useEffect } from 'react';
+﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ReactFlow,
     Background,
@@ -28,22 +19,60 @@ import '@xyflow/react/dist/style.css';
 import { WorkflowNode } from '../workflow/WorkflowNode';
 import { NodePalette } from '../workflow/NodePalette';
 import { NodePropertiesPanel } from '../workflow/NodePropertiesPanel';
-import { useWorkflowStore, NODE_TYPE_CONFIGS } from '../../stores/workflowStore';
+import { useWorkflowStore } from '../../stores/workflowStore';
 import { useI18nStore } from '../../stores/i18nStore';
 import { API } from '../../config/api';
 
-// 自定义节点类型注册
 const nodeTypes = { workflowNode: WorkflowNode };
-
 const API_BASE = API.WORKFLOWS;
+
+interface SavedWorkflowItem {
+    name: string;
+    file_name: string;
+    path: string;
+    description?: string;
+    rule_count: number;
+    modified_at: string;
+}
+
+interface WorkflowFilePayload {
+    name?: string;
+    description?: string;
+    rules?: unknown[];
+}
+
+function formatTime(value: string) {
+    if (!value) {
+        return '--';
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return value;
+    }
+
+    return date.toLocaleString('zh-CN', { hour12: false });
+}
 
 export function WorkflowPage() {
     const {
-        nodes, edges, setNodes, setEdges, addNode,
-        selectNode, selectedNodeId, exportToRules, loadRules, clearAll,
-        workflowName, workflowDescription, setWorkflowMeta,
+        nodes,
+        edges,
+        setNodes,
+        setEdges,
+        addNode,
+        selectNode,
+        exportToRules,
+        loadRules,
+        clearAll,
+        workflowName,
+        workflowDescription,
+        setWorkflowMeta,
         canConnect,
-        undo, redo, canUndo, canRedo,
+        undo,
+        redo,
+        canUndo,
+        canRedo,
         loadFromLocal,
     } = useWorkflowStore();
     const { t } = useI18nStore();
@@ -52,71 +81,93 @@ export function WorkflowPage() {
     const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
     const [statusMsg, setStatusMsg] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [savedWorkflows, setSavedWorkflows] = useState<SavedWorkflowItem[]>([]);
+    const [selectedWorkflowName, setSelectedWorkflowName] = useState<string | null>(null);
 
-    // ===== localStorage 恢复 =====
+    const showStatus = useCallback((message: string) => {
+        setStatusMsg(message);
+        window.setTimeout(() => setStatusMsg(null), 3000);
+    }, []);
+
+    const fetchSavedWorkflows = useCallback(async (keepSelection = true) => {
+        try {
+            const response = await fetch(`${API_BASE}/workflows/files`);
+            const payload = await response.json();
+            const items = Array.isArray(payload.data) ? payload.data : [];
+            setSavedWorkflows(items);
+            setSelectedWorkflowName((current) => {
+                if (!keepSelection) {
+                    return items[0]?.name ?? null;
+                }
+                if (current && items.some((item: SavedWorkflowItem) => item.name === current)) {
+                    return current;
+                }
+                return items[0]?.name ?? null;
+            });
+        } catch (error) {
+            showStatus(`读取工作流文件失败: ${String(error)}`);
+        }
+    }, [showStatus]);
+
     useEffect(() => {
         const restored = loadFromLocal();
         if (restored) {
-            setStatusMsg('已从本地缓存恢复工作流');
-            setTimeout(() => setStatusMsg(null), 3000);
+            showStatus('已从本地草稿恢复当前工作流');
         }
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+        fetchSavedWorkflows(false);
+    }, [fetchSavedWorkflows, loadFromLocal, showStatus]);
 
-    // ===== 撤销/重做快捷键 =====
     useEffect(() => {
-        const handler = (e: KeyboardEvent) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-                e.preventDefault();
-                if (e.shiftKey) {
+        const handler = (event: KeyboardEvent) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
+                event.preventDefault();
+                if (event.shiftKey) {
                     redo();
                 } else {
                     undo();
                 }
             }
-            // Ctrl+Y 也支持重做
-            if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
-                e.preventDefault();
+            if ((event.ctrlKey || event.metaKey) && event.key === 'y') {
+                event.preventDefault();
                 redo();
             }
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [undo, redo]);
+    }, [redo, undo]);
 
-    // 节点变更
     const onNodesChange: OnNodesChange = useCallback(
         (changes) => setNodes(applyNodeChanges(changes, nodes) as any),
         [nodes, setNodes]
     );
+
     const onEdgesChange: OnEdgesChange = useCallback(
         (changes) => setEdges(applyEdgeChanges(changes, edges)),
         [edges, setEdges]
     );
 
-    // 连接校验 + 添加
     const onConnect: OnConnect = useCallback(
         (params: Connection) => {
-            // 校验：同一个输入端口不允许多条线
             const valid = canConnect(
                 params.source || '',
                 params.target || '',
                 params.sourceHandle || null,
-                params.targetHandle || null,
+                params.targetHandle || null
             );
             if (!valid) {
-                setStatusMsg(t('workflow.connectionDenied'));
-                setTimeout(() => setStatusMsg(null), 3000);
+                showStatus(t('workflow.connectionDenied'));
                 return;
             }
-            setEdges(addEdge(
-                { ...params, animated: true, style: { stroke: '#a78bfa' } },
-                edges,
-            ));
+            setEdges(
+                addEdge(
+                    { ...params, animated: true, style: { stroke: '#a78bfa' } },
+                    edges
+                )
+            );
         },
-        [edges, setEdges, canConnect]
+        [canConnect, edges, setEdges, showStatus, t]
     );
 
-    // 选中节点
     const onNodeClick = useCallback((_: React.MouseEvent, node: any) => {
         selectNode(node.id);
     }, [selectNode]);
@@ -125,39 +176,31 @@ export function WorkflowPage() {
         selectNode(null);
     }, [selectNode]);
 
-    // 拖放节点到画布
-    const onDragOver = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
+    const onDragOver = useCallback((event: React.DragEvent) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
     }, []);
 
-    const onDrop = useCallback(
-        (e: React.DragEvent) => {
-            e.preventDefault();
-            const raw = e.dataTransfer.getData('application/workflow-node');
-            if (!raw) return;
+    const onDrop = useCallback((event: React.DragEvent) => {
+        event.preventDefault();
+        const raw = event.dataTransfer.getData('application/workflow-node');
+        if (!raw) {
+            return;
+        }
 
-            const config = JSON.parse(raw);
-            const bounds = reactFlowWrapper.current?.getBoundingClientRect();
-            if (!bounds || !rfInstance) return;
+        const config = JSON.parse(raw);
+        const bounds = reactFlowWrapper.current?.getBoundingClientRect();
+        if (!bounds || !rfInstance) {
+            return;
+        }
 
-            const position = rfInstance.screenToFlowPosition({
-                x: e.clientX - bounds.left,
-                y: e.clientY - bounds.top,
-            });
+        const position = rfInstance.screenToFlowPosition({
+            x: event.clientX - bounds.left,
+            y: event.clientY - bounds.top,
+        });
 
-            addNode(config, position);
-        },
-        [rfInstance, addNode]
-    );
-
-    // 状态提示
-    const showStatus = (msg: string) => {
-        setStatusMsg(msg);
-        setTimeout(() => setStatusMsg(null), 3000);
-    };
-
-    // ==================== 后端交互 ====================
+        addNode(config, position);
+    }, [addNode, rfInstance]);
 
     const saveToBackend = async () => {
         const rules = exportToRules();
@@ -168,19 +211,19 @@ export function WorkflowPage() {
 
         setIsLoading(true);
         try {
-            const resp = await fetch(`${API_BASE}/workflows/import`, {
+            const response = await fetch(`${API_BASE}/workflows/import`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ rules }),
             });
-            const data = await resp.json();
-            if (data.success) {
-                showStatus(t('workflow.savedRules').replace('{count}', data.data.imported_count));
+            const payload = await response.json();
+            if (payload.success) {
+                showStatus(t('workflow.savedRules').replace('{count}', String(payload.data.imported_count)));
             } else {
-                showStatus(`${t('workflow.saveFailed')}: ${data.detail || 'Unknown Error'}`);
+                showStatus(`${t('workflow.saveFailed')}: ${payload.detail || 'Unknown Error'}`);
             }
-        } catch (err) {
-            showStatus(`${t('workflow.networkError')}: ${err}`);
+        } catch (error) {
+            showStatus(`${t('workflow.networkError')}: ${String(error)}`);
         } finally {
             setIsLoading(false);
         }
@@ -189,16 +232,16 @@ export function WorkflowPage() {
     const loadFromBackend = async () => {
         setIsLoading(true);
         try {
-            const resp = await fetch(`${API_BASE}/rules`);
-            const data = await resp.json();
-            if (data.success && data.data.length > 0) {
-                loadRules(data.data);
-                showStatus(t('workflow.loadedRules').replace('{count}', data.data.length));
+            const response = await fetch(`${API_BASE}/rules`);
+            const payload = await response.json();
+            if (payload.success && payload.data.length > 0) {
+                loadRules(payload.data);
+                showStatus(t('workflow.loadedRules').replace('{count}', String(payload.data.length)));
             } else {
                 showStatus(t('workflow.noRulesInBackend'));
             }
-        } catch (err) {
-            showStatus(`${t('workflow.loadFailed')}: ${err}`);
+        } catch (error) {
+            showStatus(`${t('workflow.loadFailed')}: ${String(error)}`);
         } finally {
             setIsLoading(false);
         }
@@ -207,14 +250,136 @@ export function WorkflowPage() {
     const loadDefaults = async () => {
         setIsLoading(true);
         try {
-            const resp = await fetch(`${API_BASE}/workflows/reset`, { method: 'POST' });
-            const data = await resp.json();
-            if (data.success) {
-                loadRules(data.data);
-                showStatus(t('workflow.loadedDefaultRules').replace('{count}', data.data.length));
+            const response = await fetch(`${API_BASE}/workflows/reset`, { method: 'POST' });
+            const payload = await response.json();
+            if (payload.success) {
+                loadRules(payload.data);
+                showStatus(t('workflow.loadedDefaultRules').replace('{count}', String(payload.data.length)));
             }
-        } catch (err) {
-            showStatus(`${t('workflow.resetFailed')}: ${err}`);
+        } catch (error) {
+            showStatus(`${t('workflow.resetFailed')}: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const saveWorkflowFile = async () => {
+        const rules = exportToRules();
+        if (rules.length === 0) {
+            showStatus('当前工作流没有可保存的规则');
+            return;
+        }
+        if (!workflowName.trim()) {
+            showStatus('请先填写工作流名称');
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            const response = await fetch(`${API_BASE}/workflows/files/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: workflowName,
+                    description: workflowDescription,
+                    rules,
+                }),
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '保存失败');
+            }
+            setSelectedWorkflowName(payload.data?.name ?? workflowName);
+            await fetchSavedWorkflows();
+            showStatus(`工作流已保存: ${workflowName}`);
+        } catch (error) {
+            showStatus(`保存工作流失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const loadSavedWorkflow = async (name: string) => {
+        if (!name) {
+            showStatus('请先选择一个工作流');
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            const response = await fetch(`${API_BASE}/workflows/files/read?name=${encodeURIComponent(name)}`);
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '读取失败');
+            }
+
+            const workflow = payload.data as WorkflowFilePayload;
+            const rules = Array.isArray(workflow.rules) ? workflow.rules : [];
+            loadRules(rules as any);
+            setWorkflowMeta(workflow.name || name, workflow.description || '');
+            setSelectedWorkflowName(workflow.name || name);
+            showStatus(`已加载工作流: ${workflow.name || name}`);
+        } catch (error) {
+            showStatus(`加载工作流失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const renameSavedWorkflow = async () => {
+        const target = selectedWorkflowName || workflowName;
+        if (!target) {
+            showStatus('请先选择一个工作流');
+            return;
+        }
+
+        const nextName = window.prompt('请输入新的工作流名称', target);
+        if (!nextName || nextName.trim() === '' || nextName.trim() === target) {
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            const response = await fetch(`${API_BASE}/workflows/files/rename`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    old_name: target,
+                    new_name: nextName.trim(),
+                }),
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '重命名失败');
+            }
+
+            if (workflowName === target) {
+                setWorkflowMeta(nextName.trim(), workflowDescription);
+            }
+            setSelectedWorkflowName(nextName.trim());
+            await fetchSavedWorkflows(false);
+            showStatus(`工作流已重命名为: ${nextName.trim()}`);
+        } catch (error) {
+            showStatus(`重命名失败: ${String(error)}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const openWorkflowFolder = async (name?: string | null) => {
+        setIsLoading(true);
+        try {
+            const query = name ? `?name=${encodeURIComponent(name)}` : '';
+            const response = await fetch(`${API_BASE}/workflows/files/open-folder${query}`, {
+                method: 'POST',
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.detail || '打开失败');
+            }
+            showStatus(name ? `已打开工作流所在目录: ${name}` : '已打开工作流目录');
+        } catch (error) {
+            showStatus(`打开目录失败: ${String(error)}`);
         } finally {
             setIsLoading(false);
         }
@@ -224,41 +389,40 @@ export function WorkflowPage() {
         const rules = exportToRules();
         const blob = new Blob([JSON.stringify({ rules }, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `workflow_${Date.now()}.json`;
-        a.click();
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `workflow_${Date.now()}.json`;
+        link.click();
         URL.revokeObjectURL(url);
-        showStatus(t('workflow.exportedRules').replace('{count}', rules.length));
+        showStatus(t('workflow.exportedRules').replace('{count}', String(rules.length)));
     };
 
     const importJSON = () => {
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.json';
-        input.onchange = (e: any) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
+        input.onchange = (event: Event) => {
+            const target = event.target as HTMLInputElement;
+            const file = target.files?.[0];
+            if (!file) {
+                return;
+            }
+
             const reader = new FileReader();
-            reader.onload = (ev) => {
+            reader.onload = (loadEvent) => {
                 try {
-                    const data = JSON.parse(ev.target?.result as string);
-                    // 基本格式校验
-                    if (!data.rules || !Array.isArray(data.rules)) {
-                        showStatus('❗ 无效的工作流文件：缺少 rules 字段');
+                    const payload = JSON.parse(String(loadEvent.target?.result || '{}'));
+                    if (!payload.rules || !Array.isArray(payload.rules)) {
+                        showStatus('无效的工作流文件，缺少 rules 数组');
                         return;
                     }
-                    for (let i = 0; i < data.rules.length; i++) {
-                        const r = data.rules[i];
-                        if (!r.name || !Array.isArray(r.conditions)) {
-                            showStatus(`❗ 规则 #${i + 1} 缺少必要字段 (name/conditions)`);
-                            return;
-                        }
+                    loadRules(payload.rules);
+                    if (payload.name || payload.description) {
+                        setWorkflowMeta(payload.name || workflowName, payload.description || '');
                     }
-                    loadRules(data.rules);
-                    showStatus(t('workflow.importedRules').replace('{count}', data.rules.length));
-                } catch {
-                    showStatus(t('workflow.invalidJson'));
+                    showStatus(t('workflow.importedRules').replace('{count}', String(payload.rules.length)));
+                } catch (error) {
+                    showStatus(`${t('workflow.invalidJson')}: ${String(error)}`);
                 }
             };
             reader.readAsText(file);
@@ -268,35 +432,115 @@ export function WorkflowPage() {
 
     return (
         <div className="flex h-full overflow-hidden">
-            {/* 左侧节点面板 */}
-            <aside className="w-56 flex flex-col border-r border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-lg shrink-0">
-                <NodePalette />
-            </aside>
+            <aside className="w-80 flex flex-col border-r border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-lg shrink-0">
+                <div className="flex-[1.2] min-h-0 border-b border-[var(--glass-border)]">
+                    <NodePalette />
+                </div>
 
-            {/* 中间画布 + 工具栏 */}
-            <main className="flex-1 flex flex-col relative">
-                {/* 顶部工具栏 */}
-                <div className="h-12 flex items-center justify-between px-4 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md z-10 shrink-0">
-                    <div className="flex items-center gap-3">
-                        <span className="text-lg">🔀</span>
-                        <input
-                            type="text"
-                            value={workflowName}
-                            onChange={(e) => setWorkflowMeta(e.target.value, workflowDescription)}
-                            className="text-sm font-medium bg-transparent border-none outline-none text-[var(--text-primary)] w-40"
-                            placeholder={t('workflow.workflowName')}
-                        />
+                <section className="flex-1 min-h-0 flex flex-col">
+                    <div className="p-3 border-b border-[var(--glass-border)]">
+                        <div className="flex items-center justify-between gap-2">
+                            <div>
+                                <h3 className="text-sm font-semibold text-[var(--text-primary)]">已保存工作流</h3>
+                                <p className="text-[10px] text-[var(--text-muted)] mt-1">选择历史文件继续编辑或管理</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => fetchSavedWorkflows(false)}
+                                className="px-2 py-1 rounded-md text-[10px] text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)]"
+                            >
+                                刷新
+                            </button>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                            <button
+                                type="button"
+                                onClick={() => loadSavedWorkflow(selectedWorkflowName || workflowName)}
+                                disabled={!selectedWorkflowName || isLoading}
+                                className="px-2 py-1.5 rounded-md text-[11px] bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] disabled:opacity-40"
+                            >
+                                编辑
+                            </button>
+                            <button
+                                type="button"
+                                onClick={renameSavedWorkflow}
+                                disabled={(!selectedWorkflowName && !workflowName) || isLoading}
+                                className="px-2 py-1.5 rounded-md text-[11px] bg-[var(--accent-purple)]/15 text-[var(--accent-purple)] disabled:opacity-40"
+                            >
+                                重命名
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => openWorkflowFolder(selectedWorkflowName)}
+                                disabled={isLoading}
+                                className="col-span-2 px-2 py-1.5 rounded-md text-[11px] text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] disabled:opacity-40"
+                            >
+                                在文件夹中打开
+                            </button>
+                        </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                        {/* 撤销/重做 */}
+                    <div className="flex-1 overflow-y-auto p-2 space-y-2 scrollbar-thin">
+                        {savedWorkflows.length === 0 && (
+                            <div className="px-3 py-6 text-center text-xs text-[var(--text-muted)]">暂无已保存工作流</div>
+                        )}
+                        {savedWorkflows.map((item) => {
+                            const isSelected = item.name === selectedWorkflowName;
+                            return (
+                                <button
+                                    key={item.file_name}
+                                    type="button"
+                                    onClick={() => setSelectedWorkflowName(item.name)}
+                                    onDoubleClick={() => loadSavedWorkflow(item.name)}
+                                    className={`w-full text-left rounded-lg border px-3 py-2 transition-colors ${
+                                        isSelected
+                                            ? 'border-[var(--accent-blue)] bg-[var(--accent-blue)]/10'
+                                            : 'border-transparent hover:border-[var(--glass-border)] hover:bg-[rgba(255,255,255,0.04)]'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-xs font-medium text-[var(--text-primary)] truncate">{item.name}</span>
+                                        <span className="text-[10px] text-[var(--text-muted)] shrink-0">{item.rule_count} 条</span>
+                                    </div>
+                                    <div className="mt-1 text-[10px] text-[var(--text-muted)] line-clamp-2">{item.description || '无描述'}</div>
+                                    <div className="mt-2 text-[10px] text-[var(--text-muted)]">更新时间: {formatTime(item.modified_at)}</div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </section>
+            </aside>
+
+            <main className="flex-1 flex flex-col relative">
+                <div className="min-h-16 flex items-center justify-between gap-4 px-4 py-3 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md z-10 shrink-0">
+                    <div className="flex items-center gap-3">
+                        <span className="text-lg">流程</span>
+                        <div className="flex flex-col gap-1">
+                            <input
+                                type="text"
+                                value={workflowName}
+                                onChange={(event) => setWorkflowMeta(event.target.value, workflowDescription)}
+                                className="text-sm font-medium bg-transparent border-none outline-none text-[var(--text-primary)] w-52"
+                                placeholder={t('workflow.workflowName')}
+                            />
+                            <input
+                                type="text"
+                                value={workflowDescription}
+                                onChange={(event) => setWorkflowMeta(workflowName, event.target.value)}
+                                className="text-[11px] bg-transparent border-none outline-none text-[var(--text-muted)] w-72"
+                                placeholder="填写工作流说明，便于后续检索"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
                         <button
                             onClick={undo}
                             disabled={!canUndo}
                             title="撤销 (Ctrl+Z)"
                             className="text-[11px] px-2 py-1.5 rounded-md text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors disabled:opacity-30"
                         >
-                            ↩️
+                            撤销
                         </button>
                         <button
                             onClick={redo}
@@ -304,9 +548,16 @@ export function WorkflowPage() {
                             title="重做 (Ctrl+Shift+Z)"
                             className="text-[11px] px-2 py-1.5 rounded-md text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors disabled:opacity-30"
                         >
-                            ↪️
+                            重做
                         </button>
                         <span className="w-px h-5 bg-[var(--glass-border)]" />
+                        <button
+                            onClick={saveWorkflowFile}
+                            disabled={isLoading}
+                            className="text-[11px] px-3 py-1.5 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-colors disabled:opacity-50"
+                        >
+                            保存工作流
+                        </button>
                         <button
                             onClick={loadDefaults}
                             disabled={isLoading}
@@ -350,7 +601,6 @@ export function WorkflowPage() {
                     </div>
                 </div>
 
-                {/* React Flow 画布 */}
                 <div ref={reactFlowWrapper} className="flex-1">
                     <ReactFlow
                         nodes={nodes}
@@ -369,12 +619,7 @@ export function WorkflowPage() {
                         defaultEdgeOptions={{ animated: true, style: { stroke: '#a78bfa', strokeWidth: 1.5 } }}
                         style={{ background: 'var(--bg-base)' }}
                     >
-                        <Background
-                            variant={BackgroundVariant.Dots}
-                            gap={20}
-                            size={1}
-                            color="rgba(255,255,255,0.06)"
-                        />
+                        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255,255,255,0.06)" />
                         <Controls
                             style={{
                                 background: 'var(--glass-bg)',
@@ -388,23 +633,19 @@ export function WorkflowPage() {
                                 borderRadius: '8px',
                                 border: '1px solid var(--glass-border)',
                             }}
-                            nodeColor={(n: any) => n.data?.color || '#888'}
+                            nodeColor={(node: any) => node.data?.color || '#888'}
                             maskColor="rgba(0,0,0,0.5)"
                         />
                     </ReactFlow>
                 </div>
 
-                {/* 状态提示 */}
                 {statusMsg && (
-                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg
-            bg-[var(--glass-bg)] border border-[var(--glass-border)] backdrop-blur-xl
-            text-xs text-[var(--text-primary)] shadow-lg z-50 animate-fade-in">
+                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg bg-[var(--glass-bg)] border border-[var(--glass-border)] backdrop-blur-xl text-xs text-[var(--text-primary)] shadow-lg z-50 animate-fade-in">
                         {statusMsg}
                     </div>
                 )}
             </main>
 
-            {/* 右侧属性面板 */}
             <aside className="w-56 flex flex-col border-l border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-lg shrink-0">
                 <NodePropertiesPanel />
             </aside>
