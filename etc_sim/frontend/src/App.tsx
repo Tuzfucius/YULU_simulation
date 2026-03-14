@@ -1,8 +1,4 @@
-/**
- * ETC 交通仿真系统 - Modern UI (Multi-Page with Router)
- */
-
-import React, { useCallback, useEffect, useState, useRef, Suspense } from 'react';
+﻿import React, { useCallback, useEffect, useRef, useState, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ConfigPanel } from './components/ConfigPanel';
@@ -20,7 +16,6 @@ import { useSimStore } from './stores/simStore';
 import { engine } from './engine/SimulationEngine';
 import { useTheme } from './utils/useTheme';
 
-// 懒加载非首屏页面
 const ReplayPage = React.lazy(() => import('./components/pages/ReplayPage').then(m => ({ default: m.ReplayPage })));
 const DashboardPage = React.lazy(() => import('./components/pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const ScenariosPage = React.lazy(() => import('./components/pages/ScenariosPage').then(m => ({ default: m.ScenariosPage })));
@@ -28,19 +23,17 @@ const WorkflowPage = React.lazy(() => import('./components/pages/WorkflowPage').
 const RoadEditorPage = React.lazy(() => import('./components/pages/RoadEditorPage').then(m => ({ default: m.RoadEditorPage })));
 const PredictBuilderPage = React.lazy(() => import('./components/pages/PredictBuilderPage').then(m => ({ default: m.PredictBuilderPage })));
 
-// 导航项
 const NAV_ITEMS = [
-  { path: '/sim', icon: '🎯', label: '仿真控制', labelEn: 'Simulation' },
-  { path: '/replay', icon: '🛣️', label: '俯视回放', labelEn: 'Replay' },
+  { path: '/sim', icon: '🚦', label: '仿真控制', labelEn: 'Simulation' },
+  { path: '/replay', icon: '🎞️', label: '可视回放', labelEn: 'Replay' },
   { path: '/dashboard', icon: '📊', label: '预警仪表盘', labelEn: 'Dashboard' },
-  { path: '/scenarios', icon: '🧪', label: '场景模板', labelEn: 'Scenarios' },
-  { path: '/workflow', icon: '🔀', label: '工作流编辑', labelEn: 'Workflow' },
-  { path: '/editor', icon: '✏️', label: '路径编辑', labelEn: 'Editor' },
-  { path: '/predict-builder', icon: '🧠', label: '时序预测工作台', labelEn: 'Predict Builder' },
+  { path: '/scenarios', icon: '🧩', label: '场景模板', labelEn: 'Scenarios' },
+  { path: '/workflow', icon: '🧭', label: '工作流编辑', labelEn: 'Workflow' },
+  { path: '/editor', icon: '🛣️', label: '路径编辑', labelEn: 'Editor' },
+  { path: '/predict-builder', icon: '📈', label: '时序预测工作台', labelEn: 'Predict Builder' },
   { path: '/screen', icon: '🖥️', label: '态势大屏', labelEn: 'Situation Screen' },
 ];
 
-// 仿真主页面（原单页面内容）
 function SimulationPage() {
   const { isRunning } = useSimStore();
   const { t } = useI18nStore();
@@ -54,7 +47,6 @@ function SimulationPage() {
 
   return (
     <div className="flex h-full">
-      {/* 左侧配置面板 */}
       <aside className="w-80 flex flex-col glass-panel z-20 shrink-0 border-r border-[var(--glass-border)]">
         <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
           <ConfigPanel disabled={isRunning} />
@@ -64,9 +56,7 @@ function SimulationPage() {
         </div>
       </aside>
 
-      {/* 主内容区域 */}
       <main className="flex-1 flex flex-col relative overflow-hidden bg-[var(--bg-base)]">
-        {/* 顶部控制栏 */}
         <div className="h-20 shrink-0 flex items-center justify-between px-8 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md z-10">
           <div className="flex items-center gap-6">
             <ControlBar
@@ -82,7 +72,6 @@ function SimulationPage() {
           </div>
         </div>
 
-        {/* 可滚动视图区域 */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
           <div className="max-w-[1600px] mx-auto p-8 space-y-8">
             <div className="glass-card p-6">
@@ -90,15 +79,9 @@ function SimulationPage() {
               <ResultsPanel />
             </div>
             <div ref={chartsRef} className="space-y-4">
-              {/* 路网全局预览（有自定义路网时显示）*/}
               <RoadNetworkOverview />
-
-              {/* 区间详细分析（仿真结束后显示）*/}
               <SegmentInspector />
-
-              {/* 单车微观分析（仿真结束后显示）*/}
               <MicroscopicInspector />
-
               <h3 className="text-lg font-medium text-[var(--text-primary)] px-2">{t('app.analysisCharts')}</h3>
               <ChartsPanel />
             </div>
@@ -122,10 +105,9 @@ function App() {
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const themeMenuRef = useRef<HTMLDivElement>(null);
 
-  // 点击外部关闭主题菜单
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (themeMenuRef.current && !themeMenuRef.current.contains(e.target as Node)) {
+    const handler = (event: MouseEvent) => {
+      if (themeMenuRef.current && !themeMenuRef.current.contains(event.target as Node)) {
         setThemeMenuOpen(false);
       }
     };
@@ -141,11 +123,7 @@ function App() {
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <div className="flex h-screen w-screen bg-[var(--bg-base)] text-[var(--text-primary)] font-sans overflow-hidden">
-
-        {/* 全局导航侧边栏 */}
         <nav className={`flex flex-col border-r border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl shrink-0 transition-[width] duration-300 ${navCollapsed ? 'w-16' : 'w-52'}`}>
-
-          {/* Logo */}
           <div className="h-16 flex items-center justify-center px-4 border-b border-[var(--glass-border)]">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--accent-blue)] to-[var(--accent-purple)] flex items-center justify-center text-black font-bold shadow-[0_0_15px_rgba(168,199,250,0.3)]">
               E
@@ -157,7 +135,6 @@ function App() {
             )}
           </div>
 
-          {/* 导航项 */}
           <div className="flex-1 py-4 space-y-1 px-2">
             {NAV_ITEMS.map(item => (
               <NavLink
@@ -176,42 +153,43 @@ function App() {
             ))}
           </div>
 
-          {/* 底部控制 */}
           <div className="p-3 border-t border-[var(--glass-border)] space-y-2">
-            {/* 主题选择器 */}
             <div ref={themeMenuRef} className="relative">
               <button
-                onClick={() => setThemeMenuOpen(o => !o)}
+                onClick={() => setThemeMenuOpen(open => !open)}
                 className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] transition-colors"
               >
-                <span className="text-lg">{themes.find(t => t.id === theme)?.icon ?? '🎨'}</span>
+                <span className="text-lg">{themes.find(item => item.id === theme)?.icon ?? '🎨'}</span>
                 {!navCollapsed && (
                   <span className="flex-1 text-left">
-                    {lang === 'zh' ? (themes.find(t => t.id === theme)?.label ?? '主题') : (themes.find(t => t.id === theme)?.labelEn ?? 'Theme')}
+                    {lang === 'zh'
+                      ? (themes.find(item => item.id === theme)?.label ?? '主题')
+                      : (themes.find(item => item.id === theme)?.labelEn ?? 'Theme')}
                   </span>
                 )}
                 {!navCollapsed && <span className="text-xs opacity-50">{themeMenuOpen ? '▲' : '▼'}</span>}
               </button>
-              {/* 主题列表弹出菜单 */}
               {themeMenuOpen && (
-                <div className="absolute bottom-full left-0 right-0 mb-1 rounded-lg overflow-hidden shadow-xl"
+                <div
+                  className="absolute bottom-full left-0 right-0 mb-1 rounded-lg overflow-hidden shadow-xl"
                   style={{ background: 'var(--bg-surface)', border: '1px solid var(--glass-border)', zIndex: 100 }}
                 >
-                  {themes.map(t => (
+                  {themes.map(item => (
                     <button
-                      key={t.id}
-                      onClick={() => { setTheme(t.id); setThemeMenuOpen(false); }}
+                      key={item.id}
+                      onClick={() => {
+                        setTheme(item.id);
+                        setThemeMenuOpen(false);
+                      }}
                       className="w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors text-left"
                       style={{
-                        background: t.id === theme ? 'var(--glass-bg-hover)' : 'transparent',
-                        color: t.id === theme ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                        background: item.id === theme ? 'var(--glass-bg-hover)' : 'transparent',
+                        color: item.id === theme ? 'var(--accent-blue)' : 'var(--text-secondary)',
                       }}
                     >
-                      <span className="text-base shrink-0">{t.icon}</span>
-                      {!navCollapsed && (
-                        <span>{lang === 'zh' ? t.label : t.labelEn}</span>
-                      )}
-                      {t.id === theme && <span className="ml-auto text-xs">✓</span>}
+                      <span className="text-base shrink-0">{item.icon}</span>
+                      {!navCollapsed && <span>{lang === 'zh' ? item.label : item.labelEn}</span>}
+                      {item.id === theme && <span className="ml-auto text-xs">✓</span>}
                     </button>
                   ))}
                 </div>
@@ -234,17 +212,18 @@ function App() {
           </div>
         </nav>
 
-        {/* 路由内容区域 — 带错误边界和过渡动画 */}
         <div className="flex-1 overflow-hidden">
           <ErrorBoundary>
-            <Suspense fallback={
-              <div className="flex items-center justify-center h-full text-[var(--text-muted)]">
-                <div className="text-center">
-                  <div className="animate-spin w-8 h-8 border-2 border-[var(--accent-blue)] border-t-transparent rounded-full mx-auto mb-3" />
-                  <span className="text-sm">加载中...</span>
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center h-full text-[var(--text-muted)]">
+                  <div className="text-center">
+                    <div className="animate-spin w-8 h-8 border-2 border-[var(--accent-blue)] border-t-transparent rounded-full mx-auto mb-3" />
+                    <span className="text-sm">加载中...</span>
+                  </div>
                 </div>
-              </div>
-            }>
+              }
+            >
               <AnimatedRoutes />
             </Suspense>
           </ErrorBoundary>
@@ -254,7 +233,6 @@ function App() {
   );
 }
 
-/** 带动画的路由切换 */
 function AnimatedRoutes() {
   const location = useLocation();
   return (
