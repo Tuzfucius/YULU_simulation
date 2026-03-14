@@ -14,6 +14,7 @@ import { RoadNetworkOverview } from './components/RoadNetworkOverview';
 import { SegmentInspector } from './components/SegmentInspector';
 import { MicroscopicInspector } from './components/MicroscopicInspector';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { SituationScreenPage } from './components/pages/SituationScreenPage';
 import { useI18nStore } from './stores/i18nStore';
 import { useSimStore } from './stores/simStore';
 import { engine } from './engine/SimulationEngine';
@@ -26,7 +27,6 @@ const ScenariosPage = React.lazy(() => import('./components/pages/ScenariosPage'
 const WorkflowPage = React.lazy(() => import('./components/pages/WorkflowPage').then(m => ({ default: m.WorkflowPage })));
 const RoadEditorPage = React.lazy(() => import('./components/pages/RoadEditorPage').then(m => ({ default: m.RoadEditorPage })));
 const PredictBuilderPage = React.lazy(() => import('./components/pages/PredictBuilderPage').then(m => ({ default: m.PredictBuilderPage })));
-const SituationScreenPage = React.lazy(() => import('./components/pages/SituationScreenPage').then(m => ({ default: m.SituationScreenPage })));
 
 // 导航项
 const NAV_ITEMS = [
