@@ -17,12 +17,29 @@ type RoadFile = {
     num_gantries?: number | null;
 };
 
+type OutputFile = {
+    name: string;
+    path: string;
+    size: number;
+    modified: string;
+    extension: string;
+    meta?: Record<string, unknown>;
+};
+
 type RoadData = ScreenRoadData & {
     meta?: {
         total_length_km?: number;
         scale_m_per_unit?: number;
         num_gantries?: number;
     };
+};
+
+type SimulationDataset = {
+    config?: Record<string, unknown>;
+    statistics?: Record<string, unknown>;
+    anomaly_logs?: Array<Record<string, unknown>>;
+    etcGates?: Array<Record<string, unknown>>;
+    metadata?: Record<string, unknown>;
 };
 
 function formatTimestamp(epochSeconds?: number) {
@@ -50,8 +67,12 @@ export function SituationScreenPage() {
     const { config, statistics } = useSimStore();
     const [roadFiles, setRoadFiles] = useState<RoadFile[]>([]);
     const [selectedRoadFile, setSelectedRoadFile] = useState<string>(config.customRoadPath || '');
+    const [historyFiles, setHistoryFiles] = useState<OutputFile[]>([]);
+    const [selectedHistoryPath, setSelectedHistoryPath] = useState('');
+    const [historyData, setHistoryData] = useState<SimulationDataset | null>(null);
     const [roadData, setRoadData] = useState<RoadData | null>(null);
     const [loading, setLoading] = useState(false);
+    const [historyLoading, setHistoryLoading] = useState(false);
     const [selectedGantryId, setSelectedGantryId] = useState<string | null>(null);
 
     useEffect(() => {
@@ -73,6 +94,26 @@ export function SituationScreenPage() {
 
         loadRoadFiles();
     }, [config.customRoadPath, selectedRoadFile]);
+
+    useEffect(() => {
+        const loadHistoryFiles = async () => {
+            try {
+                const response = await fetch('/api/files/output-files');
+                if (!response.ok) return;
+                const payload = await response.json();
+                const files: OutputFile[] = (payload.files || []).filter((file: OutputFile) => file.extension === '.json');
+                setHistoryFiles(files);
+                if (!selectedHistoryPath && files.length > 0) {
+                    const preferred = files.find(file => file.name === 'data.json') ?? files[0];
+                    setSelectedHistoryPath(preferred.path);
+                }
+            } catch (error) {
+                console.error('Failed to load history files', error);
+            }
+        };
+
+        loadHistoryFiles();
+    }, [selectedHistoryPath]);
 
     useEffect(() => {
         if (!selectedRoadFile) {
@@ -98,36 +139,88 @@ export function SituationScreenPage() {
         loadRoadData();
     }, [selectedRoadFile]);
 
+    useEffect(() => {
+        if (!selectedHistoryPath) {
+            setHistoryData(null);
+            return;
+        }
+
+        const loadHistoryData = async () => {
+            setHistoryLoading(true);
+            try {
+                const response = await fetch(`/api/files/output-file?path=${encodeURIComponent(selectedHistoryPath)}`);
+                if (!response.ok) return;
+                const result = await response.json();
+                if (result.type === 'json' && result.data) {
+                    setHistoryData(result.data as SimulationDataset);
+                }
+            } catch (error) {
+                console.error('Failed to load history json', error);
+            } finally {
+                setHistoryLoading(false);
+            }
+        };
+
+        loadHistoryData();
+    }, [selectedHistoryPath]);
+
     const selectedRoadMeta = roadFiles.find(file => file.filename === selectedRoadFile);
+    const selectedHistoryMeta = historyFiles.find(file => file.path === selectedHistoryPath) || null;
     const selectedGantry = roadData?.gantries.find(gantry => gantry.id === selectedGantryId) || null;
-    const statMap = statistics as Record<string, unknown> | null;
+    const statMap = (historyData?.statistics as Record<string, unknown> | undefined)
+        ?? (statistics as Record<string, unknown> | null)
+        ?? null;
+
     const alertRecords = useMemo<ScreenAlertRecord[]>(() => {
+        const anomalyLogs = historyData?.anomaly_logs ?? [];
+        if (anomalyLogs.length > 0) {
+            return anomalyLogs.slice(0, 8).map((log, index) => {
+                const gateId = String(log.gate_id ?? log.gantry_id ?? log.segment ?? `A${index + 1}`);
+                const level = index === 0 ? 'high' : index < 3 ? 'medium' : 'low';
+                const timeValue = log.time ?? log.timestamp ?? log.start_time ?? `T+${(index + 1) * 2} min`;
+                return {
+                    id: gateId,
+                    title: String(log.type_name ?? log.description ?? log.event ?? `Òì³£ÊÂ¼ş ${index + 1}`),
+                    level,
+                    timeLabel: String(timeValue),
+                    locationLabel: `ÃÅ¼Ü ${gateId}`,
+                };
+            });
+        }
+
         return (roadData?.gantries ?? []).map((gantry, index) => {
             const level = index === 0 ? 'high' : index < 3 ? 'medium' : 'low';
             return {
                 id: gantry.id,
-                title: `${gantry.name || gantry.id} çŠ¶æ€é¢„è­¦`,
+                title: `${gantry.name || gantry.id} ×´Ì¬Ô¤¾¯`,
                 level,
                 timeLabel: `T+${(index + 1) * 2} min`,
-                locationLabel: `é—¨æ¶ ${gantry.id}`,
+                locationLabel: `ÃÅ¼Ü ${gantry.id}`,
             };
         });
-    }, [roadData]);
+    }, [historyData?.anomaly_logs, roadData]);
+
     const selectedAlert = alertRecords.find(alert => alert.id === selectedGantryId) || null;
     const activeStats = {
         avgSpeed: getMetricValue(statMap?.avgSpeed, '--'),
-        activeVehicles: getMetricValue(statMap?.activeVehicles, config.totalVehicles),
-        totalAlerts: getMetricValue(statMap?.etc_alerts_count, roadData?.gantries.length ?? 0),
-        roadLength: getMetricValue(roadData?.meta?.total_length_km ?? selectedRoadMeta?.total_length_km, config.roadLengthKm),
+        activeVehicles: getMetricValue(statMap?.activeVehicles ?? statMap?.total_vehicles, config.totalVehicles),
+        totalAlerts: getMetricValue(statMap?.etc_alerts_count ?? historyData?.anomaly_logs?.length, roadData?.gantries.length ?? 0),
+        roadLength: getMetricValue(
+            roadData?.meta?.total_length_km
+            ?? selectedRoadMeta?.total_length_km
+            ?? historyData?.config?.custom_road_length_km
+            ?? historyData?.config?.road_length_km,
+            config.roadLengthKm
+        ),
     };
 
     return (
         <div className="screen-shell h-full overflow-hidden text-[var(--text-primary)]">
             <div className="flex h-full flex-col">
                 <ScreenHeader
-                    title={lang === 'en' ? 'Highway Situation Screen' : 'é«˜é€Ÿæ€åŠ¿æ„ŸçŸ¥å¤§å±'}
+                    title={lang === 'en' ? 'Highway Situation Screen' : '¸ßËÙÌ¬ÊÆ¸ĞÖª´óÆÁ'}
                     subtitle="Expressway Screen"
-                    selectedRoadFile={selectedRoadFile || 'æœªé€‰æ‹©è·¯ç½‘'}
+                    selectedRoadFile={selectedRoadFile || 'Î´Ñ¡ÔñÂ·Íø'}
                     timestampLabel={new Date().toLocaleString(lang === 'en' ? 'en-US' : 'zh-CN', {
                         year: 'numeric',
                         month: '2-digit',
@@ -142,10 +235,10 @@ export function SituationScreenPage() {
                     <section className="flex min-w-0 flex-1 flex-col gap-4">
                         <div className="grid grid-cols-4 gap-3">
                             {[
-                                { label: 'è·¯ç½‘é•¿åº¦', value: activeStats.roadLength, unit: 'km' },
-                                { label: 'å¹³å‡é€Ÿåº¦', value: activeStats.avgSpeed, unit: 'km/h' },
-                                { label: 'åœ¨é€”è½¦è¾†', value: activeStats.activeVehicles, unit: 'è¾†' },
-                                { label: 'é‡ç‚¹é—¨æ¶', value: activeStats.totalAlerts, unit: 'å¤„' },
+                                { label: 'Â·Íø³¤¶È', value: activeStats.roadLength, unit: 'km' },
+                                { label: 'Æ½¾ùËÙ¶È', value: activeStats.avgSpeed, unit: 'km/h' },
+                                { label: 'ÔÚÍ¾³µÁ¾', value: activeStats.activeVehicles, unit: 'Á¾' },
+                                { label: 'Òì³£ÊıÁ¿', value: activeStats.totalAlerts, unit: 'Ìõ' },
                             ].map(item => (
                                 <ScreenMetricCard
                                     key={item.label}
@@ -159,17 +252,29 @@ export function SituationScreenPage() {
                         <ScreenPanel className="relative min-h-0 flex-1 overflow-hidden p-0">
                             <div className="absolute left-4 top-4 z-10 flex items-center gap-3">
                                 <div className="screen-chip rounded-full px-3 py-1 text-xs">
-                                    åœ°å›¾ä¸»èˆå°
+                                    µØÍ¼Ö÷ÎèÌ¨
                                 </div>
                                 <select
                                     value={selectedRoadFile}
                                     onChange={(event) => setSelectedRoadFile(event.target.value)}
                                     className="rounded-full border border-cyan-300/20 bg-[rgba(2,10,24,0.92)] px-3 py-1.5 text-xs text-cyan-50 outline-none"
                                 >
-                                    {roadFiles.length === 0 && <option value="">æš‚æ— è·¯ç½‘</option>}
+                                    {roadFiles.length === 0 && <option value="">ÔİÎŞÂ·Íø</option>}
                                     {roadFiles.map(file => (
                                         <option key={file.filename} value={file.filename}>
                                             {file.filename}
+                                        </option>
+                                    ))}
+                                </select>
+                                <select
+                                    value={selectedHistoryPath}
+                                    onChange={(event) => setSelectedHistoryPath(event.target.value)}
+                                    className="rounded-full border border-cyan-300/20 bg-[rgba(2,10,24,0.92)] px-3 py-1.5 text-xs text-cyan-50 outline-none max-w-[320px]"
+                                >
+                                    {historyFiles.length === 0 && <option value="">ÔİÎŞÀúÊ· JSON</option>}
+                                    {historyFiles.map(file => (
+                                        <option key={file.path} value={file.path}>
+                                            {file.path}
                                         </option>
                                     ))}
                                 </select>
@@ -179,7 +284,7 @@ export function SituationScreenPage() {
 
                             {loading ? (
                                 <div className="flex h-full items-center justify-center text-sm text-cyan-200/70">
-                                    æ­£åœ¨åŠ è½½è·¯ç½‘æ•°æ®...
+                                    ÕıÔÚ¼ÓÔØÂ·ÍøÊı¾İ...
                                 </div>
                             ) : (
                                 <ScreenMapStage
@@ -193,32 +298,37 @@ export function SituationScreenPage() {
 
                     <aside className="flex w-[360px] shrink-0 flex-col gap-4">
                         <ScreenPanel
-                            title="è·¯ç½‘æ¦‚è§ˆ"
-                            aside={<span className="text-xs text-cyan-300/70">æ›´æ–°äº {formatTimestamp(selectedRoadMeta?.updated_at)}</span>}
+                            title="Â·Íø¸ÅÀÀ"
+                            aside={<span className="text-xs text-cyan-300/70">¸üĞÂÓÚ {formatTimestamp(selectedRoadMeta?.updated_at)}</span>}
                         >
                             <div className="space-y-3 text-sm">
+                                <div className="flex justify-between text-cyan-50/85 gap-4">
+                                    <span className="text-cyan-300/65">ÀúÊ·Êı¾İ</span>
+                                    <span className="max-w-[180px] truncate">{selectedHistoryMeta?.path ?? '--'}</span>
+                                </div>
                                 <div className="flex justify-between text-cyan-50/85">
-                                    <span className="text-cyan-300/65">å·²é€‰è·¯å¾„</span>
+                                    <span className="text-cyan-300/65">ÒÑÑ¡Â·¾¶</span>
                                     <span>{selectedRoadFile || '--'}</span>
                                 </div>
                                 <div className="flex justify-between text-cyan-50/85">
-                                    <span className="text-cyan-300/65">é—¨æ¶æ•°é‡</span>
+                                    <span className="text-cyan-300/65">ÃÅ¼ÜÊıÁ¿</span>
                                     <span>{roadData?.gantries.length ?? selectedRoadMeta?.num_gantries ?? 0}</span>
                                 </div>
                                 <div className="flex justify-between text-cyan-50/85">
-                                    <span className="text-cyan-300/65">åŒé“æ•°é‡</span>
+                                    <span className="text-cyan-300/65">ÔÑµÀÊıÁ¿</span>
                                     <span>{roadData?.ramps?.length ?? 0}</span>
                                 </div>
                                 <div className="flex justify-between text-cyan-50/85">
-                                    <span className="text-cyan-300/65">ä»¿çœŸè½¦é“</span>
-                                    <span>{config.numLanes}</span>
+                                    <span className="text-cyan-300/65">·ÂÕæ³µµÀ</span>
+                                    <span>{historyData?.config?.num_lanes ?? config.numLanes}</span>
                                 </div>
+                                {historyLoading ? <div className="text-xs text-cyan-300/65">ÕıÔÚÔØÈëÀúÊ·Êı¾İ...</div> : null}
                             </div>
                         </ScreenPanel>
 
                         <ScreenPanel
-                            title="å¼‚å¸¸æ€åŠ¿"
-                            aside={<span className="text-xs text-cyan-300/70">{alertRecords.length} æ¡</span>}
+                            title="Òì³£Ì¬ÊÆ"
+                            aside={<span className="text-xs text-cyan-300/70">{alertRecords.length} Ìõ</span>}
                             className="min-h-[240px]"
                         >
                             <ScreenAlertList
@@ -229,8 +339,8 @@ export function SituationScreenPage() {
                         </ScreenPanel>
 
                         <ScreenPanel
-                            title="è¯¦æƒ…å¡"
-                            aside={<span className="text-xs text-cyan-300/70">Stage 1</span>}
+                            title="ÏêÇé¿¨"
+                            aside={<span className="text-xs text-cyan-300/70">ÕæÊµÊı¾İÄ£Ê½</span>}
                             className="flex-1"
                         >
                             <ScreenIncidentDetail
