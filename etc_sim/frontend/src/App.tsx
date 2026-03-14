@@ -134,7 +134,6 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // 复古科技风在引擎层等同于 dark
     const engineTheme = theme === 'light' ? 'light' : 'dark';
     engine.setTheme(engineTheme);
   }, [theme]);

@@ -7,6 +7,12 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { ThemeId, THEMES } from '../themes';
 
+const DEFAULT_THEME: ThemeId = 'dark';
+
+function normalizeTheme(theme: string | undefined): ThemeId {
+    return THEMES.some(item => item.id === theme) ? (theme as ThemeId) : DEFAULT_THEME;
+}
+
 interface ThemeStore {
     theme: ThemeId;
     toggleTheme: () => void;
@@ -16,16 +22,23 @@ interface ThemeStore {
 export const useThemeStore = create<ThemeStore>()(
     persist(
         (set, get) => ({
-            theme: 'dark',
+            theme: DEFAULT_THEME,
             toggleTheme: () => {
                 const currentIdx = THEMES.findIndex(t => t.id === get().theme);
                 const nextIdx = (currentIdx + 1) % THEMES.length;
                 set({ theme: THEMES[nextIdx].id });
             },
-            setTheme: (theme) => set({ theme }),
+            setTheme: (theme) => set({ theme: normalizeTheme(theme) }),
         }),
         {
             name: 'etc-sim-theme',
+            merge: (persistedState, currentState) => {
+                const persisted = persistedState as Partial<{ theme: string }> | undefined;
+                return {
+                    ...currentState,
+                    theme: normalizeTheme(persisted?.theme),
+                };
+            },
         }
     )
 );
