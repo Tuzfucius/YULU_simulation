@@ -76,7 +76,11 @@ export const ContextMenu: FC<Props> = ({ menu, onClose }) => {
                     <button
                         key={i}
                         role="menuitem"
-                        onClick={() => { item.onClick(); onClose(); }}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onClick={() => {
+                            onClose();
+                            window.setTimeout(() => item.onClick(), 0);
+                        }}
                         className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors hover:bg-[rgba(255,255,255,0.08)] ${item.danger ? 'text-red-400 hover:text-red-300' : 'text-[var(--text-primary)]'}`}
                     >
                         {item.icon && <span className="shrink-0">{item.icon}</span>}
