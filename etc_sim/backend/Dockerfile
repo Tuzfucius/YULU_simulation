@@ -1,28 +1,23 @@
-# ETC Traffic Simulation Backend Dockerfile
-
 FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
 
 WORKDIR /app
 
-# 安装系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制依赖文件
-COPY backend/requirements.txt .
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-# 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt
+COPY . /app/etc_sim
 
-# 复制应用代码
-COPY backend/ .
+WORKDIR /app/etc_sim
+RUN mkdir -p data/charts data/charts_output data/config data/datasets data/layouts data/models data/results data/road_map data/simulations data/workflows
 
-# 创建数据目录
-RUN mkdir -p data/config data/results data/charts data/layouts
-
-# 暴露端口
 EXPOSE 8000
 
-# 启动命令
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "etc_sim.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
