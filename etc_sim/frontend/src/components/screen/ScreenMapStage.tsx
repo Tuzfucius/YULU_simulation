@@ -10,6 +10,9 @@ export type ScreenGantry = {
     x: number;
     y: number;
     name?: string;
+    segment?: number;
+    positionKm?: number;
+    positionM?: number;
 };
 
 export type ScreenRamp = {
@@ -31,12 +34,14 @@ type ScreenMapStageProps = {
     roadData: ScreenRoadData | null;
     selectedGantryId: string | null;
     onSelectGantry: (id: string) => void;
+    onHoverGantry?: (id: string | null) => void;
 };
 
 export function ScreenMapStage({
     roadData,
     selectedGantryId,
     onSelectGantry,
+    onHoverGantry,
 }: ScreenMapStageProps) {
     const geometry = useMemo(() => {
         if (!roadData || roadData.nodes.length < 2) return null;
@@ -84,6 +89,7 @@ export function ScreenMapStage({
             viewBox={`0 0 ${geometry.width} ${geometry.height}`}
             className="h-full w-full"
             preserveAspectRatio="xMidYMid meet"
+            onMouseLeave={() => onHoverGantry?.(null)}
         >
             <defs>
                 <linearGradient id="screen-road-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -157,11 +163,20 @@ export function ScreenMapStage({
 
             {geometry.gantries.map((gantry, index) => {
                 const active = gantry.id === selectedGantryId;
+                const labelY = gantry.y - (index % 2 === 0 ? 31 : -32);
+                const rectY = gantry.y - (index % 2 === 0 ? 44 : -20);
+
                 return (
                     <g
                         key={gantry.id}
                         className="cursor-pointer"
                         onClick={() => onSelectGantry(gantry.id)}
+                        onMouseEnter={() => onHoverGantry?.(gantry.id)}
+                        onFocus={() => onHoverGantry?.(gantry.id)}
+                        onBlur={() => onHoverGantry?.(null)}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`查看 ${gantry.name || gantry.id} 门架流量详情`}
                     >
                         <line
                             x1={gantry.x}
@@ -181,7 +196,7 @@ export function ScreenMapStage({
                         />
                         <rect
                             x={gantry.x - 34}
-                            y={gantry.y - (index % 2 === 0 ? 44 : -20)}
+                            y={rectY}
                             width="68"
                             height="18"
                             rx="4"
@@ -190,7 +205,7 @@ export function ScreenMapStage({
                         />
                         <text
                             x={gantry.x}
-                            y={gantry.y - (index % 2 === 0 ? 31 : -32)}
+                            y={labelY}
                             textAnchor="middle"
                             fill={active ? '#ffd166' : '#9fd8ff'}
                             fontSize="10"

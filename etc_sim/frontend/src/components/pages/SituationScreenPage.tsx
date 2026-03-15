@@ -9,6 +9,11 @@ import { ScreenMapStage, type ScreenRoadData } from '../screen/ScreenMapStage';
 import { ScreenMetricCard } from '../screen/ScreenMetricCard';
 import { ScreenPanel } from '../screen/ScreenPanel';
 import { ScreenSummaryTile } from '../screen/ScreenSummaryTile';
+import {
+    ScreenTrafficProfilePanel,
+    type GantryTrafficProfile,
+    type TrafficSeriesPoint,
+} from '../screen/ScreenTrafficProfilePanel';
 
 type RoadFile = {
     filename: string;
@@ -40,6 +45,11 @@ type SimulationDataset = {
     statistics?: Record<string, unknown>;
     anomaly_logs?: Array<Record<string, unknown>>;
     etcGates?: Array<Record<string, unknown>>;
+    segment_speed_history?: Array<Record<string, unknown>>;
+    etc_detection?: {
+        transactions?: Array<Record<string, unknown>>;
+        gate_stats?: Record<string, Record<string, unknown>>;
+    };
     metadata?: Record<string, unknown>;
 };
 
@@ -56,6 +66,12 @@ type RunGatePayload = {
             path_id?: string;
             polyline?: Array<[number, number]>;
         }>;
+    };
+};
+
+type RunAnalysisPayload = {
+    charts?: {
+        segment_series?: Record<string, Array<Record<string, unknown>>>;
     };
 };
 
@@ -99,6 +115,88 @@ function deriveRunIdFromPath(path: string) {
     return normalized.split('/')[0] || '';
 }
 
+function buildSegmentSeriesFromHistory(history: Array<Record<string, unknown>> = []) {
+    return history.reduce<Record<string, TrafficSeriesPoint[]>>((accumulator, entry) => {
+        const segmentValue = getNumericValue(entry.segment);
+        if (segmentValue == null) {
+            return accumulator;
+        }
+
+        const key = String(Math.trunc(segmentValue));
+        const point: TrafficSeriesPoint = {
+            time: getNumericValue(entry.time, entry.timestamp) ?? 0,
+            avgSpeed: getNumericValue(entry.avg_speed, entry.avgSpeed) ?? 0,
+            density: getNumericValue(entry.density) ?? 0,
+            flow: getNumericValue(entry.flow) ?? 0,
+            vehicleCount: getNumericValue(entry.vehicle_count, entry.vehicleCount) ?? 0,
+        };
+
+        accumulator[key] = accumulator[key] || [];
+        accumulator[key].push(point);
+        return accumulator;
+    }, {});
+}
+
+function resolveGantrySegmentKey(
+    gantry: ScreenRoadData['gantries'][number],
+    index: number,
+    availableKeys: Set<string>,
+) {
+    const candidates = new Set<string>();
+    const segmentValue = getNumericValue((gantry as Record<string, unknown>).segment);
+    if (segmentValue != null) {
+        candidates.add(String(Math.trunc(segmentValue)));
+        candidates.add(String(Math.max(0, Math.trunc(segmentValue) - 1)));
+    }
+
+    const idMatch = gantry.id.match(/\d+/);
+    if (idMatch) {
+        const gateNo = Number(idMatch[0]);
+        if (Number.isFinite(gateNo)) {
+            candidates.add(String(Math.max(0, gateNo - 1)));
+            candidates.add(String(gateNo));
+        }
+    }
+
+    candidates.add(String(index));
+
+    for (const candidate of candidates) {
+        if (availableKeys.has(candidate)) {
+            return candidate;
+        }
+    }
+
+    return null;
+}
+
+function buildGantryTrafficProfiles(
+    gantries: ScreenRoadData['gantries'],
+    segmentSeriesMap: Record<string, TrafficSeriesPoint[]>,
+) {
+    const availableKeys = new Set(Object.keys(segmentSeriesMap));
+
+    return gantries.reduce<Record<string, GantryTrafficProfile>>((accumulator, gantry, index) => {
+        const key = resolveGantrySegmentKey(gantry, index, availableKeys);
+        const series = key ? [...(segmentSeriesMap[key] || [])].sort((left, right) => left.time - right.time) : [];
+        const latest = series[series.length - 1] || null;
+        const peakFlow = series.reduce<number | null>(
+            (value, point) => (value == null || point.flow > value ? point.flow : value),
+            null
+        );
+
+        accumulator[gantry.id] = {
+            series,
+            latestFlow: latest?.flow ?? null,
+            latestSpeed: latest?.avgSpeed ?? null,
+            latestDensity: latest?.density ?? null,
+            peakFlow,
+            segmentLabel: key == null ? '无区间映射' : `区间 ${Number(key) + 1}`,
+        };
+
+        return accumulator;
+    }, {});
+}
+
 function buildRoadDataFromHistory(payload: RunGatePayload | null, historyData: SimulationDataset | null): RoadData | null {
     const pathPoints = payload?.path_geometry?.paths?.flatMap((path) => path.polyline || []) || [];
     const nodes = pathPoints
@@ -106,13 +204,16 @@ function buildRoadDataFromHistory(payload: RunGatePayload | null, historyData: S
         .map(([x, y]) => ({ x, y }));
 
     const gates = (payload?.gates || historyData?.etcGates || []).map((gate, index) => {
-        const x = getNumericValue(gate.x, gate.position, index * 120) ?? index * 120;
+        const x = getNumericValue(gate.x, gate.position_m, gate.position, gate.position_km, index * 120) ?? index * 120;
         const y = getNumericValue(gate.y, 0) ?? 0;
         return {
             id: String(gate.id ?? gate.gate_id ?? gate.name ?? index),
             name: String(gate.name ?? gate.id ?? gate.gate_id ?? `门架 ${index + 1}`),
             x,
             y,
+            segment: getNumericValue(gate.segment, index + 1) ?? index + 1,
+            positionKm: getNumericValue(gate.position_km),
+            positionM: getNumericValue(gate.position_m, gate.position),
         };
     });
 
@@ -145,9 +246,11 @@ export function SituationScreenPage() {
     const [historyData, setHistoryData] = useState<SimulationDataset | null>(null);
     const [historyImages, setHistoryImages] = useState<RunImageItem[]>([]);
     const [roadData, setRoadData] = useState<RoadData | null>(null);
+    const [runAnalysis, setRunAnalysis] = useState<RunAnalysisPayload | null>(null);
     const [loading, setLoading] = useState(false);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [selectedGantryId, setSelectedGantryId] = useState<string | null>(null);
+    const [hoveredGantryId, setHoveredGantryId] = useState<string | null>(null);
     const selectedRunId = useMemo(() => deriveRunIdFromPath(selectedHistoryPath), [selectedHistoryPath]);
 
     useEffect(() => {
@@ -254,6 +357,37 @@ export function SituationScreenPage() {
 
     useEffect(() => {
         if (!selectedRunId) {
+            setRunAnalysis(null);
+            return;
+        }
+
+        let cancelled = false;
+        const loadRunAnalysis = async () => {
+            try {
+                const response = await fetch(`${API.BASE}/runs/${encodeURIComponent(selectedRunId)}/analysis`);
+                if (!response.ok) {
+                    throw new Error('加载运行分析数据失败');
+                }
+                const payload = await response.json() as RunAnalysisPayload;
+                if (!cancelled) {
+                    setRunAnalysis(payload);
+                }
+            } catch (error) {
+                console.error('Failed to load run analysis', error);
+                if (!cancelled) {
+                    setRunAnalysis(null);
+                }
+            }
+        };
+
+        loadRunAnalysis();
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedRunId]);
+
+    useEffect(() => {
+        if (!selectedRunId) {
             setHistoryImages([]);
             return;
         }
@@ -286,6 +420,30 @@ export function SituationScreenPage() {
     const selectedRoadMeta = roadFiles.find(file => file.filename === selectedRoadFile);
     const selectedHistoryMeta = historyFiles.find(file => file.path === selectedHistoryPath) || null;
     const selectedGantry = roadData?.gantries.find(gantry => gantry.id === selectedGantryId) || null;
+    const hoveredGantry = roadData?.gantries.find(gantry => gantry.id === hoveredGantryId) || null;
+    const activeHoverGantry = hoveredGantry || selectedGantry || null;
+    const segmentSeriesMap = useMemo(() => {
+        const analysisSeries = runAnalysis?.charts?.segment_series;
+        if (analysisSeries && Object.keys(analysisSeries).length > 0) {
+            return Object.entries(analysisSeries).reduce<Record<string, TrafficSeriesPoint[]>>((accumulator, [key, values]) => {
+                accumulator[key] = (values || []).map(value => ({
+                    time: getNumericValue(value.time, value.timestamp) ?? 0,
+                    avgSpeed: getNumericValue(value.avg_speed, value.avgSpeed) ?? 0,
+                    density: getNumericValue(value.density) ?? 0,
+                    flow: getNumericValue(value.flow) ?? 0,
+                    vehicleCount: getNumericValue(value.vehicle_count, value.vehicleCount) ?? 0,
+                }));
+                return accumulator;
+            }, {});
+        }
+
+        return buildSegmentSeriesFromHistory(historyData?.segment_speed_history ?? []);
+    }, [historyData?.segment_speed_history, runAnalysis?.charts?.segment_series]);
+    const gantryTrafficProfiles = useMemo(
+        () => buildGantryTrafficProfiles(roadData?.gantries ?? [], segmentSeriesMap),
+        [roadData?.gantries, segmentSeriesMap]
+    );
+    const activeHoverProfile = activeHoverGantry ? gantryTrafficProfiles[activeHoverGantry.id] ?? null : null;
     const statMap = (historyData?.statistics as Record<string, unknown> | undefined)
         ?? (statistics as Record<string, unknown> | null)
         ?? null;
@@ -402,8 +560,8 @@ export function SituationScreenPage() {
         },
         {
             label: '当前选中门架',
-            value: selectedGantry?.name || selectedGantry?.id || '--',
-            hint: '与详情卡联动',
+            value: activeHoverGantry?.name || activeHoverGantry?.id || '--',
+            hint: hoveredGantryId ? '悬浮联动中' : '与详情卡联动',
         },
     ];
 
@@ -442,7 +600,7 @@ export function SituationScreenPage() {
                             ))}
                         </div>
 
-                        <ScreenPanel className="relative min-h-[420px] flex-1 overflow-hidden p-0">
+                        <ScreenPanel className="relative h-[520px] shrink-0 overflow-hidden p-0">
                             <div className="absolute left-4 top-4 z-10 flex items-center gap-3">
                                 <div className="screen-chip rounded-full px-3 py-1 text-xs">
                                     地图主舞台
@@ -480,17 +638,26 @@ export function SituationScreenPage() {
                                     正在加载路网数据...
                                 </div>
                             ) : (
-                                <ScreenMapStage
-                                    roadData={roadData}
-                                    selectedGantryId={selectedGantryId}
-                                    onSelectGantry={setSelectedGantryId}
-                                />
+                                <>
+                                    <ScreenMapStage
+                                        roadData={roadData}
+                                        selectedGantryId={hoveredGantryId ?? selectedGantryId}
+                                        onSelectGantry={setSelectedGantryId}
+                                        onHoverGantry={setHoveredGantryId}
+                                    />
+                                    {hoveredGantryId ? (
+                                        <ScreenTrafficProfilePanel
+                                            gantry={activeHoverGantry}
+                                            profile={activeHoverProfile}
+                                        />
+                                    ) : null}
+                                </>
                             )}
                         </ScreenPanel>
 
                         <ScreenPanel
                             title="历史统计详情"
-                            aside={<span className="text-xs text-cyan-300/70">地图下方联动区域</span>}
+                            aside={<span className="text-xs text-cyan-300/70">悬浮门架可查看时序曲线</span>}
                             className="shrink-0 min-h-[320px]"
                         >
                             <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_1fr_1fr]">
@@ -603,7 +770,7 @@ export function SituationScreenPage() {
                                 </div>
                                 <div className="flex justify-between text-cyan-50/85">
                                     <span className="text-cyan-300/65">仿真车道</span>
-                                    <span>{historyData?.config?.num_lanes ?? config.numLanes}</span>
+                                    <span>{getMetricValue(historyData?.config?.num_lanes, config.numLanes)}</span>
                                 </div>
                                 {historyLoading ? <div className="text-xs text-cyan-300/65">正在载入历史数据...</div> : null}
                             </div>
