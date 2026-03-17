@@ -600,7 +600,7 @@ export function SituationScreenPage() {
                             ))}
                         </div>
 
-                        <ScreenPanel className="relative h-[520px] shrink-0 overflow-hidden p-0">
+                        <ScreenPanel className="relative h-[420px] shrink-0 overflow-hidden p-0">
                             <div className="absolute left-4 top-4 z-10 flex items-center gap-3">
                                 <div className="screen-chip rounded-full px-3 py-1 text-xs">
                                     地图主舞台
@@ -642,6 +642,8 @@ export function SituationScreenPage() {
                                     <ScreenMapStage
                                         roadData={roadData}
                                         selectedGantryId={hoveredGantryId ?? selectedGantryId}
+                                        hoveredGantryId={hoveredGantryId}
+                                        trafficProfiles={gantryTrafficProfiles}
                                         onSelectGantry={setSelectedGantryId}
                                         onHoverGantry={setHoveredGantryId}
                                     />

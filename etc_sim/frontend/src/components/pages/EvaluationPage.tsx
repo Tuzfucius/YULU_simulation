@@ -72,7 +72,6 @@ function CMCell({ value, label, colorClass, bgClass }: {
             <span className={`text-3xl font-bold font-mono ${colorClass}`}>{value}</span>
             <span className="text-[10px] text-[var(--text-muted)]">{label}</span>
         </div>
-        <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
     );
 }
 
@@ -638,6 +637,7 @@ export function EvaluationPage() {
                     )}
                 </div>
             </div>
+            <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
         </div>
     );
 }
