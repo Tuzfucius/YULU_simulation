@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import type { GantryTrafficProfile } from './ScreenTrafficProfilePanel';
 
 export type ScreenRoadNode = {
     x: number;
@@ -33,6 +34,8 @@ export type ScreenRoadData = {
 type ScreenMapStageProps = {
     roadData: ScreenRoadData | null;
     selectedGantryId: string | null;
+    hoveredGantryId?: string | null;
+    trafficProfiles?: Record<string, GantryTrafficProfile>;
     onSelectGantry: (id: string) => void;
     onHoverGantry?: (id: string | null) => void;
 };
@@ -40,6 +43,8 @@ type ScreenMapStageProps = {
 export function ScreenMapStage({
     roadData,
     selectedGantryId,
+    hoveredGantryId,
+    trafficProfiles,
     onSelectGantry,
     onHoverGantry,
 }: ScreenMapStageProps) {
@@ -55,8 +60,8 @@ export function ScreenMapStage({
         const maxY = Math.max(...ys);
         const width = Math.max(1, maxX - minX);
         const height = Math.max(1, maxY - minY);
-        const padX = width * 0.1 + 30;
-        const padY = height * 0.14 + 30;
+        const padX = width * 0.14 + 40;
+        const padY = height * 0.18 + 40;
 
         const toPoint = (point: { x: number; y: number }) => ({
             x: point.x - minX + padX,
@@ -83,6 +88,46 @@ export function ScreenMapStage({
     const roadPathData = geometry.roadPath
         .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
         .join(' ');
+
+    const hoveredGantry = hoveredGantryId
+        ? geometry.gantries.find(gantry => gantry.id === hoveredGantryId) ?? null
+        : null;
+    const hoveredProfile = hoveredGantry ? (trafficProfiles?.[hoveredGantry.id] ?? null) : null;
+
+    const toSparklinePath = (values: number[], x: number, y: number, width: number, height: number) => {
+        if (values.length === 0) return '';
+        if (values.length === 1) {
+            const midY = y + height / 2;
+            return `M ${x} ${midY} L ${x + width} ${midY}`;
+        }
+
+        const minValue = Math.min(...values);
+        const maxValue = Math.max(...values);
+        const range = Math.max(1, maxValue - minValue);
+
+        return values
+            .map((value, index) => {
+                const ratioX = index / (values.length - 1);
+                const ratioY = (value - minValue) / range;
+                const px = x + ratioX * width;
+                const py = y + (1 - ratioY) * height;
+                return `${index === 0 ? 'M' : 'L'} ${px.toFixed(1)} ${py.toFixed(1)}`;
+            })
+            .join(' ');
+    };
+
+    const tooltipWidth = 220;
+    const tooltipHeight = 126;
+    const tooltipX = hoveredGantry
+        ? Math.min(Math.max(12, hoveredGantry.x + 18), geometry.width - tooltipWidth - 12)
+        : 0;
+    const tooltipY = hoveredGantry
+        ? Math.min(Math.max(12, hoveredGantry.y - tooltipHeight - 14), geometry.height - tooltipHeight - 12)
+        : 0;
+    const flowSeries = hoveredProfile?.series.map(point => point.flow) ?? [];
+    const speedSeries = hoveredProfile?.series.map(point => point.avgSpeed) ?? [];
+    const flowPath = toSparklinePath(flowSeries, tooltipX + 14, tooltipY + 56, tooltipWidth - 28, 24);
+    const speedPath = toSparklinePath(speedSeries, tooltipX + 14, tooltipY + 92, tooltipWidth - 28, 20);
 
     return (
         <svg
@@ -236,6 +281,37 @@ export function ScreenMapStage({
                     </text>
                 </g>
             ))}
+
+            {hoveredGantry ? (
+                <g pointerEvents="none">
+                    <rect
+                        x={tooltipX}
+                        y={tooltipY}
+                        width={tooltipWidth}
+                        height={tooltipHeight}
+                        rx="10"
+                        fill="rgba(2, 10, 24, 0.93)"
+                        stroke="rgba(103, 232, 249, 0.35)"
+                    />
+                    <text x={tooltipX + 14} y={tooltipY + 24} fill="#d8f4ff" fontSize="12" fontWeight="600">
+                        {hoveredGantry.name || hoveredGantry.id}
+                    </text>
+                    <text x={tooltipX + 14} y={tooltipY + 40} fill="rgba(186,230,253,0.68)" fontSize="10">
+                        {hoveredProfile?.segmentLabel || '无区间映射'}
+                    </text>
+                    <text x={tooltipX + 14} y={tooltipY + 52} fill="rgba(103,232,249,0.7)" fontSize="9">
+                        流量时序
+                    </text>
+                    <path d={flowPath} stroke="#22d3ee" strokeWidth="2" fill="none" strokeLinecap="round" />
+                    <text x={tooltipX + 14} y={tooltipY + 88} fill="rgba(251,191,36,0.75)" fontSize="9">
+                        速度时序
+                    </text>
+                    <path d={speedPath} stroke="#fbbf24" strokeWidth="2" fill="none" strokeLinecap="round" />
+                    <text x={tooltipX + tooltipWidth - 14} y={tooltipY + 112} textAnchor="end" fill="rgba(186,230,253,0.65)" fontSize="9">
+                        点位 {hoveredProfile?.series.length ?? 0}
+                    </text>
+                </g>
+            ) : null}
         </svg>
     );
 }
