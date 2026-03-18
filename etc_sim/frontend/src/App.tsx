@@ -105,6 +105,7 @@ function App() {
   const { theme, setTheme, themes } = useTheme();
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const [showFullName, setShowFullName] = useState(false);
   const themeMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -126,14 +127,25 @@ function App() {
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <div className="flex h-screen w-screen bg-[var(--bg-base)] text-[var(--text-primary)] font-sans overflow-hidden">
         <nav className={`flex flex-col border-r border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl shrink-0 transition-[width] duration-300 ${navCollapsed ? 'w-16' : 'w-52'}`}>
-          <div className="h-16 flex items-center justify-center px-4 border-b border-[var(--glass-border)]">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--accent-blue)] to-[var(--accent-purple)] flex items-center justify-center text-black font-bold shadow-[0_0_15px_rgba(168,199,250,0.3)]">
-              E
-            </div>
-            {!navCollapsed && (
-              <span className="ml-3 text-base font-medium tracking-tight text-[var(--text-primary)] truncate">
-                ETC Sim
+          <div
+            className="h-16 flex items-center justify-center px-3 border-b border-[var(--glass-border)] cursor-pointer hover:bg-[rgba(255,255,255,0.05)] transition-colors overflow-hidden"
+            onClick={() => setShowFullName(!showFullName)}
+          >
+            {showFullName ? (
+              <span className="text-sm font-medium tracking-tight text-[var(--text-primary)] text-center flex-1 leading-tight" style={{ whiteSpace: 'pre-line' }}>
+                {navCollapsed ? 'ETC\n系统' : 'ETC 交通仿真与预警分析系统'}
               </span>
+            ) : (
+              <>
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--accent-blue)] to-[var(--accent-purple)] flex items-center justify-center text-black font-bold shadow-[0_0_15px_rgba(168,199,250,0.3)] shrink-0">
+                  E
+                </div>
+                {!navCollapsed && (
+                  <span className="ml-3 text-base font-medium tracking-tight text-[var(--text-primary)] truncate shrink-0">
+                    ETC Sim
+                  </span>
+                )}
+              </>
             )}
           </div>
 
