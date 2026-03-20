@@ -203,115 +203,216 @@ class ChartGenerator:
             for spine in axes.spines.values():
                 spine.set_color(spine_color)
 
+    def _percentile(self, values: List[float], quantile: float) -> float:
+        """计算分位值，空列表时返回 None。"""
+        if not values:
+            return None
+
+        sorted_values = sorted(values)
+        index = (len(sorted_values) - 1) * quantile
+        lower = int(math.floor(index))
+        upper = int(math.ceil(index))
+        if lower == upper:
+            return sorted_values[lower]
+
+        weight = index - lower
+        return sorted_values[lower] * (1 - weight) + sorted_values[upper] * weight
+
+    def _build_segment_travel_time_baselines(
+        self,
+        finished_vehicles: List[Dict[str, Any]],
+        num_segments: int,
+    ) -> Dict[tuple, float]:
+        """按区间和车型构建正常通行时间基准。"""
+        type_times = defaultdict(list)
+        segment_times = defaultdict(list)
+
+        for vehicle in finished_vehicles:
+            if vehicle.get('anomaly_type', 0) != 0:
+                continue
+
+            vehicle_type = vehicle.get('vehicle_type', 'CAR')
+            for seg_key, info in vehicle.get('logs', {}).items():
+                travel_time = info.get('out', 0) - info.get('in', 0)
+                if travel_time <= 0.1:
+                    continue
+
+                seg_idx = int(seg_key)
+                if 0 <= seg_idx < num_segments:
+                    type_times[(seg_idx, vehicle_type)].append(travel_time)
+                    segment_times[seg_idx].append(travel_time)
+
+        baselines = {}
+        vehicle_types = ('CAR', 'TRUCK', 'BUS')
+        for seg_idx in range(num_segments):
+            segment_baseline = self._percentile(segment_times.get(seg_idx, []), 0.25)
+            for vehicle_type in vehicle_types:
+                baseline = self._percentile(type_times.get((seg_idx, vehicle_type), []), 0.25)
+                if baseline is None:
+                    baseline = segment_baseline
+                if baseline is not None:
+                    baselines[(seg_idx, vehicle_type)] = baseline
+
+        return baselines
+
+    def _compute_segment_impact_score(
+        self,
+        vehicle: Dict[str, Any],
+        seg_idx: int,
+        segment_info: Dict[str, Any],
+        baselines: Dict[tuple, float],
+        segment_length_km: float,
+    ) -> float:
+        """计算车辆在区间内的连续影响度。"""
+        travel_time = segment_info.get('out', 0) - segment_info.get('in', 0)
+        if travel_time <= 0.1:
+            return 0.0
+
+        vehicle_type = vehicle.get('vehicle_type', 'CAR')
+        baseline_time = baselines.get((seg_idx, vehicle_type))
+        if baseline_time is None:
+            desired_speed = max(vehicle.get('desired_speed', 95 / 3.6), 0.1)
+            baseline_time = (segment_length_km * 1000) / desired_speed
+
+        excess_ratio = max(0.0, travel_time / max(baseline_time, 0.1) - 1.0)
+        deadband = 0.10
+        saturation = 1.00
+        if excess_ratio <= deadband:
+            return 0.0
+
+        return min((excess_ratio - deadband) / max(saturation - deadband, 1e-6), 1.0)
+
     def generate_speed_profile(self, data: Dict) -> str:
         """生成车流画像图"""
         finished_vehicles = data.get('finished_vehicles', [])
         config = data.get('config', {})
         num_segments = config.get('num_segments', 10)
         segment_length_km = config.get('segment_length_km', 1)
-        # 优先使用精确边界（门架划分），回退到均匀分布
         segment_boundaries = config.get('segment_boundaries', [])
         if len(segment_boundaries) != num_segments + 1:
-            # 生成均匀边界
             segment_boundaries = [i * segment_length_km for i in range(num_segments + 1)]
-        
+
         if not finished_vehicles:
             return None
-        
-        # 根据实际区间数动态决定行列布局
+
+        baselines = self._build_segment_travel_time_baselines(finished_vehicles, num_segments)
+        impact_cmap = mcolors.LinearSegmentedColormap.from_list(
+            'impact_gradient',
+            [COLOR_NORMAL, COLOR_IMPACTED]
+        )
+        impact_norm = mcolors.Normalize(vmin=0.0, vmax=1.0)
+
         cols = 2 if num_segments > 1 else 1
         rows = math.ceil(num_segments / cols)
         fig, axes_grid = plt.subplots(rows, cols, figsize=(18, 4 * rows), sharex=True)
-        # 统一为一维数组，方便按索引访问
         if num_segments == 1:
             axes = [axes_grid]
         else:
             axes = np.array(axes_grid).flatten().tolist()
         self._setup_dark_style(fig, np.array(axes))
-        
-        stats = {'normal': 0, 'impacted': 0, 'anomaly': 0}
+
+        stats = {'normal': 0, 'mild': 0, 'moderate': 0, 'severe': 0, 'anomaly': 0}
         for seg_idx in range(num_segments):
             ax = axes[seg_idx]
             seg_start = segment_boundaries[seg_idx]
-            seg_end   = segment_boundaries[seg_idx + 1]
+            seg_end = segment_boundaries[seg_idx + 1]
             seg_len_km = seg_end - seg_start
-            ax.set_title(f"区间 {seg_idx+1}: {seg_start:.2f}~{seg_end:.2f} 公里", fontsize=10, color='#E6E1E5')
+            ax.set_title(f"区间 {seg_idx + 1}: {seg_start:.2f}~{seg_end:.2f} 公里", fontsize=10, color='#E6E1E5')
             ax.set_ylabel("速度 (km/h)", fontsize=8)
             ax.set_ylim(0, 140)
             ax.grid(True, alpha=0.3, color='#49454F')
-            
-            for v in finished_vehicles:
-                logs = v.get('logs', {})
-                info = None
-                if str(seg_idx) in logs:
-                    info = logs[str(seg_idx)]
-                elif seg_idx in logs:
-                    info = logs[seg_idx]
-                
-                if info:
-                    t_in, t_out = info['in'], info['out']
-                    if t_out - t_in < 0.1:
-                        continue
-                    
-                    distance_m = seg_len_km * 1000
-                    avg_speed_kmh = (distance_m / (t_out - t_in)) * 3.6
-                    
-                    if avg_speed_kmh > 200 or avg_speed_kmh < 0:
-                        continue
-                    
-                    anomaly_type = v.get('anomaly_type', 0)
-                    # 使用 was_affected (永久记录) 替代 is_affected (临时状态)
-                    was_affected = v.get('was_affected', False)
-                    
-                    # Color priority: Anomaly type > Affected > Normal
-                    if anomaly_type == 1:
-                        c, w = COLOR_TYPE1, 2.0
-                    elif anomaly_type == 2:
-                        c, w = COLOR_TYPE2, 1.5
-                    elif anomaly_type == 3:
-                        c, w = COLOR_TYPE3, 1.5
-                    elif was_affected:
-                        c, w = COLOR_IMPACTED, 1.2
+
+            for vehicle in finished_vehicles:
+                logs = vehicle.get('logs', {})
+                info = logs.get(str(seg_idx), logs.get(seg_idx))
+                if not info:
+                    continue
+
+                t_in, t_out = info['in'], info['out']
+                travel_time = t_out - t_in
+                if travel_time < 0.1:
+                    continue
+
+                distance_m = seg_len_km * 1000
+                avg_speed_kmh = (distance_m / travel_time) * 3.6
+                if avg_speed_kmh > 200 or avg_speed_kmh < 0:
+                    continue
+
+                anomaly_type = vehicle.get('anomaly_type', 0)
+                if anomaly_type == 1:
+                    color, width = COLOR_TYPE1, 2.0
+                elif anomaly_type == 2:
+                    color, width = COLOR_TYPE2, 1.5
+                elif anomaly_type == 3:
+                    color, width = COLOR_TYPE3, 1.5
+                else:
+                    impact_score = self._compute_segment_impact_score(
+                        vehicle,
+                        seg_idx,
+                        info,
+                        baselines,
+                        seg_len_km,
+                    )
+                    color = impact_cmap(impact_norm(impact_score))
+                    width = 1.0 + impact_score * 0.6
+
+                ax.hlines(y=avg_speed_kmh, xmin=t_in, xmax=t_out, colors=color, alpha=0.7, linewidth=width)
+
+                if seg_idx == 0:
+                    if anomaly_type != 0:
+                        stats['anomaly'] += 1
                     else:
-                        c, w = COLOR_NORMAL, 1.0
-                    
-                    ax.hlines(y=avg_speed_kmh, xmin=t_in, xmax=t_out, colors=c, alpha=0.7, linewidth=w)
-                    
-                    # 统计计数 (仅对第一个区间统计，避免重复)
-                    if seg_idx == 0:
-                        if anomaly_type == 0:
-                            if was_affected:
-                                stats['impacted'] += 1
-                            else:
-                                stats['normal'] += 1
+                        score_for_stats = self._compute_segment_impact_score(
+                            vehicle,
+                            seg_idx,
+                            info,
+                            baselines,
+                            seg_len_km,
+                        )
+                        if score_for_stats < 0.10:
+                            stats['normal'] += 1
+                        elif score_for_stats < 0.35:
+                            stats['mild'] += 1
+                        elif score_for_stats < 0.70:
+                            stats['moderate'] += 1
                         else:
-                            stats['anomaly'] += 1
-                            
-        # 打印统计信息
-        stats_msg = f"[SpeedProfile] 车辆状态统计: 正常={stats['normal']}, 受影响={stats['impacted']}, 异常={stats['anomaly']} (总计: {sum(stats.values())})"
+                            stats['severe'] += 1
+
+        stats_msg = (
+            f"[SpeedProfile] 车辆影响度统计: "
+            f"正常={stats['normal']}, "
+            f"轻度={stats['mild']}, "
+            f"中度={stats['moderate']}, "
+            f"重度={stats['severe']}, "
+            f"异常={stats['anomaly']} "
+            f"(总计: {sum(stats.values())})"
+        )
         print(stats_msg)
 
-        # 隐藏多余的子图（num_segments 为奇数时最后一格为空）
         total_axes = rows * cols
         for i in range(num_segments, total_axes):
             axes[i].set_visible(False)
 
-        # 仅对最后一行的有效子图设置 xlabel
         last_row_start = (rows - 1) * cols
         for i in range(last_row_start, num_segments):
             axes[i].set_xlabel("时间 (秒)", color='#E6E1E5')
-                    
+
         patches = [
-            mpatches.Patch(color=COLOR_NORMAL, label='正常车辆'),
-            mpatches.Patch(color=COLOR_IMPACTED, label='受影响/慢行'),
             mpatches.Patch(color=COLOR_TYPE1, label='类型1 (完全静止)'),
             mpatches.Patch(color=COLOR_TYPE2, label='类型2 (短暂波动)'),
             mpatches.Patch(color=COLOR_TYPE3, label='类型3 (长时波动)'),
         ]
-        fig.legend(handles=patches, loc='upper center', ncol=5, fontsize=10, 
+        fig.legend(handles=patches, loc='upper center', ncol=3, fontsize=10,
                    facecolor='#2B2930', edgecolor='#49454F', labelcolor='#E6E1E5')
-        plt.tight_layout(rect=(0, 0.03, 1, 0.95))
-        
+
+        sm = plt.cm.ScalarMappable(cmap=impact_cmap, norm=impact_norm)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=axes[:num_segments], fraction=0.025, pad=0.02)
+        cbar.set_label('影响度 (0=正常, 1=强影响)', color='#E6E1E5')
+        cbar.ax.tick_params(colors='#E6E1E5')
+        plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='#E6E1E5')
+
+        fig.subplots_adjust(left=0.05, right=0.95, bottom=0.06, top=0.94, wspace=0.12, hspace=0.18)
         return self.save(fig, "speed_profile.png")
 
     def generate_anomaly_distribution(self, data: Dict) -> str:
