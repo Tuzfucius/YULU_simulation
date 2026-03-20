@@ -11,7 +11,8 @@
 - [x] 审查报告迁移到专属目录
 - [x] 专属目录已纳入 `.gitignore`
 - [x] 批次A-前端：修复轨迹采样中驾驶风格字段漂移问题
-- [ ] 批次A-后端/仿真：修复 ML schema、排队规则、门架 ID 问题
+- [x] 批次A-后端/仿真：修复 ML schema、排队规则、门架 ID 问题
+- [x] 验证：`python -m py_compile` 通过，前端 `driverStyle` 旧错误已消失；`npm run build` 仍有仓库既有 TypeScript 错误
 
 ## 说明
 

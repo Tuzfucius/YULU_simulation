@@ -35,13 +35,13 @@ class TimeSeriesFeatureExtractor:
         self.window_size_steps = window_size_steps
         self.extra_features = extra_features or []
 
-    def _pair_transactions(self, transactions: List[ETCTransaction]) -> pd.DataFrame:
+    def _pair_transactions(self, transactions: List[ETCTransaction]) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         配对上下游门架流水，计算行程时间 (Travel Time) 和平均速度等。
         假定门架按照 position_km 排序。
         """
         if not transactions:
-            return pd.DataFrame()
+            return pd.DataFrame(), pd.DataFrame()
         
         # 将原始对象转成字典便于 DataFrame 构造
         df_raw = pd.DataFrame([{
@@ -90,7 +90,7 @@ class TimeSeriesFeatureExtractor:
 
         for segment in segments:
             # 区间进出匹配数据
-            seg_paired = df_paired[df_paired['segment_id'] == segment]
+            seg_paired = df_paired[df_paired['segment_id'] == segment].copy()
             source_gate = seg_paired['prev_gate'].iloc[0]
             target_gate = seg_paired['gate_id'].iloc[0]
             
@@ -119,7 +119,15 @@ class TimeSeriesFeatureExtractor:
             # 处理 NaN 与异常计算流率比例
             stats = stats.fillna({'flow_in': 0, 'flow_out': 0, 'avg_speed_out': -1})
             stats['flow_ratio'] = stats['flow_out'] / stats['flow_in'].replace(0, 1) # 避免除以0
-            
+
+            # 兼容 build_dataset() 以及历史历史数据集 schema。
+            # 保留原始细粒度字段，同时补充基础字段别名，避免上层取列失败。
+            segment_length_km = abs(float(seg_paired['distance_km'].iloc[0])) if len(seg_paired) > 0 else 2.0
+            segment_length_km = max(segment_length_km, 0.1)
+            stats['flow'] = stats['flow_out']
+            stats['density'] = stats['flow_out'] / segment_length_km
+            stats['avg_speed'] = stats['avg_speed_out']
+
             # Forward Fill 时序补全那些没有车辆通过的时刻 (继承上一时刻状态)
             stats['delta_t_mean'] = stats['delta_t_mean'].ffill().fillna(-1)
             stats['delta_t_std'] = stats['delta_t_std'].fillna(0)
