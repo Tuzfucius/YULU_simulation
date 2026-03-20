@@ -38,6 +38,19 @@ class QueueFormationModel:
         
         # 按位置排序
         sorted_vehicles = sorted(vehicles, key=lambda v: v.pos)
+        return cls.detect_queue_state_sorted(sorted_vehicles)
+
+    @classmethod
+    def detect_queue_state_sorted(cls, sorted_vehicles: List['Vehicle']) -> Dict:
+        """鍩轰簬宸叉帓搴忚溅杈嗗垪琛ㄦ娴嬫帓闃熺姸鎬?"""
+        if len(sorted_vehicles) < cls.MIN_VEHICLES:
+            return {
+                'in_queue': False,
+                'queue_start': None,
+                'queue_end': None,
+                'queue_length': 0,
+                'queue_vehicles': []
+            }
         
         # 查找排队车辆
         queue_vehicles = []

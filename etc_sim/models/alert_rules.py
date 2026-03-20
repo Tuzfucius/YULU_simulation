@@ -12,7 +12,8 @@ import time as _time
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Type
+from collections import deque
+from typing import Deque, List, Dict, Any, Optional, Type
 
 from .alert_context import AlertContext, AlertEvent
 from .alert_conditions import Condition, CONDITION_REGISTRY
@@ -22,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 # 全局动作注册表
 ACTION_REGISTRY: Dict[str, Type['Action']] = {}
+
+EVENT_HISTORY_WINDOW_SECONDS = 1800.0
+EVENT_HISTORY_MAX_EVENTS = 5000
 
 
 def register_action(cls):
@@ -321,8 +325,26 @@ class AlertRuleEngine:
     
     def __init__(self):
         self.rules: List[AlertRule] = []
-        self.event_history: List[AlertEvent] = []
+        self.event_history: Deque[AlertEvent] = deque()
         self._rules_by_name: Dict[str, AlertRule] = {}
+
+    def _prune_event_history(self, current_time: float) -> None:
+        """按时间窗口和数量上限裁剪历史事件。"""
+        cutoff_time = current_time - EVENT_HISTORY_WINDOW_SECONDS
+        while self.event_history and self.event_history[0].timestamp < cutoff_time:
+            self.event_history.popleft()
+
+        overflow = len(self.event_history) - EVENT_HISTORY_MAX_EVENTS
+        while overflow > 0:
+            self.event_history.popleft()
+            overflow -= 1
+
+    def _record_events(self, events: List[AlertEvent], current_time: float) -> None:
+        """追加本步事件并在写入后裁剪历史窗口。"""
+        if not events:
+            return
+        self.event_history.extend(events)
+        self._prune_event_history(current_time)
     
     def add_rule(self, rule: AlertRule) -> None:
         """添加规则"""
@@ -370,12 +392,14 @@ class AlertRuleEngine:
             except Exception as e:
                 logger.error(f"评估规则 '{rule.name}' 时异常: {e}")
         
-        self.event_history.extend(events)
+        self._record_events(events, context.current_time)
         return events
     
     def get_recent_events(self, max_age: float = 300.0, 
                           current_time: float = 0.0) -> List[AlertEvent]:
         """获取最近的预警事件"""
+        if self.event_history and current_time > 0:
+            self._prune_event_history(current_time)
         return [
             e for e in self.event_history
             if current_time - e.timestamp <= max_age

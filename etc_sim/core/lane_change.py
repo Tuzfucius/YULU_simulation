@@ -15,6 +15,7 @@ class MOBILModel:
     @staticmethod
     def decide_lane_change(vehicle: 'Vehicle', vehicles_nearby: List['Vehicle'],
                           current_lane: int, blocked_lanes: dict = None,
+                          lane_context: dict = None,
                           politeness: float = 0.5,
                           num_lanes: int = 4) -> Tuple[Optional[int], Optional[str]]:
         """
@@ -33,12 +34,13 @@ class MOBILModel:
         if blocked_lanes is None:
             blocked_lanes = {}
         
-        leader = MOBILModel._find_leader(vehicle, vehicles_nearby, current_lane)
+        leader = MOBILModel._find_leader(vehicle, vehicles_nearby, current_lane, lane_context)
         
         # 前方有静止车辆，强制换道
         if leader and leader.anomaly_type == 1:
             target_lane = MOBILModel._try_emergency_change(
                 vehicle, vehicles_nearby, current_lane, blocked_lanes,
+                lane_context=lane_context,
                 num_lanes=num_lanes
             )
             if target_lane is not None:
@@ -46,17 +48,17 @@ class MOBILModel:
         
         # 评估所有相邻车道
         best_gain = MOBILModel._calc_lane_gain(
-            vehicle, vehicles_nearby, current_lane, leader, current_lane
+            vehicle, vehicles_nearby, current_lane, leader, current_lane, lane_context
         )
         target_lane = None
         
         for candidate in [current_lane - 1, current_lane + 1]:
             if 0 <= candidate < num_lanes:
                 if MOBILModel._can_change_to(
-                    vehicle, vehicles_nearby, candidate, blocked_lanes
+                    vehicle, vehicles_nearby, candidate, blocked_lanes, lane_context
                 ):
                     gain = MOBILModel._calc_lane_gain(
-                        vehicle, vehicles_nearby, candidate, leader, current_lane
+                        vehicle, vehicles_nearby, candidate, leader, current_lane, lane_context
                     )
                     
                     # 考虑礼貌系数
@@ -72,8 +74,10 @@ class MOBILModel:
     
     @staticmethod
     def _find_leader(vehicle: 'Vehicle', vehicles_nearby: List['Vehicle'],
-                    lane: int) -> Optional['Vehicle']:
+                    lane: int, lane_context: dict = None) -> Optional['Vehicle']:
         """找指定车道前车"""
+        if lane_context and lane in lane_context:
+            return lane_context[lane].get('leader')
         min_dist = float('inf')
         leader = None
         for v in vehicles_nearby:
@@ -86,8 +90,10 @@ class MOBILModel:
     
     @staticmethod
     def _find_follower(vehicle: 'Vehicle', vehicles_nearby: List['Vehicle'],
-                      lane: int) -> Optional['Vehicle']:
+                      lane: int, lane_context: dict = None) -> Optional['Vehicle']:
         """找指定车道后车"""
+        if lane_context and lane in lane_context:
+            return lane_context[lane].get('follower')
         min_dist = float('inf')
         follower = None
         for v in vehicles_nearby:
@@ -101,7 +107,7 @@ class MOBILModel:
     @staticmethod
     def _calc_lane_gain(vehicle: 'Vehicle', vehicles_nearby: List['Vehicle'],
                        target_lane: int, current_leader: Optional['Vehicle'],
-                       current_lane: int) -> float:
+                       current_lane: int, lane_context: dict = None) -> float:
         """
         计算换到目标车道的收益
         收益 = 新车道加速度 - 原车道加速度 - 对后车影响 - 换道惩罚
@@ -114,7 +120,7 @@ class MOBILModel:
             a_current = vehicle.a_max
         
         # 新车道加速度
-        new_leader = MOBILModel._find_leader(vehicle, vehicles_nearby, target_lane)
+        new_leader = MOBILModel._find_leader(vehicle, vehicles_nearby, target_lane, lane_context)
         a_new = 0
         if new_leader:
             a_new = vehicle.idm_calc_acceleration(new_leader, vehicle.speed)
@@ -122,7 +128,7 @@ class MOBILModel:
             a_new = vehicle.a_max
         
         # 对新车道后车的影响
-        follower = MOBILModel._find_follower(vehicle, vehicles_nearby, target_lane)
+        follower = MOBILModel._find_follower(vehicle, vehicles_nearby, target_lane, lane_context)
         a_follower_current = 0
         a_follower_new = 0
         
@@ -135,7 +141,7 @@ class MOBILModel:
             if vehicle.lane != target_lane:
                 # 模拟换道后follower的新前车
                 new_follower_leader = MOBILModel._find_leader(
-                    vehicle, vehicles_nearby, target_lane
+                    vehicle, vehicles_nearby, target_lane, lane_context
                 )
                 if new_follower_leader:
                     a_follower_new = follower.idm_calc_acceleration(
@@ -149,7 +155,8 @@ class MOBILModel:
     
     @staticmethod
     def _can_change_to(vehicle: 'Vehicle', vehicles_nearby: List['Vehicle'],
-                      target_lane: int, blocked_lanes: dict) -> bool:
+                      target_lane: int, blocked_lanes: dict,
+                      lane_context: dict = None) -> bool:
         """检查是否能换道到目标车道"""
         if target_lane in blocked_lanes:
             for pos in blocked_lanes[target_lane]:
@@ -158,6 +165,11 @@ class MOBILModel:
         
         gap = 25  # 最小间隙
         
+        if lane_context and target_lane in lane_context:
+            leader_dist = lane_context[target_lane].get('leader_dist', float('inf'))
+            follower_dist = lane_context[target_lane].get('follower_dist', float('inf'))
+            return leader_dist >= gap and follower_dist >= gap
+
         for v in vehicles_nearby:
             if v.lane == target_lane:
                 dist = abs(v.pos - vehicle.pos)
@@ -168,10 +180,13 @@ class MOBILModel:
     @staticmethod
     def _try_emergency_change(vehicle: 'Vehicle', vehicles_nearby: List['Vehicle'],
                              current_lane: int, blocked_lanes: dict,
+                             lane_context: dict = None,
                              num_lanes: int = 4) -> Optional[int]:
         """紧急换道（前方有障碍）"""
         for candidate in [current_lane - 1, current_lane + 1]:
             if 0 <= candidate < num_lanes:
-                if MOBILModel._can_change_to(vehicle, vehicles_nearby, candidate, blocked_lanes):
+                if MOBILModel._can_change_to(
+                    vehicle, vehicles_nearby, candidate, blocked_lanes, lane_context
+                ):
                     return candidate
         return None

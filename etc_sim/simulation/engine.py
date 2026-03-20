@@ -5,7 +5,7 @@
 import logging
 import random
 from collections import defaultdict
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 
 from ..config.parameters import SimulationConfig
@@ -105,6 +105,7 @@ class SimulationEngine:
         
         self.current_time = 0.0
         self.vehicle_id_counter = 0
+        self.etc_gates: List[Dict[str, Any]] = []
         
         # 车辆生成调度（step() 和 run() 共用）
         self.spawn_schedule = self.spawner.get_spawn_times()
@@ -114,18 +115,63 @@ class SimulationEngine:
     
     def _init_etc_gates(self):
         """初始化ETC门架（支持自定义非均匀间距）"""
+        self.etc_gates.clear()
+        self.road_network.etc_gates.clear()
+        used_gate_ids = set()
+
+        def _make_gate_id(position_km: float) -> str:
+            base_id = f"G{int(round(position_km)):02d}"
+            if abs(position_km - round(position_km)) < 1e-6 and base_id not in used_gate_ids:
+                return base_id
+
+            suffix = 1
+            candidate = f"{base_id}_{suffix}"
+            while candidate in used_gate_ids:
+                suffix += 1
+                candidate = f"{base_id}_{suffix}"
+            return candidate
+
+        def _register_gate(position_km: float, segment_idx: int) -> None:
+            gate_position_km = float(position_km)
+            gate_id = _make_gate_id(gate_position_km)
+            used_gate_ids.add(gate_id)
+            self.road_network.add_etc_gate("main", gate_position_km, gate_id=gate_id)
+            self.etc_gates.append({
+                'gate_id': gate_id,
+                'segment': segment_idx,
+                'position_km': gate_position_km,
+                'position_m': gate_position_km * 1000.0,
+            })
+
         if self.config and self.config.custom_gantry_positions:
             # 如果配置中存在具体的自定义门架经纬/点位坐标数组，直接使用
-            for gate_km in self.config.custom_gantry_positions:
-                self.road_network.add_etc_gate("main", float(gate_km))
+            for segment_idx, gate_km in enumerate(self.config.custom_gantry_positions, start=1):
+                _register_gate(gate_km, segment_idx)
         else:
             # 回退：如果没有，按照 config 里面的 segment_length_km 去平均划分
             road_length = self.config.road_length_km if self.config else 20.0
             segment_length = self.config.segment_length_km if self.config else 2.0
             pos = segment_length
+            segment_idx = 1
             while pos < road_length:
-                self.road_network.add_etc_gate("main", float(pos))
+                _register_gate(float(pos), segment_idx)
                 pos += segment_length
+                segment_idx += 1
+
+    def _resolve_queue_gate_id(self, queue_state: Dict) -> str:
+        """将排队状态映射到一个稳定的门架 ID。"""
+        if not self.etc_gates:
+            return 'queue'
+
+        queue_start = queue_state.get('queue_start')
+        if queue_start is None:
+            return str(self.etc_gates[0]['gate_id'])
+
+        nearest_gate = min(
+            self.etc_gates,
+            key=lambda gate: abs(float(gate['position_m']) - float(queue_start))
+        )
+        return str(nearest_gate['gate_id'])
     
     def _process_etc_transaction(self, vehicle, gate_id: str, gate_position_km: float):
         """处理 ETC 交易，应用噪声注入并调用异常检测
@@ -242,6 +288,7 @@ class SimulationEngine:
         for v in active_vehicles:
             if v.anomaly_type == 1 and v.anomaly_state == 'active':
                 blocked_lanes[v.lane].append(v.pos)
+        blocked_lanes = {lane: tuple(positions) for lane, positions in blocked_lanes.items()}
         
         # 更新车辆（使用空间索引获取邻近车辆，避免 O(N^2)）
         for v in active_vehicles:
@@ -254,7 +301,7 @@ class SimulationEngine:
             
             # 使用空间索引获取邻近车辆 (O(1) per vehicle)
             nearby_vehicles = self.spatial_index.get_nearby_vehicles(v, range_cells=3)
-            v.update(dt, nearby_vehicles, dict(blocked_lanes), self.current_time)
+            v.update(dt, nearby_vehicles, blocked_lanes, self.current_time)
             
             # 更新空间索引中的车辆位置
             self.spatial_index.update_vehicle(v)
@@ -262,13 +309,14 @@ class SimulationEngine:
         # ETC门架检测与异常识别
         for v in active_vehicles:
             pos_km = v.pos / 1000
-            for gate in self.road_network.etc_gates:
-                gate_id = f"G{int(gate.position_km):02d}"
-                
-                if gate.position_km - 0.05 <= pos_km < gate.position_km + 0.05:
+            for gate in self.etc_gates:
+                gate_id = str(gate['gate_id'])
+                gate_position_km = float(gate['position_km'])
+
+                if gate_position_km - 0.05 <= pos_km < gate_position_km + 0.05:
                     if gate_id not in v.passed_gates:
                         v.passed_gates.add(gate_id)
-                        self._process_etc_transaction(v, gate_id, gate.position_km)
+                        self._process_etc_transaction(v, gate_id, gate_position_km)
         
         # 轨迹采样（按配置的间隔记录）
         sample_interval = self.config.trajectory_sample_interval if self.config else 2
@@ -302,12 +350,20 @@ class SimulationEngine:
                     'flow': avg_speed * density
                 })
         
-        queue_state = self._detect_queue_state(active_vehicles)
+        queue_state = self._detect_queue_state(active_vehicles, presorted=True)
         if queue_state['in_queue']:
             self.queue_events.append({'time': self.current_time, **queue_state})
+        queue_lengths = {}
+        if queue_state['in_queue']:
+            queue_gate_id = self._resolve_queue_gate_id(queue_state)
+            queue_lengths[queue_gate_id] = queue_state['queue_length']
         
         from ..models.phantom_jam import PhantomJamDetector
-        jams = PhantomJamDetector.detect_phantom_jam(active_vehicles, self.current_time)
+        jams = PhantomJamDetector.detect_phantom_jam_with_index(
+            self.spatial_index,
+            active_vehicles,
+            self.current_time,
+        )
         self.phantom_jam_events.extend(jams)
         
         # 安全数据采样（与轨迹数据使用相同的采样间隔，避免每步都记录）
@@ -333,7 +389,7 @@ class SimulationEngine:
             vehicle_lanes={v.id: v.lane for v in active_vehicles},
             noise_stats=self.etc_noise_simulator.get_statistics(),
             weather_type=self.environment.current_weather.value if hasattr(self.environment, 'current_weather') else 'clear',
-            queue_lengths={},
+            queue_lengths=queue_lengths,
             segment_avg_speeds={seg: sum(spds)/len(spds) for seg, spds in segment_speeds.items() if spds},
             alert_history=[],
             recent_alert_events=self.alert_rule_engine.get_recent_events(
@@ -376,10 +432,12 @@ class SimulationEngine:
         
         print("仿真完成。")
     
-    def _detect_queue_state(self, vehicles: List[Vehicle]) -> Dict:
+    def _detect_queue_state(self, vehicles: List[Vehicle], presorted: bool = False) -> Dict:
         """检测排队状态"""
         from ..models.queue import QueueFormationModel
-        
+
+        if presorted:
+            return QueueFormationModel.detect_queue_state_sorted(vehicles)
         return QueueFormationModel.detect_queue_state(vehicles)
     
     def get_results(self) -> SimulationResult:
@@ -410,8 +468,13 @@ class SimulationEngine:
                 'etc_transactions_count': len(self.etc_detector.transactions),
             },
             'etcGates': [
-                {'position': float(gate.position_km) * 1000, 'segment': int(gate.id.replace('main_', ''))}
-                for gate in getattr(self.road_network.segments.get('main'), 'gates', [])
+                {
+                    'gate_id': gate['gate_id'],
+                    'position': float(gate['position_m']),
+                    'position_km': float(gate['position_km']),
+                    'segment': int(gate['segment']),
+                }
+                for gate in self.etc_gates
             ],
             'anomaly_logs': results.anomaly_logs,
             'trajectory_data': [t.copy() for t in results.trajectory_data],

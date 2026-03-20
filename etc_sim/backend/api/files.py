@@ -19,7 +19,12 @@ import tempfile
 import datetime
 import logging
 
-from etc_sim.backend.services.run_repository import build_gate_descriptors, build_path_geometry
+from etc_sim.backend.services.run_repository import (
+    build_gate_descriptors,
+    build_path_geometry,
+    load_run_manifest,
+    load_run_summary,
+)
 from etc_sim.backend.services.trajectory_storage import TrajectoryStorage
 
 logger = logging.getLogger(__name__)
@@ -181,21 +186,87 @@ def _vehicle_path_fields(entry: dict, lane: int, config: Optional[dict] = None) 
     }
 
 
-def _attach_gates_and_geometry(
-    frames: list,
+def _resolve_replay_geometry(
     config: Optional[dict] = None,
     gates: Optional[list] = None,
-) -> list:
-    if not frames:
-        return frames
+    path_geometry: Optional[dict] = None,
+):
+    resolved_config = config or {}
+    resolved_gates = gates or build_gate_descriptors(resolved_config)
+    resolved_path_geometry = path_geometry or build_path_geometry(resolved_config)
+    return resolved_gates, resolved_path_geometry
 
-    resolved_gates = gates or build_gate_descriptors(config)
-    path_geometry = build_path_geometry(config)
-    for frame in frames:
-        if resolved_gates:
-            frame["etcGates"] = resolved_gates
-        frame["pathGeometry"] = path_geometry
-    return frames
+
+def _read_json_payload(target: Path) -> dict:
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {"frames": payload}
+    except Exception:
+        return {}
+
+
+def _load_replay_metadata(target: Path) -> dict:
+    run_dir = target.parent
+    summary = load_run_summary(run_dir)
+    manifest = load_run_manifest(run_dir)
+
+    config = {}
+    etc_gates = None
+    path_geometry = None
+    total_frames = 0
+    finished_vehicles_count = 0
+    anomaly_count = 0
+
+    if manifest:
+        config = manifest.get("config", {}) or {}
+        road_geometry = manifest.get("road_geometry", {}) or {}
+        etc_gates = road_geometry.get("gates")
+        path_geometry = road_geometry.get("path_geometry")
+        chunks = manifest.get("chunks", {}) or {}
+        trajectory_chunks = chunks.get("trajectory", []) if isinstance(chunks, dict) else []
+        if trajectory_chunks:
+            total_frames = int(trajectory_chunks[0].get("record_count", 0) or 0)
+        summary_fields = manifest.get("summary", {}) or {}
+        finished_vehicles_count = int(summary_fields.get("total_vehicles", 0) or 0)
+        anomaly_count = int(summary_fields.get("total_anomalies", 0) or 0)
+
+    if summary:
+        summary_fields = summary.get("summary", {}) or {}
+        if not finished_vehicles_count:
+            finished_vehicles_count = int(summary_fields.get("total_vehicles", 0) or 0)
+        if not anomaly_count:
+            anomaly_count = int(summary_fields.get("total_anomalies", 0) or 0)
+
+    if not config or not total_frames:
+        data = _read_json_payload(target)
+        if not config:
+            config = data.get("config", {}) or {}
+        if etc_gates is None:
+            etc_gates = data.get("etcGates")
+        if path_geometry is None:
+            path_geometry = data.get("pathGeometry")
+        if not total_frames:
+            if isinstance(data.get("trajectory_data"), list):
+                total_frames = len(data["trajectory_data"])
+            elif isinstance(data.get("frames"), list):
+                total_frames = len(data["frames"])
+            elif isinstance(data, list):
+                total_frames = len(data)
+        if not finished_vehicles_count:
+            finished_vehicles_count = len(data.get("finished_vehicles", []))
+        if not anomaly_count:
+            anomaly_count = len(data.get("anomaly_logs", []))
+
+    etc_gates, path_geometry = _resolve_replay_geometry(config, etc_gates, path_geometry)
+
+    return {
+        "config": config,
+        "etcGates": etc_gates,
+        "pathGeometry": path_geometry,
+        "total_frames": total_frames,
+        "finished_vehicles_count": finished_vehicles_count,
+        "anomaly_count": anomaly_count,
+    }
 
 
 def _trajectory_to_frames(trajectory_data: list, config: dict = None) -> list:
@@ -219,7 +290,7 @@ def _trajectory_to_frames(trajectory_data: list, config: dict = None) -> list:
         frame_map[rt].append(vehicle)
 
     frames = [{"time": t, "vehicles": frame_map[t]} for t in sorted(frame_map.keys())]
-    return _attach_gates_and_geometry(frames, config)
+    return frames
 
 
 # ????????????
@@ -255,7 +326,7 @@ def _msgpack_frames_to_api_frames(traj_data: dict, config: dict = None) -> list:
             })
         api_frames.append({"time": t, "vehicles": vehicles})
 
-    return _attach_gates_and_geometry(api_frames, config)
+    return api_frames
 
 
 def _get_frames_for_file(target: Path) -> dict:
@@ -267,37 +338,55 @@ def _get_frames_for_file(target: Path) -> dict:
     if cache_key in _frame_cache and _frame_cache[cache_key]['ts'] == mtime:
         return _frame_cache[cache_key]
     
-    # 浼樺厛灏濊瘯浠庡悓鐩綍鐨?trajectory.msgpack 鍔犺浇
+    metadata = _load_replay_metadata(target)
+    config = metadata["config"]
+    etc_gates = metadata["etcGates"]
+    path_geometry = metadata["pathGeometry"]
+    total_frames = metadata["total_frames"]
+    finished_vehicles_count = metadata["finished_vehicles_count"]
+    anomaly_count = metadata["anomaly_count"]
+
+    # 优先读取轨迹存储，避免为回放元数据重复展开 data.json
     sim_dir = str(target.parent)
     traj_data = TrajectoryStorage.load(sim_dir)
-    
-    data = json.loads(target.read_text(encoding="utf-8"))
-    config = data.get('config', {})
-    
-    if traj_data and traj_data.get('frames'):
-        # 鏂版牸寮忥細浠?MessagePack 甯ф暟鎹浆鎹?
+    frames = []
+
+    if traj_data and traj_data.get("frames"):
         frames = _msgpack_frames_to_api_frames(traj_data, config)
-        # 鍚戝悗鍏煎璇诲彇澶栧眰淇濆瓨鐨?etcGates
-        if 'etcGates' in data and len(frames) > 0 and 'etcGates' not in frames[0]:
-            for f in frames:
-                f['etcGates'] = data['etcGates']
-    elif 'trajectory_data' in data:
-        # 鏃ф牸寮忥細浠?data.json 鍐呭祵鐨?trajectory_data 杞崲
-        frames = _trajectory_to_frames(data['trajectory_data'], config)
-    elif 'frames' in data:
-        frames = data['frames']
-    elif isinstance(data, list):
-        frames = data
+        if not total_frames:
+            total_frames = len(frames)
     else:
-        frames = []
-    
+        data = _read_json_payload(target)
+        if not config:
+            config = data.get("config", {})
+        if "trajectory_data" in data:
+            frames = _trajectory_to_frames(data["trajectory_data"], config)
+        elif "frames" in data:
+            frames = data["frames"]
+        elif isinstance(data, list):
+            frames = data
+        if not etc_gates:
+            etc_gates = data.get("etcGates")
+        if not path_geometry:
+            path_geometry = data.get("pathGeometry")
+        if not finished_vehicles_count:
+            finished_vehicles_count = len(data.get("finished_vehicles", []))
+        if not anomaly_count:
+            anomaly_count = len(data.get("anomaly_logs", []))
+        if not total_frames:
+            total_frames = len(frames)
+
+    etc_gates, path_geometry = _resolve_replay_geometry(config, etc_gates, path_geometry)
+
     result = {
-        'frames': frames,
-        'config': config,
-        'ts': mtime,
-        'total_frames': len(frames),
-        'anomaly_logs': data.get('anomaly_logs', []),
-        'finished_vehicles': len(data.get('finished_vehicles', [])),
+        "frames": frames,
+        "config": config,
+        "ts": mtime,
+        "total_frames": total_frames,
+        "anomaly_count": anomaly_count,
+        "finished_vehicles_count": finished_vehicles_count,
+        "etcGates": etc_gates,
+        "pathGeometry": path_geometry,
     }
     
     # 浠呯紦瀛樻渶杩?3 涓枃浠讹紝閬垮厤鍐呭瓨鐖嗙偢
@@ -335,15 +424,17 @@ async def get_output_file_info(path: str):
         }
     
     try:
-        cache = _get_frames_for_file(target)
+        metadata = _load_replay_metadata(target)
         return {
             "path": path,
             "size": size,
             "type": "json",
-            "total_frames": cache['total_frames'],
-            "config": cache['config'],
-            "finished_vehicles_count": cache['finished_vehicles'],
-            "anomaly_count": len(cache['anomaly_logs']),
+            "total_frames": metadata["total_frames"],
+            "config": metadata["config"],
+            "finished_vehicles_count": metadata["finished_vehicles_count"],
+            "anomaly_count": metadata["anomaly_count"],
+            "etcGates": metadata["etcGates"],
+            "pathGeometry": metadata["pathGeometry"],
         }
     except Exception as e:
         logger.error(f"瑙ｆ瀽鏂囦欢淇℃伅澶辫触: {e}")
@@ -408,6 +499,8 @@ async def get_output_file_chunk(path: str, offset: int = 0, limit: int = 500):
             "type": "json",
             "frames": chunk,
             "config": cache['config'] if offset == 0 else None,  # 浠呴娆¤繑鍥?config
+            "etcGates": cache['etcGates'] if offset == 0 else None,
+            "pathGeometry": cache['pathGeometry'] if offset == 0 else None,
             "offset": offset,
             "limit": limit,
             "total_frames": total,

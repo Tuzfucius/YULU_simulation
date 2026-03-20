@@ -44,6 +44,19 @@ export interface TrajectoryPoint {
     isAffected: boolean;
 }
 
+interface TrajectorySample {
+    id: number;
+    time: number;
+    pos: number;
+    lane: number;
+    speed: number;
+    anomaly_type: AnomalyType;
+    anomaly_state: string;
+    is_affected: boolean;
+    vehicle_type: string;
+    driver_style: string;
+}
+
 
 // 鍖洪棿閫熷害璁板綍
 interface SegmentSpeedRecord {
@@ -122,7 +135,7 @@ export class SimulationEngine {
     private laneChangeByReason: { free: number; forced: number } = { free: 0, forced: 0 };
     private laneChangeByStyle: Record<DriverStyle, number> = { aggressive: 0, normal: 0, conservative: 0 };
     private speedHistory: number[] = [];
-    private sampledTrajectoryData: TrajectoryPoint[] = [];
+    private sampledTrajectoryData: TrajectorySample[] = [];
 
     // 鍖濋亾閰嶇疆涓庣疮鍔犲櫒
     private ramps: any[] = [];
@@ -294,8 +307,6 @@ export class SimulationEngine {
             const sampleInterval = config.trajectorySampleInterval ?? TRAJECTORY_SAMPLE_INTERVAL;
             if (Math.floor(this.currentTime) % sampleInterval === 0) {
                 this.recordTrajectory();
-                // 瑙﹀彂涓€娆¤建杩瑰悜涓嬮噰鏍凤紝浠ヤ緵鍓嶇鐑洿鏂?
-                this.prepareTrajectorySamples();
             }
 
             // 璁板綍鍖洪棿閫熷害锛堟瘡30绉掞級
@@ -684,24 +695,35 @@ export class SimulationEngine {
         });
 
         // 瀹炴椂鏇存柊缁熻
-        store.setStatistics({
+        store.setStatistics(this.buildStatistics(avgSpeed, false, config.roadLengthKm));
+    }
+
+    private buildStatistics(avgSpeed: number, includeDetailData: boolean, roadLengthKm: number): Record<string, unknown> {
+        const baseStatistics = {
             totalVehicles: this.vehicleIdCounter,
             completedVehicles: this.finishedVehicles.length,
             avgSpeed,
             avgTravelTime: this.finishedVehicles.length > 0
-                ? (config.roadLengthKm * 1000) / ((avgSpeed / 3.6) || 1)
+                ? (roadLengthKm * 1000) / ((avgSpeed / 3.6) || 1)
                 : 0,
             totalAnomalies: this.anomalyLogs.length,
-            // 淇锛氫粎缁熻褰撳墠娲昏穬鍙楀奖鍝嶈溅杈嗭紙瀹炴椂閲忥級
             affectedByAnomaly: this.vehicles.filter(v => v.isAffected).length,
             totalLaneChanges: this.totalLaneChanges,
-            maxCongestionLength: 0, // TODO
+            maxCongestionLength: 0,
             simulationTime: this.currentTime,
-            // 灏嗘暟鎹疄鏃舵姏缁欏墠绔緵鍥捐〃娓叉煋
-            segmentSpeedHistory: [...this.segmentSpeedHistory],
             segmentBoundaries: this.segmentBoundaries,
+        };
+
+        if (!includeDetailData) {
+            return baseStatistics;
+        }
+
+        return {
+            ...baseStatistics,
+            segmentSpeedHistory: this.segmentSpeedHistory,
             sampledTrajectory: this.sampledTrajectoryData,
-        });
+            anomalyLogs: this.anomalyLogs,
+        };
     }
 
     // --- 鐢熸垚鍥捐〃鏁版嵁 ---
@@ -1032,30 +1054,13 @@ export class SimulationEngine {
             ? this.speedHistory.reduce((a, b) => a + b, 0) / this.speedHistory.length
             : 0;
 
-        // 棰勫厛鐢熸垚閲囨牱杞ㄨ抗鏁版嵁
+        // 结束阶段一次性生成轨迹采样，避免运行中重复遍历整份轨迹数据
         this.prepareTrajectorySamples();
 
         store.setRunning(false);
         store.setComplete(true);
-        store.setStatistics({
-            totalVehicles: this.vehicleIdCounter,
-            completedVehicles: this.finishedVehicles.length,
-            avgSpeed,
-            avgTravelTime: this.finishedVehicles.length > 0
-                ? (store.config.roadLengthKm * 1000) / ((avgSpeed / 3.6) || 1)
-                : 0,
-            totalAnomalies: this.anomalyLogs.length,
-            affectedByAnomaly: this.finishedVehicles.filter(v => v.isAffected).length,
-            totalLaneChanges: this.totalLaneChanges,
-            maxCongestionLength: 0,
-            simulationTime: this.currentTime,
-            // 鏆撮湶鍘熷鏁版嵁渚涘墠绔缁嗗垎鏋愬浘琛ㄤ娇鐢?
-            segmentSpeedHistory: this.segmentSpeedHistory,
-            segmentBoundaries: this.segmentBoundaries,
-            sampledTrajectory: this.sampledTrajectoryData,
-            anomalyLogs: this.anomalyLogs, // 澧炲姞閫忎紶
-        });
-        store.setChartData(this.generateChartData());
+        store.setStatistics(this.buildStatistics(avgSpeed, true, store.config.roadLengthKm));
+        store.setChartData(this.generateChartData() as any);
 
         store.addLog({
             timestamp: this.currentTime,
@@ -1074,7 +1079,7 @@ export class SimulationEngine {
         const vehicleInfoMap = new Map<number, { type: string, style: string }>();
         // 鍖呮嫭鎵€鏈夎溅杈嗭紙瀹屾垚鐨?+ 娲昏穬鐨勶級
         [...this.finishedVehicles, ...this.vehicles].forEach(v => {
-            vehicleInfoMap.set(v.id, { type: v.type, style: v.style });
+            vehicleInfoMap.set(v.id, { type: v.type, style: v.driverStyle });
         });
 
         const totalPoints = this.trajectoryData.length;
@@ -1096,7 +1101,7 @@ export class SimulationEngine {
                 // 琛ュ叏杞﹁締绫诲瀷鍜岄鏍?
                 vehicle_type: vehicleInfoMap.get(p.id)?.type || 'CAR',
                 driver_style: vehicleInfoMap.get(p.id)?.style || 'normal',
-            }));
+            })) as TrajectorySample[];
     }
 
     // 閲嶆瀯 step锛屽湪姣忚繃涓€瀹氭椂闂存垨杈惧埌鐗瑰畾鏉′欢鏃惰皟鐢ㄧ紦瀛橀噸鏋?
