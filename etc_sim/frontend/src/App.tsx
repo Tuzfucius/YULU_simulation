@@ -23,8 +23,10 @@ const WorkflowPage = React.lazy(() => import('./components/pages/WorkflowPage').
 const FileManagerPage = React.lazy(() => import('./components/pages/FileManagerPage').then(m => ({ default: m.FileManagerPage })));
 const RoadEditorPage = React.lazy(() => import('./components/pages/RoadEditorPage').then(m => ({ default: m.RoadEditorPage })));
 const PredictBuilderPage = React.lazy(() => import('./components/pages/PredictBuilderPage').then(m => ({ default: m.PredictBuilderPage })));
+const ProjectPurposePage = React.lazy(() => import('./components/pages/ProjectPurposePage').then(m => ({ default: m.ProjectPurposePage })));
 
 const NAV_ITEMS = [
+  { path: '/purpose', icon: '🧭', label: '项目说明', labelEn: 'Purpose' },
   { path: '/sim', icon: '🚦', label: '仿真控制', labelEn: 'Simulation' },
   { path: '/replay', icon: '🎞️', label: '可视回放', labelEn: 'Replay' },
   { path: '/dashboard', icon: '📊', label: '预警仪表盘', labelEn: 'Dashboard' },
@@ -261,6 +263,7 @@ function AnimatedRoutes() {
       >
         <Routes location={location}>
           <Route path="/" element={<Navigate to="/sim" replace />} />
+          <Route path="/purpose" element={<ProjectPurposePage />} />
           <Route path="/sim" element={<SimulationPage />} />
           <Route path="/replay" element={<ReplayPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
