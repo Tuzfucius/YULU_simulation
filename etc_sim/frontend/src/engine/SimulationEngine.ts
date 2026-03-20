@@ -1074,7 +1074,7 @@ export class SimulationEngine {
         const vehicleInfoMap = new Map<number, { type: string, style: string }>();
         // 鍖呮嫭鎵€鏈夎溅杈嗭紙瀹屾垚鐨?+ 娲昏穬鐨勶級
         [...this.finishedVehicles, ...this.vehicles].forEach(v => {
-            vehicleInfoMap.set(v.id, { type: v.type, style: v.style });
+            vehicleInfoMap.set(v.id, { type: v.type, style: v.driverStyle });
         });
 
         const totalPoints = this.trajectoryData.length;
