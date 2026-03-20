@@ -530,7 +530,7 @@ export function ProjectPurposeAnimation() {
         }
         .purpose-3d { transform-style: preserve-3d; }
       `}</style>
-      <main className="grid h-full min-h-[700px] grid-cols-1 gap-3 lg:grid-cols-2">
+      <main className="grid h-full min-h-[860px] grid-cols-1 grid-rows-2 gap-3">
         <CyberCard>
           <HighwayScene currentTime={time} />
         </CyberCard>
