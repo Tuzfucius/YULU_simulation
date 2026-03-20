@@ -33,3 +33,4 @@ data/
 **/__pycache__/
 **/node_modules/
 etc_sim/backend/test_output/
+docs/codex_tasks/
