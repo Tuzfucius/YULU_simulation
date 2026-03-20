@@ -407,12 +407,13 @@ class ChartGenerator:
 
         sm = plt.cm.ScalarMappable(cmap=impact_cmap, norm=impact_norm)
         sm.set_array([])
-        cbar = fig.colorbar(sm, ax=axes[:num_segments], fraction=0.025, pad=0.02)
+        cbar_ax = fig.add_axes([0.905, 0.18, 0.016, 0.64])
+        cbar = fig.colorbar(sm, cax=cbar_ax)
         cbar.set_label('影响度 (0=正常, 1=强影响)', color='#E6E1E5')
         cbar.ax.tick_params(colors='#E6E1E5')
         plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='#E6E1E5')
 
-        fig.subplots_adjust(left=0.05, right=0.95, bottom=0.06, top=0.94, wspace=0.12, hspace=0.18)
+        fig.subplots_adjust(left=0.05, right=0.88, bottom=0.06, top=0.94, wspace=0.12, hspace=0.18)
         return self.save(fig, "speed_profile.png")
 
     def generate_anomaly_distribution(self, data: Dict) -> str:
