@@ -385,14 +385,18 @@ def load_run_summary(run_dir: Path) -> Optional[dict]:
         return summary
 
     manifest = load_run_manifest(run_dir)
-    if not manifest:
+    if manifest:
+        return _summary_from_manifest(run_dir, manifest)
+
+    data = load_json_file(run_dir / DATA_FILENAME)
+    if not data:
         return None
 
-    return _summary_from_manifest(run_dir, manifest)
+    return build_run_summary(run_dir.name, data)
 
 
 def list_runs(simulations_dir: Path) -> List[dict]:
-    """List stored runs using summary and manifest when available."""
+    """List stored runs with fast paths for new metadata and fallback for legacy data."""
     if not simulations_dir.exists():
         return []
 
@@ -401,10 +405,8 @@ def list_runs(simulations_dir: Path) -> List[dict]:
         if not run_dir.is_dir():
             continue
 
-        summary = load_json_file(run_dir / SUMMARY_FILENAME)
-        manifest = load_json_file(run_dir / MANIFEST_FILENAME)
-        if not summary and manifest:
-            summary = _summary_from_manifest(run_dir, manifest)
+        summary = load_run_summary(run_dir)
+        manifest = load_run_manifest(run_dir)
         if not summary:
             continue
 
