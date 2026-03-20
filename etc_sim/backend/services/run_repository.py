@@ -114,6 +114,33 @@ def _normalize_summary_fields(results_data: dict) -> dict:
     }
 
 
+def _build_config_digest(config: dict) -> dict:
+    """Build a compact config summary for listing and manifests."""
+    config = config or {}
+    return {
+        "road_length_km": _pick_first(config, "custom_road_length_km", "road_length_km", "roadLengthKm"),
+        "num_lanes": _pick_first(config, "num_lanes", "numLanes"),
+        "total_vehicles": _pick_first(config, "total_vehicles", "totalVehicles"),
+        "simulation_dt": _pick_first(config, "simulation_dt", "simulationDt"),
+        "trajectory_sample_interval": _pick_first(config, "trajectory_sample_interval", "trajectorySampleInterval"),
+        "custom_road_path": _pick_first(config, "custom_road_path", "customRoadPath"),
+    }
+
+
+def _summary_from_manifest(run_dir: Path, manifest: dict) -> dict:
+    """Build a summary payload from an existing manifest."""
+    config = manifest.get("config", {}) or {}
+    summary_fields = manifest.get("summary", {}) or {}
+    return {
+        "run_id": manifest.get("run_id", run_dir.name),
+        "schema_version": manifest.get("schema_version", RUN_SCHEMA_VERSION),
+        "created_at": manifest.get("created_at"),
+        "status": manifest.get("status", "completed"),
+        "config_digest": _build_config_digest(config),
+        "summary": summary_fields,
+    }
+
+
 def build_gate_descriptors(config: Optional[dict]) -> List[dict]:
     """Build stable gate descriptors from config."""
     config = config or {}
@@ -266,14 +293,7 @@ def build_run_summary(simulation_id: str, results_data: dict) -> dict:
         "schema_version": RUN_SCHEMA_VERSION,
         "created_at": datetime.utcnow().isoformat(),
         "status": results_data.get("status", "completed"),
-        "config_digest": {
-            "road_length_km": config.get("custom_road_length_km") or config.get("road_length_km"),
-            "num_lanes": config.get("num_lanes"),
-            "total_vehicles": config.get("total_vehicles"),
-            "simulation_dt": config.get("simulation_dt"),
-            "trajectory_sample_interval": config.get("trajectory_sample_interval"),
-            "custom_road_path": config.get("custom_road_path"),
-        },
+        "config_digest": _build_config_digest(config),
         "summary": summary_fields,
     }
 
@@ -361,17 +381,14 @@ def load_run_manifest(run_dir: Path) -> Optional[dict]:
 
 def load_run_summary(run_dir: Path) -> Optional[dict]:
     summary = load_json_file(run_dir / SUMMARY_FILENAME)
-    data = load_json_file(run_dir / DATA_FILENAME)
-    if summary and not data:
+    if summary:
         return summary
-    if not data:
+
+    manifest = load_run_manifest(run_dir)
+    if not manifest:
         return None
 
-    rebuilt_summary = build_run_summary(run_dir.name, data)
-    if summary:
-        rebuilt_summary["created_at"] = summary.get("created_at", rebuilt_summary["created_at"])
-        rebuilt_summary["status"] = summary.get("status", rebuilt_summary["status"])
-    return rebuilt_summary
+    return _summary_from_manifest(run_dir, manifest)
 
 
 def list_runs(simulations_dir: Path) -> List[dict]:
@@ -384,8 +401,10 @@ def list_runs(simulations_dir: Path) -> List[dict]:
         if not run_dir.is_dir():
             continue
 
-        summary = load_run_summary(run_dir)
-        manifest = load_run_manifest(run_dir)
+        summary = load_json_file(run_dir / SUMMARY_FILENAME)
+        manifest = load_json_file(run_dir / MANIFEST_FILENAME)
+        if not summary and manifest:
+            summary = _summary_from_manifest(run_dir, manifest)
         if not summary:
             continue
 
