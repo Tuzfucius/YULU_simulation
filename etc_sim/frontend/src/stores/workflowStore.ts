@@ -17,6 +17,9 @@ const AUTOSAVE_DELAY_MS = 2000;
 
 /** 深拷贝辅助 */
 function deepClone<T>(obj: T): T {
+    if (typeof structuredClone === 'function') {
+        return structuredClone(obj);
+    }
     return JSON.parse(JSON.stringify(obj));
 }
 
@@ -28,6 +31,7 @@ interface HistorySnapshot {
 
 // 自动保存定时器
 let _autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+let _deferredHistoryTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ==================== 辅助：根据 category 获取默认端口 ====================
 
@@ -181,8 +185,20 @@ let nodeIdCounter = 0;
 function scheduleAutosave(store: WorkflowState) {
     if (_autosaveTimer) clearTimeout(_autosaveTimer);
     _autosaveTimer = setTimeout(() => {
+        _autosaveTimer = null;
         store.saveToLocal();
     }, AUTOSAVE_DELAY_MS);
+}
+
+function clearDeferredWorkflowTimers() {
+    if (_deferredHistoryTimer) {
+        clearTimeout(_deferredHistoryTimer);
+        _deferredHistoryTimer = null;
+    }
+    if (_autosaveTimer) {
+        clearTimeout(_autosaveTimer);
+        _autosaveTimer = null;
+    }
 }
 
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
@@ -197,18 +213,74 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     canUndo: false,
     canRedo: false,
 
-    setNodes: (nodes) => {
-        set({ nodes, isDirty: true });
-        get()._pushHistory();
-        scheduleAutosave(get());
-    },
-    setEdges: (edges) => {
-        set({ edges, isDirty: true });
-        get()._pushHistory();
-        scheduleAutosave(get());
+    _pushHistory: () => {
+        const { nodes, edges, history, historyIndex } = get();
+        const snapshot: HistorySnapshot = { nodes: deepClone(nodes), edges: deepClone(edges) };
+        const newHistory = history.slice(0, historyIndex + 1);
+        newHistory.push(snapshot);
+        if (newHistory.length > MAX_HISTORY) newHistory.shift();
+        const newIndex = newHistory.length - 1;
+        set({ history: newHistory, historyIndex: newIndex, canUndo: newIndex > 0, canRedo: false });
     },
 
+    saveToLocal: () => {
+        try {
+            const { nodes, edges, workflowName, workflowDescription } = get();
+            const data = { nodes, edges, workflowName, workflowDescription, savedAt: Date.now() };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } catch (e) {
+            console.warn('宸ヤ綔娴佽嚜鍔ㄤ繚瀛樺け璐?', e);
+        }
+    },
+
+    loadFromLocal: () => {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return false;
+            const data = JSON.parse(raw);
+            if (data.nodes && Array.isArray(data.nodes)) {
+                clearDeferredWorkflowTimers();
+                set({
+                    nodes: data.nodes,
+                    edges: data.edges || [],
+                    workflowName: data.workflowName || '鏂板伐浣滄祦',
+                    workflowDescription: data.workflowDescription || '',
+                    isDirty: false,
+                });
+                const maxId = data.nodes.reduce((max: number, n: any) => {
+                    const match = n.id?.match(/\d+/);
+                    return match ? Math.max(max, parseInt(match[0], 10)) : max;
+                }, 0);
+                nodeIdCounter = maxId + 1;
+                get()._pushHistory();
+                return true;
+            }
+        } catch (e) {
+            console.warn('鍔犺浇鏈湴宸ヤ綔娴佸け璐?', e);
+        }
+        return false;
+    },
+
+    setNodes: (nodes) => {
+        clearDeferredWorkflowTimers();
+        set({ nodes, isDirty: true });
+        _deferredHistoryTimer = setTimeout(() => {
+            _deferredHistoryTimer = null;
+            get()._pushHistory();
+            scheduleAutosave(get());
+        }, AUTOSAVE_DELAY_MS);
+    },
+    setEdges: (edges) => {
+        clearDeferredWorkflowTimers();
+        set({ edges, isDirty: true });
+        _deferredHistoryTimer = setTimeout(() => {
+            _deferredHistoryTimer = null;
+            get()._pushHistory();
+            scheduleAutosave(get());
+        }, AUTOSAVE_DELAY_MS);
+    },
     addNode: (nodeConfig, position) => {
+        clearDeferredWorkflowTimers();
         const id = `node_${++nodeIdCounter}_${Date.now()}`;
         const ports = nodeConfig.ports
             ? [...nodeConfig.ports]
@@ -238,6 +310,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     },
 
     removeNode: (nodeId) => {
+        clearDeferredWorkflowTimers();
         set((state) => ({
             nodes: state.nodes.filter(n => n.id !== nodeId),
             edges: state.edges.filter(e => e.source !== nodeId && e.target !== nodeId),
@@ -249,19 +322,26 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     },
 
     updateNodeData: (nodeId, data) => {
+        clearDeferredWorkflowTimers();
         set((state) => ({
             nodes: state.nodes.map(n =>
                 n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n
             ),
             isDirty: true,
         }));
-        get()._pushHistory();
-        scheduleAutosave(get());
+        _deferredHistoryTimer = setTimeout(() => {
+            _deferredHistoryTimer = null;
+            get()._pushHistory();
+            scheduleAutosave(get());
+        }, AUTOSAVE_DELAY_MS);
     },
 
     selectNode: (nodeId) => set({ selectedNodeId: nodeId }),
 
-    setWorkflowMeta: (name, description) => set({ workflowName: name, workflowDescription: description, isDirty: true }),
+    setWorkflowMeta: (name, description) => {
+        set({ workflowName: name, workflowDescription: description, isDirty: true });
+        scheduleAutosave(get());
+    },
 
     canConnect: (sourceId, targetId, sourceHandle, targetHandle) => {
         const { edges } = get();
@@ -398,6 +478,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     },
 
     loadRules: (rules) => {
+        clearDeferredWorkflowTimers();
         const newNodes: Node<WorkflowNodeData>[] = [];
         const newEdges: Edge[] = [];
 
@@ -487,9 +568,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         });
 
         set({ nodes: newNodes, edges: newEdges, isDirty: false });
+        get()._pushHistory();
+        scheduleAutosave(get());
     },
 
     clearAll: () => {
+        clearDeferredWorkflowTimers();
         set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false, history: [], historyIndex: -1, canUndo: false, canRedo: false });
         try { localStorage.removeItem(STORAGE_KEY); } catch (_) { /* ignore */ }
     },
@@ -509,6 +593,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     },
 
     undo: () => {
+        clearDeferredWorkflowTimers();
         const { history, historyIndex } = get();
         if (historyIndex <= 0) return;
         const prev = history[historyIndex - 1];
@@ -525,6 +610,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     },
 
     redo: () => {
+        clearDeferredWorkflowTimers();
         const { history, historyIndex } = get();
         if (historyIndex >= history.length - 1) return;
         const next = history[historyIndex + 1];
@@ -558,6 +644,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             if (!raw) return false;
             const data = JSON.parse(raw);
             if (data.nodes && Array.isArray(data.nodes)) {
+                clearDeferredWorkflowTimers();
                 set({
                     nodes: data.nodes,
                     edges: data.edges || [],
