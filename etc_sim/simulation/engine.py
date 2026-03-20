@@ -288,6 +288,7 @@ class SimulationEngine:
         for v in active_vehicles:
             if v.anomaly_type == 1 and v.anomaly_state == 'active':
                 blocked_lanes[v.lane].append(v.pos)
+        blocked_lanes = {lane: tuple(positions) for lane, positions in blocked_lanes.items()}
         
         # 更新车辆（使用空间索引获取邻近车辆，避免 O(N^2)）
         for v in active_vehicles:
@@ -300,7 +301,7 @@ class SimulationEngine:
             
             # 使用空间索引获取邻近车辆 (O(1) per vehicle)
             nearby_vehicles = self.spatial_index.get_nearby_vehicles(v, range_cells=3)
-            v.update(dt, nearby_vehicles, dict(blocked_lanes), self.current_time)
+            v.update(dt, nearby_vehicles, blocked_lanes, self.current_time)
             
             # 更新空间索引中的车辆位置
             self.spatial_index.update_vehicle(v)
@@ -349,7 +350,7 @@ class SimulationEngine:
                     'flow': avg_speed * density
                 })
         
-        queue_state = self._detect_queue_state(active_vehicles)
+        queue_state = self._detect_queue_state(active_vehicles, presorted=True)
         if queue_state['in_queue']:
             self.queue_events.append({'time': self.current_time, **queue_state})
         queue_lengths = {}
@@ -358,7 +359,11 @@ class SimulationEngine:
             queue_lengths[queue_gate_id] = queue_state['queue_length']
         
         from ..models.phantom_jam import PhantomJamDetector
-        jams = PhantomJamDetector.detect_phantom_jam(active_vehicles, self.current_time)
+        jams = PhantomJamDetector.detect_phantom_jam_with_index(
+            self.spatial_index,
+            active_vehicles,
+            self.current_time,
+        )
         self.phantom_jam_events.extend(jams)
         
         # 安全数据采样（与轨迹数据使用相同的采样间隔，避免每步都记录）
@@ -427,10 +432,12 @@ class SimulationEngine:
         
         print("仿真完成。")
     
-    def _detect_queue_state(self, vehicles: List[Vehicle]) -> Dict:
+    def _detect_queue_state(self, vehicles: List[Vehicle], presorted: bool = False) -> Dict:
         """检测排队状态"""
         from ..models.queue import QueueFormationModel
-        
+
+        if presorted:
+            return QueueFormationModel.detect_queue_state_sorted(vehicles)
         return QueueFormationModel.detect_queue_state(vehicles)
     
     def get_results(self) -> SimulationResult:

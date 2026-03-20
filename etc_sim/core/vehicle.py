@@ -217,13 +217,15 @@ class Vehicle:
     # ==================== MOBIL模型 ====================
     
     def mobil_decision(self, vehicles_nearby: List['Vehicle'], 
-                       blocked_lanes: dict = None) -> tuple:
+                       blocked_lanes: dict = None,
+                       lane_context: Optional[Dict[int, Dict[str, Any]]] = None) -> tuple:
         """MOBIL换道决策（委托给 core.lane_change.MOBILModel）"""
         return MOBILModel.decide_lane_change(
             vehicle=self,
             vehicles_nearby=vehicles_nearby,
             current_lane=self.lane,
             blocked_lanes=blocked_lanes,
+            lane_context=lane_context,
             politeness=self.politeness,
             num_lanes=self.config.num_lanes if self.config else 4
         )
@@ -276,6 +278,31 @@ class Vehicle:
                     min_dist = dist
                     follower = v
         return follower
+
+    def _build_lane_context(self, vehicles_nearby: List['Vehicle']) -> Dict[int, Dict[str, Any]]:
+        """鍗曟鎵弿閭昏繎杞﹁締锛屽鐢ㄥ悇杞﹂亾鍓嶅悗杞︿俊鎭?"""
+        lane_context: Dict[int, Dict[str, Any]] = {}
+
+        for other in vehicles_nearby:
+            lane_state = lane_context.setdefault(other.lane, {
+                'leader': None,
+                'leader_dist': float('inf'),
+                'follower': None,
+                'follower_dist': float('inf'),
+            })
+
+            if other.pos > self.pos:
+                leader_dist = other.pos - self.pos
+                if leader_dist < lane_state['leader_dist']:
+                    lane_state['leader'] = other
+                    lane_state['leader_dist'] = leader_dist
+            elif other.pos < self.pos:
+                follower_dist = self.pos - other.pos
+                if follower_dist < lane_state['follower_dist']:
+                    lane_state['follower'] = other
+                    lane_state['follower_dist'] = follower_dist
+
+        return lane_context
     
     def _can_change_to(self, target_lane: int, vehicles_nearby: List['Vehicle'], 
                        blocked_lanes: dict) -> bool:
@@ -414,14 +441,16 @@ class Vehicle:
             return
         
         self.lane_change_cooldown -= dt
+        lane_context = self._build_lane_context(vehicles_nearby)
         
         leader = None
         dist = float('inf')
         
         if not self.lane_changing:
-            leader = self._find_leader(vehicles_nearby)
+            current_lane_context = lane_context.get(self.lane, {})
+            leader = current_lane_context.get('leader')
             if leader:
-                dist = leader.pos - self.pos
+                dist = current_lane_context.get('leader_dist', leader.pos - self.pos)
         
         target_speed = self.desired_speed
         max_decel = 3.0
@@ -459,7 +488,11 @@ class Vehicle:
                     want_change = True
             
             if want_change and self.lane_change_cooldown <= 0:
-                target_lane, reason = self.mobil_decision(vehicles_nearby, blocked_lanes)
+                target_lane, reason = self.mobil_decision(
+                    vehicles_nearby,
+                    blocked_lanes,
+                    lane_context=lane_context,
+                )
                 if target_lane is not None:
                     self.start_lane_change(target_lane, current_time)
         
