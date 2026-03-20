@@ -580,17 +580,6 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
     // ==================== 撤销/重做 ====================
 
-    _pushHistory: () => {
-        const { nodes, edges, history, historyIndex } = get();
-        const snapshot: HistorySnapshot = { nodes: deepClone(nodes), edges: deepClone(edges) };
-        // 截断 redo 分支
-        const newHistory = history.slice(0, historyIndex + 1);
-        newHistory.push(snapshot);
-        // 限制历史长度
-        if (newHistory.length > MAX_HISTORY) newHistory.shift();
-        const newIndex = newHistory.length - 1;
-        set({ history: newHistory, historyIndex: newIndex, canUndo: newIndex > 0, canRedo: false });
-    },
 
     undo: () => {
         clearDeferredWorkflowTimers();
@@ -626,44 +615,4 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         scheduleAutosave(get());
     },
 
-    // ==================== 本地持久化 ====================
-
-    saveToLocal: () => {
-        try {
-            const { nodes, edges, workflowName, workflowDescription } = get();
-            const data = { nodes, edges, workflowName, workflowDescription, savedAt: Date.now() };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-        } catch (e) {
-            console.warn('工作流自动保存失败:', e);
-        }
-    },
-
-    loadFromLocal: () => {
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (!raw) return false;
-            const data = JSON.parse(raw);
-            if (data.nodes && Array.isArray(data.nodes)) {
-                clearDeferredWorkflowTimers();
-                set({
-                    nodes: data.nodes,
-                    edges: data.edges || [],
-                    workflowName: data.workflowName || '新工作流',
-                    workflowDescription: data.workflowDescription || '',
-                    isDirty: false,
-                });
-                // 重建 nodeIdCounter 避免 ID 冲突
-                const maxId = data.nodes.reduce((max: number, n: any) => {
-                    const match = n.id?.match(/\d+/);
-                    return match ? Math.max(max, parseInt(match[0], 10)) : max;
-                }, 0);
-                nodeIdCounter = maxId + 1;
-                get()._pushHistory(); // 初始快照
-                return true;
-            }
-        } catch (e) {
-            console.warn('加载本地工作流失败:', e);
-        }
-        return false;
-    },
 }));
