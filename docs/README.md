@@ -12,7 +12,9 @@
    内容：历史存储、接口迁移、兼容性与性能优化专题说明。
 4. `simulation_mechanics.md`
    内容：仿真机制与模型层面的补充说明。
-5. `developer_guide.md`
+5. `impact_score.md`
+   内容：车流画像中影响度的计算公式、阈值与图表映射。
+6. `developer_guide.md`
    内容：开发者使用与扩展指引。
 
 ## 文档分工
