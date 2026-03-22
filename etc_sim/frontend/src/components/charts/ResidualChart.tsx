@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import {
-    LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine
+    LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
 
 interface SpeedData {
@@ -52,14 +52,7 @@ export function ResidualChart({ speedHistory, predictResults, targetSegment, hei
 
         const merged = Array.from(timeMap.values()).sort((a, b) => a.time - b.time);
 
-        let baselineFound = false;
-        let baselineSpeed = 100;
-
         return merged.map(d => {
-            if (!baselineFound && d.speed) {
-                baselineSpeed = d.speed;
-                baselineFound = true;
-            }
             // 计算所谓的预测概率或预警危急度 (数值越大越红)
             const alertIntensity = d.y_pred ? Math.min(d.y_pred * 30, 100) : 0;
             return {
@@ -92,7 +85,13 @@ export function ResidualChart({ speedHistory, predictResults, targetSegment, hei
                     <Tooltip
                         contentStyle={{ backgroundColor: 'var(--glass-bg)', borderColor: 'var(--glass-border)', fontSize: '12px' }}
                         labelStyle={{ color: 'var(--text-secondary)' }}
-                        formatter={(val: number, name: string) => [val.toFixed(1), name === 'speed' ? '平均车速' : (name === 'alertLevel' ? '预警压力' : '实况异常')]}
+                        formatter={(value, name) => {
+                            const numericValue = typeof value === 'number' ? value : Number(value ?? 0);
+                            return [
+                                numericValue.toFixed(1),
+                                name === 'speed' ? '平均车速' : name === 'alertLevel' ? '预警压力' : '实况异常',
+                            ];
+                        }}
                     />
                     <Legend iconSize={8} wrapperStyle={{ fontSize: '11px' }} />
 

@@ -5,7 +5,8 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import { useSimStore } from '../stores/simStore';
-import { useI18nStore } from '../stores/i18nStore';
+
+type LogLevel = keyof typeof LOG_LEVEL_STYLES;
 
 const LOG_LEVEL_STYLES = {
     INFO: {
@@ -27,7 +28,6 @@ const LOG_LEVEL_STYLES = {
 
 export const LogConsole: React.FC = () => {
     const { logs, clearLogs, isRunning } = useSimStore();
-    const { t } = useI18nStore();
     const containerRef = useRef<HTMLDivElement>(null);
     const [autoScroll, setAutoScroll] = useState(true);
     const [filter, setFilter] = useState<'ALL' | 'INFO' | 'WARNING' | 'ERROR'>('ALL');
@@ -120,7 +120,8 @@ export const LogConsole: React.FC = () => {
                     </div>
                 ) : (
                     filteredLogs.map((log, idx) => {
-                        const styles = LOG_LEVEL_STYLES[log.level] || LOG_LEVEL_STYLES.INFO;
+                        const level = log.level in LOG_LEVEL_STYLES ? (log.level as LogLevel) : 'INFO';
+                        const styles = LOG_LEVEL_STYLES[level];
                         return (
                             <div
                                 key={idx}

@@ -24,7 +24,7 @@ import { API } from '../config/api';
 const API_BASE = API.BASE;
 
 export const ChartsPanel: React.FC = () => {
-    const { isRunning, isComplete } = useSimStore();
+    const { isRunning } = useSimStore();
     const { t } = useI18nStore();
     const [charts, setCharts] = useState<ChartInfo[]>([]);
     const [favorites, setFavorites] = useState<string[]>([]);

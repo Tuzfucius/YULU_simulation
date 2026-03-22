@@ -364,8 +364,8 @@ function HorizontalDash(props: DashShapeProps) {
 
 function ScannerLineShape(props: ScannerShapeProps) {
   const { x1, x2 } = props;
-  if (!x1) {
-    return null;
+  if (x1 === undefined) {
+    return <g />;
   }
   return (
     <line

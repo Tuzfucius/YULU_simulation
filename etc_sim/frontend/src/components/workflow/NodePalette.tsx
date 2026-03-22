@@ -16,7 +16,7 @@ const CATEGORY_LABELS: Record<NodeCategory, { label: string; icon: string }> = {
 const CATEGORY_ORDER: NodeCategory[] = ['source', 'condition', 'logic', 'action'];
 
 export function NodePalette() {
-    const addNode = useWorkflowStore(s => s.addNode);
+    useWorkflowStore(s => s.addNode);
 
     const grouped = CATEGORY_ORDER.map(cat => ({
         category: cat,

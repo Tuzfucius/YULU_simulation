@@ -2,13 +2,13 @@
  * EditorCanvas - 道路编辑器画布
  * 功能：圆弧过渡绘制、ETC 门架吸附、比例尺、中键拖拽
  */
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { type Dispatch, type MouseEvent, type SetStateAction, useRef, useEffect, useState, useCallback } from 'react';
 import { CustomRoadData } from '../pages/RoadEditorPage';
 import { useThemeStore } from '../../stores/themeStore';
 
 interface EditorCanvasProps {
     data: CustomRoadData;
-    setData: React.Dispatch<React.SetStateAction<CustomRoadData>>;
+    setData: Dispatch<SetStateAction<CustomRoadData>>;
     mode: 'select' | 'pen' | 'gantry' | 'on_ramp' | 'off_ramp';
     showGrid: boolean;
     defaultRadius?: number; // 默认圆弧半径（米）
@@ -60,31 +60,6 @@ function sortGantriesByMileage(gantries: CustomRoadData['gantries']): CustomRoad
  * 返回 { t1: 切点在 AB 上的参数, t2: 切点在 BC 上的参数, cx, cy: 圆心 }
  * 如果 R=0 或角度太小，返回 null（直接尖角）
  */
-function computeArcParams(
-    ax: number, ay: number,
-    bx: number, by: number,
-    cx: number, cy: number,
-    R: number // 世界坐标下的半径
-) {
-    if (R <= 0) return null;
-    const v1x = ax - bx, v1y = ay - by;
-    const v2x = cx - bx, v2y = cy - by;
-    const len1 = Math.hypot(v1x, v1y);
-    const len2 = Math.hypot(v2x, v2y);
-    if (len1 < 1e-6 || len2 < 1e-6) return null;
-    const u1x = v1x / len1, u1y = v1y / len1;
-    const u2x = v2x / len2, u2y = v2y / len2;
-    const dot = u1x * u2x + u1y * u2y;
-    const halfAngle = Math.acos(Math.max(-1, Math.min(1, dot))) / 2;
-    if (halfAngle < 0.01) return null; // 几乎平行，不插入圆弧
-    const d = R / Math.tan(halfAngle); // 切点到顶点的距离
-    if (d > len1 || d > len2) return null; // 圆弧太大放不下
-    return {
-        t1x: bx + u1x * d, t1y: by + u1y * d, // 切点1（在 AB 上）
-        t2x: bx + u2x * d, t2y: by + u2y * d, // 切点2（在 BC 上）
-    };
-}
-
 /** 计算"整数"比例尺长度（100m, 200m, 500m, 1km...） */
 function niceScaleLength(zoom: number): { px: number; label: string } {
     const mPerPx = SCALE_M_PER_UNIT / zoom;
@@ -360,7 +335,7 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
     }
 
     // ─── 比例尺绘制 ──────────────────────────────────────────
-    function drawScaleRuler(ctx: CanvasRenderingContext2D, zoom: number, W: number, H: number) {
+    function drawScaleRuler(ctx: CanvasRenderingContext2D, zoom: number, _width: number, H: number) {
         const { px, label } = niceScaleLength(zoom);
         const x = 20, y = H - 24;
         const barH = 6;
@@ -385,13 +360,13 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
 
     // ─── 事件处理 ─────────────────────────────────────────────
 
-    const getCanvasPos = (e: React.MouseEvent) => {
+    const getCanvasPos = (e: MouseEvent) => {
         const rect = canvasRef.current?.getBoundingClientRect();
         if (!rect) return { x: 0, y: 0 };
         return { x: e.clientX - rect.left, y: e.clientY - rect.top };
     };
 
-    const handleMouseDown = (e: React.MouseEvent) => {
+    const handleMouseDown = (e: MouseEvent) => {
         if (e.button === 1) { // 中键
             isPanning.current = true;
             lastMouse.current = { x: e.clientX, y: e.clientY };
@@ -464,7 +439,7 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
         }
     };
 
-    const handleMouseMove = (e: React.MouseEvent) => {
+    const handleMouseMove = (e: MouseEvent) => {
         if (isPanning.current) {
             const dx = e.clientX - lastMouse.current.x;
             const dy = e.clientY - lastMouse.current.y;
@@ -485,7 +460,7 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
         }
     };
 
-    const handleMouseUp = (e: React.MouseEvent) => {
+    const handleMouseUp = (e: MouseEvent) => {
         if (e.button === 1 || isPanning.current) {
             isPanning.current = false;
             // 恢复光标
@@ -519,7 +494,7 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [zoom, pan]);
 
-    const handleContextMenu = (e: React.MouseEvent) => {
+    const handleContextMenu = (e: MouseEvent) => {
         e.preventDefault();
         if (mode === 'pen' && data.nodes.length > 0) {
             setData(prev => ({ ...prev, nodes: prev.nodes.slice(0, -1) }));

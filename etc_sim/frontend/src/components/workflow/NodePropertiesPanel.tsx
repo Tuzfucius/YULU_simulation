@@ -2,7 +2,7 @@
  * 节点属性编辑面板 — 右侧面板，编辑选中节点的参数
  */
 
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useSimStore } from '../../stores/simStore';
 import type { LogicType, ParamFieldMeta } from '../../types/workflow';

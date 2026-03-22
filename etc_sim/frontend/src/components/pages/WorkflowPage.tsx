@@ -82,6 +82,7 @@ export function WorkflowPage() {
     const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
     const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
     const [selectedDatasetName, setSelectedDatasetName] = useState<string | null>(null);
+    const [, setRunAnalysis] = useState<unknown | null>(null);
 
     const showStatus = useCallback((message: string) => {
         setStatusMsg(message);
@@ -779,6 +780,8 @@ export function WorkflowPage() {
         showRunAnalysis,
         showModelDetail,
         showDatasetDetail,
+        selectedModelId,
+        selectedDatasetName,
     ];
 
     const exportJSON = () => {

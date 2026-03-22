@@ -971,7 +971,6 @@ export function PredictBuilderPage() {
                                         });
 
                                         // 计算总体评价指标中的详细真假阳性
-                                        const confMatrix = trainingResult.metrics.confusion_matrix || [[0, 0], [0, 0]];
                                         // 由于是多分类，简化取类总和（除对角线外的均视为误差等）
                                         // 下面仅用来配合原有展示的占位变量，原预测工作台已在 B 区展示了宏观 P/R/F1
 

@@ -172,7 +172,7 @@ const SCENARIO_LAYERS: ScenarioLayer[] = [
 ];
 
 export const ScenariosPage: React.FC = () => {
-    const { lang, t } = useI18nStore();
+    const { lang } = useI18nStore();
     const navigate = useNavigate();
     const { setConfig } = useSimStore();
     const isEn = lang === 'en';

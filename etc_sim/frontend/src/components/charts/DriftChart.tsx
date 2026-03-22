@@ -39,7 +39,7 @@ export function DriftChart({ groundTruths, predictResults, height = 250 }: Drift
         alerts.forEach(alert => {
             // 找出最近的 ground truth
             let minTimeDiff = Infinity;
-            let closestGt: AnomalyData | null = null;
+            let closestGt: AnomalyData | undefined;
 
             groundTruths.forEach(gt => {
                 const diff = Math.abs(alert.timestamp - gt.time);
@@ -49,7 +49,7 @@ export function DriftChart({ groundTruths, predictResults, height = 250 }: Drift
                 }
             });
 
-            if (closestGt) {
+            if (closestGt !== undefined) {
                 const tDiff = alert.timestamp - closestGt.time; // 正数表示模型报警晚于事件发生
                 const sDiff = extractSegNum(alert.target_segment) - extractSegNum(closestGt.segment);
 

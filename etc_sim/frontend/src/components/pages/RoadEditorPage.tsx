@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import { useState } from 'react';
 import { TrajectoryList } from '../road-editor/TrajectoryList';
 import { EditorCanvas } from '../road-editor/EditorCanvas';
 import { EditorToolbar } from '../road-editor/EditorToolbar';

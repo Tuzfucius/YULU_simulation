@@ -236,7 +236,7 @@ export function WorkflowLibraryPanel(props: WorkflowLibraryPanelProps) {
                 {fileCategory === 'workflows' && (
                     <div className="mt-3 grid grid-cols-2 gap-2">
                         <button type="button" onClick={() => onLoadWorkflow(selectedWorkflowName || workflowName)} disabled={!selectedWorkflowName || isLoading} className="px-2 py-1.5 rounded-md text-[11px] bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] disabled:opacity-40">编辑</button>
-                        <button type="button" onClick={onRenameWorkflow} disabled={(!selectedWorkflowName && !workflowName) || isLoading} className="px-2 py-1.5 rounded-md text-[11px] bg-[var(--accent-purple)]/15 text-[var(--accent-purple)] disabled:opacity-40">重命名</button>
+                        <button type="button" onClick={() => onRenameWorkflow(selectedWorkflowName || workflowName)} disabled={(!selectedWorkflowName && !workflowName) || isLoading} className="px-2 py-1.5 rounded-md text-[11px] bg-[var(--accent-purple)]/15 text-[var(--accent-purple)] disabled:opacity-40">重命名</button>
                         <button type="button" onClick={() => onOpenWorkflowFolder(selectedWorkflowName)} disabled={isLoading} className="col-span-2 px-2 py-1.5 rounded-md text-[11px] text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.05)] disabled:opacity-40">在文件夹中打开</button>
                     </div>
                 )}

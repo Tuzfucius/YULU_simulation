@@ -1,6 +1,5 @@
 
 import React, { useMemo } from 'react';
-import { ResponsiveContainer, Tooltip } from 'recharts';
 
 interface SpeedHeatmapProps {
     data: { time: number; segment: number; speed: number }[];
@@ -9,10 +8,6 @@ interface SpeedHeatmapProps {
 }
 
 export const SpeedHeatmapChart: React.FC<SpeedHeatmapProps> = ({ data, maxTime, numSegments }) => {
-    // Config
-    const height = 220;
-    const margin = { top: 10, right: 10, bottom: 20, left: 30 };
-
     // Color scale function: Green (80+) -> Yellow (40) -> Red (0)
     const getColor = (speed: number) => {
         if (speed >= 80) return `rgba(76, 175, 80, ${0.4 + (speed - 80) / 40 * 0.6})`; // Green
