@@ -11,9 +11,9 @@ import { SegmentInspector } from './components/SegmentInspector';
 import { MicroscopicInspector } from './components/MicroscopicInspector';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SituationScreenPage } from './components/pages/SituationScreenPage';
+import { SimulationSessionClient } from './services/simulationSession';
 import { useI18nStore } from './stores/i18nStore';
 import { useSimStore } from './stores/simStore';
-import { engine } from './engine/SimulationEngine';
 import { useTheme } from './utils/useTheme';
 
 const ReplayPage = React.lazy(() => import('./components/pages/ReplayPage').then(m => ({ default: m.ReplayPage })));
@@ -38,16 +38,24 @@ const NAV_ITEMS = [
   { path: '/screen', icon: '🖥️', label: '态势大屏', labelEn: 'Situation Screen' },
 ];
 
-function SimulationPage() {
+interface SimulationPageProps {
+  onStart: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+  onReset: () => void;
+}
+
+function SimulationPage({
+  onStart,
+  onPause,
+  onResume,
+  onStop,
+  onReset,
+}: SimulationPageProps) {
   const { isRunning } = useSimStore();
   const { t } = useI18nStore();
   const chartsRef = React.useRef<HTMLDivElement>(null);
-
-  const handleStart = useCallback(() => engine.start(), []);
-  const handlePause = useCallback(() => engine.pause(), []);
-  const handleResume = useCallback(() => engine.resume(), []);
-  const handleStop = useCallback(() => engine.stop(), []);
-  const handleReset = useCallback(() => engine.reset(), []);
 
   return (
     <div className="flex h-full">
@@ -64,11 +72,11 @@ function SimulationPage() {
         <div className="h-20 shrink-0 flex items-center justify-between px-8 border-b border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-md z-10">
           <div className="flex items-center gap-6">
             <ControlBar
-              onStart={handleStart}
-              onPause={handlePause}
-              onResume={handleResume}
-              onStop={handleStop}
-              onReset={handleReset}
+              onStart={onStart}
+              onPause={onPause}
+              onResume={onResume}
+              onStop={onStop}
+              onReset={onReset}
             />
           </div>
           <div className="flex items-center gap-4">
@@ -104,11 +112,16 @@ function SimulationPage() {
 
 function App() {
   const { lang, setLang } = useI18nStore();
+  const config = useSimStore((state) => state.config);
+  const applyServerEvent = useSimStore((state) => state.applyServerEvent);
+  const setSession = useSimStore((state) => state.setSession);
+  const setConnectionStatus = useSimStore((state) => state.setConnectionStatus);
   const { theme, setTheme, themes } = useTheme();
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [showFullName, setShowFullName] = useState(false);
   const themeMenuRef = useRef<HTMLDivElement>(null);
+  const sessionClientRef = useRef<SimulationSessionClient | null>(null);
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -121,9 +134,73 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const engineTheme = theme === 'light' ? 'light' : 'dark';
-    engine.setTheme(engineTheme);
-  }, [theme]);
+    const sessionId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `session_${Date.now()}`;
+
+    setSession(sessionId);
+    const client = new SimulationSessionClient({
+      sessionId,
+      onEvent: applyServerEvent,
+      onStatusChange: setConnectionStatus,
+      onTransportError: (message) => {
+        applyServerEvent({ type: 'ERROR', payload: { message } });
+      },
+    });
+
+    sessionClientRef.current = client;
+    void client.connect();
+
+    return () => {
+      client.disconnect();
+      sessionClientRef.current = null;
+    };
+  }, [applyServerEvent, setConnectionStatus, setSession]);
+
+  const runCommand = useCallback(async (command: (client: SimulationSessionClient) => Promise<void>) => {
+    const client = sessionClientRef.current;
+    if (!client) {
+      applyServerEvent({ type: 'ERROR', payload: { message: 'Simulation session is not ready' } });
+      return;
+    }
+
+    try {
+      await command(client);
+    } catch (error) {
+      applyServerEvent({
+        type: 'ERROR',
+        payload: {
+          message: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }, [applyServerEvent]);
+
+  const handleStart = useCallback(() => {
+    void runCommand(async (client) => {
+      await client.init(config);
+      await client.start();
+    });
+  }, [config, runCommand]);
+
+  const handlePause = useCallback(() => {
+    void runCommand((client) => client.pause());
+  }, [runCommand]);
+
+  const handleResume = useCallback(() => {
+    void runCommand((client) => client.resume());
+  }, [runCommand]);
+
+  const handleStop = useCallback(() => {
+    void runCommand((client) => client.stop());
+  }, [runCommand]);
+
+  const handleReset = useCallback(() => {
+    void runCommand(async (client) => {
+      await client.reset();
+      await client.init(config);
+    });
+  }, [config, runCommand]);
 
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -240,7 +317,13 @@ function App() {
                 </div>
               }
             >
-              <AnimatedRoutes />
+              <AnimatedRoutes
+                onStart={handleStart}
+                onPause={handlePause}
+                onResume={handleResume}
+                onStop={handleStop}
+                onReset={handleReset}
+              />
             </Suspense>
           </ErrorBoundary>
         </div>
@@ -249,7 +332,21 @@ function App() {
   );
 }
 
-function AnimatedRoutes() {
+interface AnimatedRoutesProps {
+  onStart: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+  onReset: () => void;
+}
+
+function AnimatedRoutes({
+  onStart,
+  onPause,
+  onResume,
+  onStop,
+  onReset,
+}: AnimatedRoutesProps) {
   const location = useLocation();
   return (
     <AnimatePresence mode="wait">
@@ -264,7 +361,18 @@ function AnimatedRoutes() {
         <Routes location={location}>
           <Route path="/" element={<Navigate to="/sim" replace />} />
           <Route path="/purpose" element={<ProjectPurposePage />} />
-          <Route path="/sim" element={<SimulationPage />} />
+          <Route
+            path="/sim"
+            element={(
+              <SimulationPage
+                onStart={onStart}
+                onPause={onPause}
+                onResume={onResume}
+                onStop={onStop}
+                onReset={onReset}
+              />
+            )}
+          />
           <Route path="/replay" element={<ReplayPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/scenarios" element={<ScenariosPage />} />

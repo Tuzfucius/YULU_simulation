@@ -48,6 +48,8 @@ export interface SimulationConfig {
     customRoadLengthKm?: number;
     customGantryPositionsKm?: number[];
     customRamps?: unknown[];
+    workflowName?: string;
+    workflowSavedAt?: string;
     enableNoise: boolean;
     speedVariance: number;
     dropRate: number;
@@ -60,11 +62,17 @@ export interface VehicleSnapshot {
     lane: number;
     speed: number;
     vehicleType: 'CAR' | 'TRUCK' | 'BUS';
-    driverStyle: 'aggressive' | 'normal' | 'conservative';
-    anomalyState: 'none' | 'active' | 'recovered';
+    driverStyle?: 'aggressive' | 'normal' | 'conservative';
+    anomalyState: string;
+    anomalyType?: number;
     isAffected: boolean;
     length: number;
     color: string;
+}
+
+export interface SimulationSnapshot {
+    time: number;
+    vehicles: VehicleSnapshot[];
 }
 
 export interface SimulationProgress {
@@ -92,6 +100,7 @@ export interface SimulationStatistics {
     segmentSpeedHistory?: unknown[];
     sampledTrajectory?: unknown[];
     anomalyLogs?: unknown[];
+    [key: string]: unknown;
 }
 
 export interface SimulationRunStatistics extends SimulationStatistics {
@@ -133,12 +142,17 @@ export interface ETCDetectionData {
 }
 
 export interface SimulationRuntimeData {
-    config?: SimulationConfig;
+    sessionId?: string;
+    runId?: string | null;
+    savedPath?: string | null;
+    config?: SimulationConfig | Record<string, unknown>;
     statistics?: SimulationRunStatistics;
     etc_detection?: ETCDetectionData;
     progress?: SimulationProgress;
     chartData?: SimulationChartData | null;
+    snapshot?: SimulationSnapshot | null;
     logs?: SimulationLogEntry[];
+    results?: Record<string, unknown>;
     [key: string]: unknown;
 }
 
@@ -165,11 +179,32 @@ export interface SimulationLogEntry {
 
 export interface SimulationLogInput {
     id?: string;
-    level: SimulationLogEntry['level'];
+    level: SimulationLogEntry['level'] | 'WARN' | string;
     message: string;
     timestamp: number;
     category?: string;
     [key: string]: unknown;
+}
+
+export type SimulationConnectionStatus = 'disconnected' | 'connecting' | 'connected';
+
+export type SimulationServerEventType =
+    | 'INIT_COMPLETE'
+    | 'STARTED'
+    | 'PROGRESS'
+    | 'SNAPSHOT'
+    | 'RUNTIME_STATS'
+    | 'LOG'
+    | 'COMPLETE'
+    | 'ERROR'
+    | 'PAUSED'
+    | 'RESUMED'
+    | 'STOPPED'
+    | 'RESET_COMPLETE';
+
+export interface SimulationServerEvent {
+    type: SimulationServerEventType;
+    payload?: Record<string, unknown>;
 }
 
 export const DEFAULT_CONFIG: SimulationConfig = {
@@ -198,6 +233,7 @@ export const DEFAULT_CONFIG: SimulationConfig = {
     anomalyProbType2: 0.45,
     anomalyProbType3: 0.45,
     anomalyDurationType1: 120,
+    workflowName: 'default',
     enableNoise: false,
     speedVariance: 5.0,
     dropRate: 0.1,
