@@ -46,6 +46,41 @@ interface OutputFile {
 
 type ViewMode = 'global' | 'local';
 
+type ReplayJumpRequest = {
+  runId: string;
+  time: number | null;
+  segment: number | null;
+};
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function resolveRoadLengthMeters(config?: Record<string, unknown> | null): number {
+  if (!config) return 20000;
+
+  const kmValue = toFiniteNumber(
+    config.custom_road_length_km ?? config.road_length_km ?? config.roadLengthKm,
+  );
+  if (kmValue != null) {
+    return kmValue * 1000;
+  }
+
+  const metersValue = toFiniteNumber(
+    config.road_length ?? config.roadLength ?? config.roadLengthM,
+  );
+  return metersValue ?? 20000;
+}
+
 const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4, 8];
 const CHUNK_SIZE = 500;
 const PREFETCH_THRESHOLD = 100;
@@ -87,7 +122,7 @@ export const ReplayPage: React.FC = () => {
 
   // 防止重复预取
   const fetchingRef = useRef(false);
-  const pendingReplayJumpRef = useRef<{ runId: string; time: number | null; segment: string | null } | null>(null);
+  const pendingReplayJumpRef = useRef<ReplayJumpRequest | null>(null);
 
   // ==================== 双模式状态 ====================
   const [viewMode, setViewMode] = useState<ViewMode>('global');
@@ -95,8 +130,8 @@ export const ReplayPage: React.FC = () => {
     startKm: 0, endKm: 5, startTime: 0, endTime: 300,
   });
   const [rangeCollapsed, setRangeCollapsed] = useState(false);
-  const [anomalyLogs, setAnomalyLogs] = useState<AnomalyLog[]>([]);
-  const [trackedVehicleId, setTrackedVehicleId] = useState<string | null>(null);
+  const [anomalyLogs] = useState<AnomalyLog[]>([]);
+  const [trackedVehicleId, setTrackedVehicleId] = useState<number | null>(null);
 
   // 素材
   const vehicleImagesRef = useRef<VehicleImages | null>(null);
@@ -114,7 +149,7 @@ export const ReplayPage: React.FC = () => {
     pendingReplayJumpRef.current = {
       runId,
       time: Number.isFinite(timeParam) ? timeParam : null,
-      segment: searchParams.get('segment'),
+      segment: toFiniteNumber(searchParams.get('segment')),
     };
   }, [searchParams]);
 
@@ -145,9 +180,9 @@ export const ReplayPage: React.FC = () => {
       if (!res.ok) return [];
       const data = await res.json();
       if (data.config && offset === 0) {
-        setNumLanes(data.config.num_lanes || data.config.numLanes || 4);
-        const rlKm = data.config.custom_road_length_km || data.config.road_length_km || data.config.roadLengthKm || 20;
-        setRoadLength(rlKm * 1000);
+        const config = data.config as Record<string, unknown>;
+        setNumLanes(toFiniteNumber(config.num_lanes ?? config.numLanes) ?? 4);
+        setRoadLength(resolveRoadLengthMeters(config));
       }
       return data.frames || [];
     } catch {
@@ -174,13 +209,14 @@ export const ReplayPage: React.FC = () => {
       setCurrentFilePath(file.path);
 
       if (info.config) {
-        setNumLanes(info.config.num_lanes || info.config.numLanes || 4);
-        const rlKm = info.config.custom_road_length_km || info.config.road_length_km || info.config.roadLengthKm || 20;
-        setRoadLength(rlKm * 1000);
+        const config = info.config as Record<string, unknown>;
+        const roadLengthMeters = resolveRoadLengthMeters(config);
+        setNumLanes(toFiniteNumber(config.num_lanes ?? config.numLanes) ?? 4);
+        setRoadLength(roadLengthMeters);
         // 初始化局部区间为道路的前 1/4
         setLocalRange(prev => ({
           ...prev,
-          endKm: Math.min(prev.endKm, rlKm),
+          endKm: Math.min(prev.endKm, roadLengthMeters / 1000),
         }));
       }
 
@@ -360,14 +396,16 @@ export const ReplayPage: React.FC = () => {
     } else if (data.frames) {
       frames = data.frames;
       if (data.config) {
-        setNumLanes(data.config.num_lanes || data.config.numLanes || 4);
-        setRoadLength(data.config.road_length || data.config.roadLength || 20000);
+        const config = data.config as Record<string, unknown>;
+        setNumLanes(toFiniteNumber(config.num_lanes ?? config.numLanes) ?? 4);
+        setRoadLength(resolveRoadLengthMeters(config));
       }
     } else if (data.trajectory_data) {
       frames = trajectoryToFrames(data.trajectory_data, data.config);
       if (data.config) {
-        setNumLanes(data.config.num_lanes || data.config.numLanes || 4);
-        setRoadLength(data.config.road_length || data.config.roadLength || 20000);
+        const config = data.config as Record<string, unknown>;
+        setNumLanes(toFiniteNumber(config.num_lanes ?? config.numLanes) ?? 4);
+        setRoadLength(resolveRoadLengthMeters(config));
       }
     }
     setFrameBuffer(frames);
@@ -382,9 +420,10 @@ export const ReplayPage: React.FC = () => {
     if (!request || !isLoaded) return;
     const activeFile = outputFiles.find(file => loadedFileName === file.name || currentFilePath === file.path || deriveRunId(file) === request.runId);
     if (!activeFile || deriveRunId(activeFile) !== request.runId) return;
+    const jumpTime = request.time;
 
     if (request.segment !== null) {
-      const segmentValue = Number(request.segment);
+      const segmentValue = request.segment;
       if (Number.isFinite(segmentValue)) {
         const startKm = Math.max(0, segmentValue - 0.5);
         const endKm = Math.min(roadLength / 1000, Math.max(startKm + 0.5, segmentValue + 0.5));
@@ -392,15 +431,20 @@ export const ReplayPage: React.FC = () => {
           ...prev,
           startKm,
           endKm,
-          startTime: request.time !== null ? Math.max(0, request.time - 30) : prev.startTime,
-          endTime: request.time !== null ? Math.min(Math.max(request.time + 30, prev.startTime + 30), prev.endTime > 0 ? Math.max(prev.endTime, request.time + 30) : request.time + 30) : prev.endTime,
+          startTime: jumpTime !== null ? Math.max(0, jumpTime - 30) : prev.startTime,
+          endTime: jumpTime !== null
+            ? Math.min(
+              Math.max(jumpTime + 30, prev.startTime + 30),
+              prev.endTime > 0 ? Math.max(prev.endTime, jumpTime + 30) : jumpTime + 30,
+            )
+            : prev.endTime,
         }));
         setViewMode('local');
       }
     }
 
-    if (request.time !== null) {
-      const localIndex = frameBuffer.findIndex(frame => frame.time >= request.time);
+    if (jumpTime !== null) {
+      const localIndex = frameBuffer.findIndex(frame => frame.time >= jumpTime);
       if (localIndex >= 0) {
         setCurrentIndex(bufferOffset + localIndex);
       }
@@ -414,16 +458,16 @@ export const ReplayPage: React.FC = () => {
   const trajectoryToFrames = (trajectoryData: any[], _config?: any): TrajectoryFrame[] => {
     const frameMap = new Map<number, TrajectoryFrame>();
     for (const entry of trajectoryData) {
-      const t = entry.time || 0;
+      const t = toFiniteNumber(entry.time) ?? 0;
       const rt = Math.round(t * 2) / 2;
       if (!frameMap.has(rt)) frameMap.set(rt, { time: rt, vehicles: [] });
       frameMap.get(rt)!.vehicles.push({
-        id: entry.id || 0,
-        x: entry.pos ?? entry.x ?? 0,
-        lane: entry.lane || 0,
-        speed: entry.speed || 0,
-        type: entry.vehicle_type || entry.type || 'CAR',
-        anomaly: entry.anomaly_type ?? entry.anomaly ?? 0,
+        id: toFiniteNumber(entry.id) ?? 0,
+        x: toFiniteNumber(entry.pos ?? entry.x ?? entry.position_m ?? entry.position) ?? 0,
+        lane: toFiniteNumber(entry.lane ?? entry.lane_index) ?? 0,
+        speed: toFiniteNumber(entry.speed ?? entry.v_speed) ?? 0,
+        type: String(entry.vehicle_type || entry.type || 'CAR'),
+        anomaly: toFiniteNumber(entry.anomaly_type ?? entry.anomaly) ?? 0,
       });
     }
     return [...frameMap.values()].sort((a, b) => a.time - b.time);
@@ -724,7 +768,7 @@ export const ReplayPage: React.FC = () => {
           totalRoadH = laneH * numLanes;
           roadTop = (c.height - totalRoadH) / 2;
 
-          let clickedVehId: string | null = null;
+          let clickedVehId: number | null = null;
           for (let i = frame.vehicles.length - 1; i >= 0; i--) {
             const v = frame.vehicles[i];
             const vLen = (v.type === 'CAR' ? 4.5 : v.type === 'TRUCK' ? 12 : 10) / mpp;

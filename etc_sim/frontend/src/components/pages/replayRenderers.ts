@@ -76,7 +76,7 @@ export function renderGlobalFrame(
   frame: TrajectoryFrame,
   opts: RenderOptions,
   anomalyLogs: AnomalyLog[] = [],
-  trackedVehicleId: string | null = null,
+  trackedVehicleId: number | null = null,
 ): void {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
@@ -271,7 +271,7 @@ export function renderLocalFrame(
   opts: RenderOptions,
   images: VehicleImages,
   anomalyLogs: AnomalyLog[] = [],
-  trackedVehicleId: string | null = null,
+  trackedVehicleId: number | null = null,
 ): void {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;

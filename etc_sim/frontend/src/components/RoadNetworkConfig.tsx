@@ -34,6 +34,19 @@ interface NetworkGraph {
     paths: Record<string, any>;
 }
 
+interface RoadNetworkConfigState {
+    main_length_km: number;
+    num_lanes: number;
+    ramp_position_km: number;
+    ramp_traffic_ratio: number;
+    exit_probability: number;
+    custom_file_path: string;
+}
+
+interface CustomRoadFile {
+    filename?: string;
+}
+
 const NODE_COLORS: Record<string, string> = {
     origin: '#4ade80',
     destination: '#f87171',
@@ -46,10 +59,11 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
     const [selectedTemplate, setSelectedTemplate] = useState('simple_mainline');
     const [customFiles, setCustomFiles] = useState<string[]>([]);
     const [customLength, setCustomLength] = useState<number | null>(null); // 自定义路径实际里程
-    const [config, setConfig] = useState({
+    const [config, setConfig] = useState<RoadNetworkConfigState>({
         main_length_km: 20,
         num_lanes: 4,
         ramp_position_km: 8,
+        ramp_traffic_ratio: 20,
         exit_probability: 0.2,
         custom_file_path: ''
     });
@@ -67,7 +81,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
         // Fetch custom files
         fetch('/api/custom-roads/')
             .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
-            .then((files: any[]) => setCustomFiles(files.map(f => f.filename)))
+            .then((files: CustomRoadFile[]) => setCustomFiles(files.map(f => f.filename).filter((filename): filename is string => typeof filename === 'string' && filename.length > 0)))
             .catch(err => console.warn('Failed to fetch custom roads:', err));
     }, []);
 
@@ -138,9 +152,13 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
         if (id === 'simple_mainline') return t('config.roadNetwork.simpleMainline');
         if (id === 'on_ramp') return t('config.roadNetwork.onRamp');
         if (id === 'off_ramp') return t('config.roadNetwork.offRamp');
-        if (id === 'custom') return t('config.roadNetwork.custom', 'Custom Path');
+        if (id === 'custom') return t('config.roadNetwork.custom') || 'Custom Path';
         return id;
     }
+
+    const previewLengthKm = isCustom
+        ? ((typeof preview?.paths?.total_length_km === 'number' ? preview.paths.total_length_km : 24) + 2)
+        : 24;
 
     return (
         <div className="space-y-4">
@@ -171,7 +189,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
             {/* 自定义路径选择 */}
             {isCustom && (
                 <div>
-                    <label className="text-xs text-[var(--text-muted)]">{t('config.roadNetwork.selectPath', 'Select Path')}</label>
+                    <label className="text-xs text-[var(--text-muted)]">{t('config.roadNetwork.selectPath') || 'Select Path'}</label>
                     <select
                         value={config.custom_file_path}
                         onChange={e => setConfig({ ...config, custom_file_path: e.target.value })}
@@ -285,7 +303,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
             {preview && (
                 <div className="p-4 rounded-lg border border-[var(--glass-border)] bg-black/30">
                     <p className="text-xs text-[var(--text-muted)] mb-2">{t('common.preview')}</p>
-                    <svg viewBox={`-1 -2 ${isCustom ? (preview.nodes[preview.nodes.length - 1]?.position_km || 24) + 2 : 24} 4`} className="w-full h-16" preserveAspectRatio="none">
+                    <svg viewBox={`-1 -2 ${previewLengthKm} 4`} className="w-full h-16" preserveAspectRatio="none">
                         {/* 边 */}
                         {preview.edges.map(edge => {
                             const from = preview.nodes.find(n => n.node_id === edge.from_node);

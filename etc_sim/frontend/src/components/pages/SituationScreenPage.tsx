@@ -110,6 +110,11 @@ function getNumericValue(...values: unknown[]) {
     return null;
 }
 
+function getOptionalNumericValue(...values: unknown[]) {
+    const value = getNumericValue(...values);
+    return value == null ? undefined : value;
+}
+
 function deriveRunIdFromPath(path: string) {
     const normalized = path.replace(/\\/g, '/');
     return normalized.split('/')[0] || '';
@@ -212,8 +217,8 @@ function buildRoadDataFromHistory(payload: RunGatePayload | null, historyData: S
             x,
             y,
             segment: getNumericValue(gate.segment, index + 1) ?? index + 1,
-            positionKm: getNumericValue(gate.position_km),
-            positionM: getNumericValue(gate.position_m, gate.position),
+            positionKm: getOptionalNumericValue(gate.position_km),
+            positionM: getOptionalNumericValue(gate.position_m, gate.position),
         };
     });
 
