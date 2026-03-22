@@ -4,6 +4,7 @@
 
 import json
 import os
+import copy
 import numpy as np
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -91,33 +92,34 @@ class StorageService:
         sim_dir = os.path.join(self.simulations_dir, simulation_id)
         os.makedirs(sim_dir, exist_ok=True)
         filepath = os.path.join(sim_dir, "data.json")
+        payload = copy.deepcopy(results_data)
         
         # 添加元数据
-        results_data["_metadata"] = {
+        payload["_metadata"] = {
             "saved_at": datetime.utcnow().isoformat(),
             "simulation_id": simulation_id
         }
         
         # 分离轨迹数据到独立文件
-        trajectory_data = results_data.pop('trajectory_data', None)
+        trajectory_data = payload.pop('trajectory_data', None)
         if trajectory_data:
             try:
-                config = results_data.get('config', {})
+                config = payload.get('config', {})
                 TrajectoryStorage.save(sim_dir, trajectory_data, config=config)
                 # data.json 中保留记录数标记，供快速检索
-                results_data['_trajectory_info'] = {
+                payload['_trajectory_info'] = {
                     'format': 'msgpack',
                     'file': TrajectoryStorage.MSGPACK_FILENAME,
                     'record_count': len(trajectory_data),
                 }
             except Exception as e:
                 logger.warning(f"轨迹分离存储失败，回退到内嵌 JSON: {e}")
-                results_data['trajectory_data'] = trajectory_data
+                payload['trajectory_data'] = trajectory_data
         
         with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(results_data, f, indent=2, ensure_ascii=False, cls=NumpyEncoder)
+            json.dump(payload, f, indent=2, ensure_ascii=False, cls=NumpyEncoder)
 
-        persist_run_metadata(Path(sim_dir), simulation_id, results_data)
+        persist_run_metadata(Path(sim_dir), simulation_id, payload)
         
         return filepath
     
