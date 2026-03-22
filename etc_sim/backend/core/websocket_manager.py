@@ -30,8 +30,11 @@ from etc_sim.backend.services.storage import StorageService
 # Import actual simulation engine
 from etc_sim.config.parameters import SimulationConfig
 from etc_sim.simulation.engine import SimulationEngine
-# ?????????????????????????
-from etc_sim.backend.api.workflows import _standalone_engine as workflow_engine
+from etc_sim.backend.api.workflows import (
+    DEFAULT_WORKFLOW_NAME,
+    load_rules_for_runtime,
+    resolve_runtime_workflow_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -263,13 +266,15 @@ class WebSocketManager:
         )
 
         custom_rules = None
+        workflow_name = resolve_runtime_workflow_name(config_data)
         try:
-            rules = workflow_engine.rules
-            if rules:
-                custom_rules = [rule.to_dict() for rule in rules]
-                logger.info('Loaded %s workflow rules from editor', len(custom_rules))
+            custom_rules = load_rules_for_runtime(workflow_name=workflow_name)
+            if custom_rules:
+                rule_source = f"workflow '{workflow_name}'" if workflow_name else f"default workflow '{DEFAULT_WORKFLOW_NAME}' or default rules"
+                logger.info('Loaded %s workflow rules from %s', len(custom_rules), rule_source)
         except Exception as exc:
-            logger.warning('Failed to load workflow rules, fallback to default rules: %s', exc)
+            logger.warning('Failed to load workflow rules for runtime, fallback to engine defaults: %s', exc)
+            custom_rules = None
 
         engine = SimulationEngine(config, custom_rules=custom_rules)
         dt = config.simulation_dt

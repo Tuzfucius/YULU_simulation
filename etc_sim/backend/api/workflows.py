@@ -25,6 +25,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 WORKFLOW_DIR = Path(__file__).resolve().parents[2] / "data" / "workflows"
 WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
+DEFAULT_WORKFLOW_NAME = "default"
 
 # 全局规则引擎实例（会在仿真会话中由 WebSocket Manager 引用）
 # 此处作为独立管理用途，仿真运行时使用 engine 内部的实例
@@ -82,6 +83,10 @@ def _workflow_path(name: str) -> Path:
     return WORKFLOW_DIR / f"{workflow_name}.json"
 
 
+def _default_workflow_path() -> Path:
+    return _workflow_path(DEFAULT_WORKFLOW_NAME)
+
+
 def _workflow_copy_path(name: str) -> Path:
     source = _workflow_path(name)
     for index in range(1, 1000):
@@ -99,6 +104,54 @@ def _read_workflow_file(path: Path) -> dict:
         raise HTTPException(status_code=404, detail="工作流不存在") from exc
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=500, detail="工作流文件格式错误") from exc
+
+
+def _list_workflow_paths() -> List[Path]:
+    return sorted(WORKFLOW_DIR.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+
+
+def _normalize_runtime_rules(rules: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    for rule_data in rules or []:
+        rule = AlertRule.from_dict(rule_data)
+        normalized.append(rule.to_dict())
+    return normalized
+
+
+def resolve_runtime_workflow_name(config: Optional[Dict[str, Any]]) -> Optional[str]:
+    config = config or {}
+    for key in ("workflow_name", "workflowName", "selected_workflow_name", "selectedWorkflowName"):
+        value = config.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    workflow_block = config.get("workflow")
+    if isinstance(workflow_block, dict):
+        for key in ("name", "workflow_name", "workflowName"):
+            value = workflow_block.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def load_rules_for_runtime(
+    workflow_name: Optional[str] = None,
+    inline_rules: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """Resolve runtime rules from explicit rules, a saved workflow, or defaults."""
+    if inline_rules:
+        return _normalize_runtime_rules(inline_rules)
+
+    if workflow_name:
+        payload = _read_workflow_file(_workflow_path(workflow_name))
+        return _normalize_runtime_rules(payload.get("rules", []))
+
+    default_path = _default_workflow_path()
+    if default_path.exists():
+        payload = _read_workflow_file(default_path)
+        return _normalize_runtime_rules(payload.get("rules", []))
+
+    return [rule.to_dict() for rule in create_default_rules()]
 
 
 def _open_folder_in_explorer(path: Path):
@@ -248,7 +301,7 @@ async def export_workflow():
 async def list_workflow_files():
     """列出已保存的工作流文件。"""
     files = []
-    for path in sorted(WORKFLOW_DIR.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+    for path in _list_workflow_paths():
         payload = _read_workflow_file(path)
         stat = path.stat()
         rules = payload.get("rules", [])
@@ -394,11 +447,16 @@ async def reset_to_defaults():
 # ==================== 规则同步（供仿真引擎使用） ====================
 
 @router.get("/workflows/active-rules")
-async def get_active_rules():
+async def get_active_rules(workflow_name: Optional[str] = None):
     """获取当前所有规则的序列化数据（供仿真引擎启动时加载）"""
+    rules = load_rules_for_runtime(workflow_name)
     return {
         "success": True,
-        "data": [r.to_dict() for r in _standalone_engine.rules]
+        "data": rules,
+        "meta": {
+            "workflow_name": workflow_name,
+            "default_workflow_name": DEFAULT_WORKFLOW_NAME,
+        },
     }
 
 
