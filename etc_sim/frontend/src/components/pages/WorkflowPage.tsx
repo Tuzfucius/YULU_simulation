@@ -29,6 +29,7 @@ import {
 } from '../workflow/WorkflowLibraryPanel';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useI18nStore } from '../../stores/i18nStore';
+import { useSimStore } from '../../stores/simStore';
 import { API } from '../../config/api';
 
 const nodeTypes = { workflowNode: WorkflowNode };
@@ -40,6 +41,7 @@ interface WorkflowFilePayload {
     name?: string;
     description?: string;
     rules?: unknown[];
+    saved_at?: string;
 }
 
 export function WorkflowPage() {
@@ -64,6 +66,7 @@ export function WorkflowPage() {
         loadFromLocal,
     } = useWorkflowStore();
     const { t } = useI18nStore();
+    const setSimulationConfig = useSimStore((state) => state.setConfig);
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
 
@@ -88,6 +91,13 @@ export function WorkflowPage() {
         setStatusMsg(message);
         window.setTimeout(() => setStatusMsg(null), 3000);
     }, []);
+
+    const bindWorkflowToSimulation = useCallback((name: string, savedAt?: string) => {
+        setSimulationConfig({
+            workflowName: name,
+            workflowSavedAt: savedAt,
+        });
+    }, [setSimulationConfig]);
 
     const fetchSavedWorkflows = useCallback(async (keepSelection = true) => {
         try {
@@ -343,7 +353,9 @@ export function WorkflowPage() {
             if (!response.ok || !payload.success) {
                 throw new Error(payload.detail || '保存失败');
             }
-            setSelectedWorkflowName(payload.data?.name ?? workflowName);
+            const savedName = payload.data?.name ?? workflowName;
+            setSelectedWorkflowName(savedName);
+            bindWorkflowToSimulation(savedName, payload.data?.saved_at);
             await fetchSavedWorkflows();
             showStatus(`工作流已保存: ${workflowName}`);
         } catch (error) {
@@ -372,6 +384,7 @@ export function WorkflowPage() {
             loadRules(rules as any);
             setWorkflowMeta(workflow.name || name, workflow.description || '');
             setSelectedWorkflowName(workflow.name || name);
+            bindWorkflowToSimulation(workflow.name || name, workflow.saved_at);
             setSideTab('nodes');
             setActiveView('canvas');
             showStatus(`已加载工作流: ${workflow.name || name}`);
@@ -422,6 +435,7 @@ export function WorkflowPage() {
                 setWorkflowMeta(nextName.trim(), workflowDescription);
             }
             setSelectedWorkflowName(nextName.trim());
+            bindWorkflowToSimulation(nextName.trim());
             await fetchSavedWorkflows(false);
             showStatus(`工作流已重命名为: ${nextName.trim()}`);
         } catch (error) {
@@ -896,6 +910,14 @@ export function WorkflowPage() {
                             className="text-[11px] px-3 py-1.5 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-colors disabled:opacity-50"
                         >
                             保存工作流
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => bindWorkflowToSimulation(selectedWorkflowName || workflowName)}
+                            disabled={isLoading || !(selectedWorkflowName || workflowName)}
+                            className="text-[11px] px-3 py-1.5 rounded-md bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] hover:bg-[var(--accent-blue)]/25 transition-colors disabled:opacity-40"
+                        >
+                            设为仿真版本
                         </button>
                         <button
                             onClick={loadDefaults}

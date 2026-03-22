@@ -136,6 +136,13 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) =>
     return (
         <div className="flex flex-col space-y-6">
             <div>
+                <div className="mb-4 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                    <div className="font-medium text-[var(--text-primary)]">运行工作流</div>
+                    <div className="mt-1">
+                        {config.workflowName || 'default'}
+                        {config.workflowSavedAt ? ` · 保存于 ${config.workflowSavedAt}` : ' · 使用已保存版本运行'}
+                    </div>
+                </div>
                 <Section title={t('config.title')} icon="🛣️">
                     {/* 自定义路径激活时显示提示横幅 */}
                     {isCustomRoad && (
