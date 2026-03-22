@@ -1,103 +1,19 @@
 /**
  * 仿真状态管理 (Zustand)
- * 完整版：支持图表数据
+ * 将共享类型与运行态拆开，避免组件和 store 之间字段漂移。
  */
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-
-// 仿真配置（用于 UI 显示，实际使用引擎配置）
-interface SimulationConfig {
-    roadLengthKm: number;
-    numLanes: number;
-    laneWidth: number;
-    etcGateIntervalKm: number;
-    totalVehicles: number;
-    carRatio: number;
-    truckRatio: number;
-    busRatio: number;
-    anomalyRatio: number;
-    anomalyStartTime: number;
-    simulationDt: number;
-    trajectorySampleInterval: number;
-    maxSimulationTime: number;
-
-    // Advanced Traffic Params
-    aggressiveRatio: number;
-    conservativeRatio: number;
-    globalAnomalyStart: number;
-    vehicleSafeRunTime: number;
-    laneChangeDelay: number;
-    impactThreshold: number;
-    impactDiscoverDist: number;
-
-    // Anomaly Configuration
-    anomalyProbType1: number;
-    anomalyProbType2: number;
-    anomalyProbType3: number;
-    anomalyDurationType1: number;
-
-    // Scenario Params
-    flowMode?: string;
-    weather?: string;
-    speedFactor?: number;
-    safeDistFactor?: number;
-    visibility?: number;
-    platoonProbability?: number;
-    platoonSizeRange?: [number, number];
-    construction?: boolean;
-    closedLanes?: number[];
-    speedLimit?: number;
-    zoneStart?: number;
-    zoneEnd?: number;
-    chainCollision?: boolean;
-    gradualStop?: boolean;
-
-    // 自定义路径（路网配置组件写入）
-    customRoadPath?: string;           // 已选择的自定义路径文件名
-    customRoadLengthKm?: number;       // 实际计算的路径总里程
-    customGantryPositionsKm?: number[]; // 门架里程位置列表
-    customRamps?: any[];               // 自定义路网匝道配置
-
-    // Data Quality & Noise
-    enableNoise: boolean;
-    speedVariance: number;
-    dropRate: number;
-}
-
-
-interface SimulationProgress {
-    currentTime: number;
-    totalTime: number;
-    progress: number;
-    activeVehicles: number;
-    completedVehicles: number;
-    activeAnomalies: number;
-}
-
-// 图表数据结构
-interface ChartDataPoint {
-    time: number;
-    value: number;
-    label?: string;
-}
-
-interface ChartData {
-    speedHistory: ChartDataPoint[];
-    flowHistory: ChartDataPoint[];
-    densityHistory: ChartDataPoint[];
-    [key: string]: ChartDataPoint[];  // 允许扩展
-}
-
-// 日志条目
-interface LogEntry {
-    id: string;
-    level: string;
-    message: string;
-    timestamp: number;
-    category?: string;
-}
-
+import type {
+    SimulationConfig,
+    SimulationProgress,
+    SimulationStatistics,
+    SimulationChartData,
+    SimulationLogEntry,
+    SimulationLogInput,
+    SimulationRuntimeData,
+} from '../types/simulation';
 
 const defaultConfig: SimulationConfig = {
     roadLengthKm: 10,
@@ -108,32 +24,26 @@ const defaultConfig: SimulationConfig = {
     carRatio: 0.60,
     truckRatio: 0.25,
     busRatio: 0.15,
-    anomalyRatio: 0.01, // Default lowered to 1% as requested
+    aggressiveRatio: 0.20,
+    normalRatio: 0.60,
+    conservativeRatio: 0.20,
+    anomalyRatio: 0.01,
     anomalyStartTime: 200,
     simulationDt: 1.0,
     trajectorySampleInterval: 2,
     maxSimulationTime: 3000,
-
-    // Advanced defaults
-    aggressiveRatio: 0.20,
-    conservativeRatio: 0.20,
     globalAnomalyStart: 200,
     vehicleSafeRunTime: 200,
     laneChangeDelay: 2.0,
     impactThreshold: 0.90,
     impactDiscoverDist: 200,
-
-    // Anomaly Ratios & Durations
     anomalyProbType1: 0.10,
     anomalyProbType2: 0.45,
     anomalyProbType3: 0.45,
-    anomalyDurationType1: 120, // 2 mins default
-
-    // Data Quality & Noise Default
+    anomalyDurationType1: 120,
     enableNoise: false,
     speedVariance: 5.0,
     dropRate: 0.1,
-
     customRamps: [],
 };
 
@@ -160,14 +70,70 @@ interface SimState {
     setTurboMode: (v: boolean) => void;
     progress: SimulationProgress;
     setProgress: (p: SimulationProgress) => void;
-    statistics: Record<string, unknown> | null;
-    setStatistics: (s: Record<string, unknown> | null) => void;
-    chartData: ChartData | null;
-    setChartData: (d: ChartData | null) => void;
-    logs: LogEntry[];
-    addLog: (log: Record<string, unknown>) => void;
+    statistics: SimulationStatistics | null;
+    setStatistics: (s: SimulationStatistics | Record<string, unknown> | null) => void;
+    simulationData: SimulationRuntimeData | null;
+    setSimulationData: (d: SimulationRuntimeData | Record<string, unknown> | null) => void;
+    chartData: SimulationChartData | null;
+    setChartData: (d: SimulationChartData | null) => void;
+    logs: SimulationLogEntry[];
+    addLog: (log: SimulationLogInput) => void;
     clearLogs: () => void;
     resetAll: () => void;
+}
+
+function normalizeStatistics(
+    value: SimulationStatistics | Record<string, unknown> | null,
+): SimulationStatistics | null {
+    if (!value) {
+        return null;
+    }
+
+    return {
+        totalVehicles: Number(value.totalVehicles ?? 0),
+        completedVehicles: Number(value.completedVehicles ?? 0),
+        avgSpeed: Number(value.avgSpeed ?? 0),
+        avgTravelTime: Number(value.avgTravelTime ?? 0),
+        totalAnomalies: Number(value.totalAnomalies ?? 0),
+        affectedByAnomaly: Number(value.affectedByAnomaly ?? 0),
+        totalLaneChanges: Number(value.totalLaneChanges ?? 0),
+        maxCongestionLength: Number(value.maxCongestionLength ?? 0),
+        simulationTime: Number(value.simulationTime ?? 0),
+        etc_transactions_count: value.etc_transactions_count === undefined
+            ? undefined
+            : Number(value.etc_transactions_count),
+        etc_alerts_count: value.etc_alerts_count === undefined
+            ? undefined
+            : Number(value.etc_alerts_count),
+        segmentBoundaries: value.segmentBoundaries as number[] | undefined,
+        segmentSpeedHistory: value.segmentSpeedHistory as unknown[] | undefined,
+        sampledTrajectory: value.sampledTrajectory as unknown[] | undefined,
+        anomalyLogs: value.anomalyLogs as unknown[] | undefined,
+    };
+}
+
+function normalizeSimulationData(
+    value: SimulationRuntimeData | Record<string, unknown> | null,
+): SimulationRuntimeData | null {
+    if (!value) {
+        return null;
+    }
+
+    const rawStatistics = value.statistics ? (value.statistics as Record<string, unknown>) : null;
+    const normalizedStatistics = rawStatistics ? normalizeStatistics(rawStatistics) : null;
+
+    return {
+        ...value,
+        statistics: normalizedStatistics ? {
+            ...normalizedStatistics,
+            etc_transactions_count: Number(rawStatistics?.etc_transactions_count ?? 0),
+            etc_alerts_count: Number(rawStatistics?.etc_alerts_count ?? 0),
+            segmentBoundaries: rawStatistics?.segmentBoundaries as number[] | undefined,
+            segmentSpeedHistory: rawStatistics?.segmentSpeedHistory as unknown[] | undefined,
+            sampledTrajectory: rawStatistics?.sampledTrajectory as unknown[] | undefined,
+            anomalyLogs: rawStatistics?.anomalyLogs as unknown[] | undefined,
+        } : undefined,
+    };
 }
 
 export const useSimStore = create<SimState>()(
@@ -191,15 +157,18 @@ export const useSimStore = create<SimState>()(
             setProgress: (p: SimulationProgress) => set({ progress: p }),
 
             statistics: null,
-            setStatistics: (s: Record<string, unknown> | null) => set({ statistics: s }),
+            setStatistics: (s) => set({ statistics: normalizeStatistics(s) }),
+
+            simulationData: null,
+            setSimulationData: (d) => set({ simulationData: normalizeSimulationData(d) }),
 
             chartData: null,
-            setChartData: (d: ChartData | null) => set({ chartData: d }),
+            setChartData: (d: SimulationChartData | null) => set({ chartData: d }),
 
             logs: [],
-            addLog: (log: Record<string, unknown>) =>
+            addLog: (log: SimulationLogInput) =>
                 set((state: SimState) => ({
-                    logs: [...state.logs.slice(-199), { ...log, id: Date.now().toString() } as LogEntry],
+                    logs: [...state.logs.slice(-199), { ...log, id: log.id ?? Date.now().toString() } as SimulationLogEntry],
                 })),
             clearLogs: () => set({ logs: [] }),
 
@@ -210,6 +179,7 @@ export const useSimStore = create<SimState>()(
                     isComplete: false,
                     progress: defaultProgress,
                     statistics: null,
+                    simulationData: null,
                     chartData: null,
                     logs: [],
                 }),
@@ -220,7 +190,6 @@ export const useSimStore = create<SimState>()(
             version: 1,
             merge: (persistedState: unknown, currentState) => {
                 const persisted = persistedState as Partial<SimState> | null;
-                // Deep merge persisted config with default config to ensure new fields are present
                 if (!persisted || !persisted.config) {
                     return currentState;
                 }
@@ -233,6 +202,6 @@ export const useSimStore = create<SimState>()(
                     },
                 };
             },
-        }
-    )
+        },
+    ),
 );

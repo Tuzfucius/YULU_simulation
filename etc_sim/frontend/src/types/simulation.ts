@@ -1,38 +1,58 @@
 /**
- * 仿真配置类型定义
+ * 前端共享仿真类型
+ *
+ * 这里不追求和后端逐字一致，而是收敛前端实际运行时会用到的核心结构。
  */
 
-// 仿真配置
 export interface SimulationConfig {
-    // 道路参数
     roadLengthKm: number;
     numLanes: number;
     laneWidth: number;
-
-    // 车辆参数
+    etcGateIntervalKm: number;
     totalVehicles: number;
     carRatio: number;
     truckRatio: number;
     busRatio: number;
-
-    // 驾驶风格比例
     aggressiveRatio: number;
     normalRatio: number;
     conservativeRatio: number;
-
-    // 异常参数
     anomalyRatio: number;
     anomalyStartTime: number;
-
-    // 时间参数
     simulationDt: number;
+    trajectorySampleInterval: number;
     maxSimulationTime: number;
-
-    // ETC 参数
-    etcGateIntervalKm: number;
+    globalAnomalyStart: number;
+    vehicleSafeRunTime: number;
+    laneChangeDelay: number;
+    impactThreshold: number;
+    impactDiscoverDist: number;
+    anomalyProbType1: number;
+    anomalyProbType2: number;
+    anomalyProbType3: number;
+    anomalyDurationType1: number;
+    flowMode?: string;
+    weather?: string;
+    speedFactor?: number;
+    safeDistFactor?: number;
+    visibility?: number;
+    platoonProbability?: number;
+    platoonSizeRange?: [number, number];
+    construction?: boolean;
+    closedLanes?: number[];
+    speedLimit?: number;
+    zoneStart?: number;
+    zoneEnd?: number;
+    chainCollision?: boolean;
+    gradualStop?: boolean;
+    customRoadPath?: string;
+    customRoadLengthKm?: number;
+    customGantryPositionsKm?: number[];
+    customRamps?: unknown[];
+    enableNoise: boolean;
+    speedVariance: number;
+    dropRate: number;
 }
 
-// 车辆快照
 export interface VehicleSnapshot {
     id: number;
     x: number;
@@ -47,7 +67,6 @@ export interface VehicleSnapshot {
     color: string;
 }
 
-// 仿真进度
 export interface SimulationProgress {
     currentTime: number;
     totalTime: number;
@@ -57,7 +76,6 @@ export interface SimulationProgress {
     activeAnomalies: number;
 }
 
-// 仿真统计结果
 export interface SimulationStatistics {
     totalVehicles: number;
     completedVehicles: number;
@@ -68,21 +86,97 @@ export interface SimulationStatistics {
     totalLaneChanges: number;
     maxCongestionLength: number;
     simulationTime: number;
+    etc_transactions_count?: number;
+    etc_alerts_count?: number;
+    segmentBoundaries?: number[];
+    segmentSpeedHistory?: unknown[];
+    sampledTrajectory?: unknown[];
+    anomalyLogs?: unknown[];
 }
 
-// 日志条目
-export interface LogEntry {
+export interface SimulationRunStatistics extends SimulationStatistics {
+    etc_transactions_count?: number;
+    etc_alerts_count?: number;
+    segmentBoundaries?: number[];
+    segmentSpeedHistory?: unknown[];
+    sampledTrajectory?: unknown[];
+    anomalyLogs?: unknown[];
+    [key: string]: unknown;
+}
+
+export interface ETCGateStatistics {
+    total_transactions: number;
+    avg_speed: number;
+}
+
+export interface ETCNoiseStatistics {
+    missed_read_count: number;
+    duplicate_read_count: number;
+    delayed_upload_count: number;
+    clock_drift_count: number;
+    missed_read_rate_actual: number;
+}
+
+export interface ETCAlertSummary {
+    type: string;
+    gate_id: string;
     timestamp: number;
-    level: 'INFO' | 'WARNING' | 'ERROR';
-    category: string;
-    message: string;
+    severity: string;
+    description?: string;
 }
 
-// 默认配置
+export interface ETCDetectionData {
+    alerts: ETCAlertSummary[];
+    gate_stats: Record<string, ETCGateStatistics>;
+    noise_statistics: ETCNoiseStatistics;
+    transactions?: unknown[];
+}
+
+export interface SimulationRuntimeData {
+    config?: SimulationConfig;
+    statistics?: SimulationRunStatistics;
+    etc_detection?: ETCDetectionData;
+    progress?: SimulationProgress;
+    chartData?: SimulationChartData | null;
+    logs?: SimulationLogEntry[];
+    [key: string]: unknown;
+}
+
+export interface SimulationChartPoint {
+    time: number;
+    value: number;
+    label?: string;
+}
+
+export interface SimulationChartData {
+    speedHistory: SimulationChartPoint[];
+    flowHistory: SimulationChartPoint[];
+    densityHistory: SimulationChartPoint[];
+    [key: string]: SimulationChartPoint[];
+}
+
+export interface SimulationLogEntry {
+    id: string;
+    level: 'INFO' | 'WARNING' | 'ERROR';
+    message: string;
+    timestamp: number;
+    category?: string;
+}
+
+export interface SimulationLogInput {
+    id?: string;
+    level: SimulationLogEntry['level'];
+    message: string;
+    timestamp: number;
+    category?: string;
+    [key: string]: unknown;
+}
+
 export const DEFAULT_CONFIG: SimulationConfig = {
     roadLengthKm: 10,
     numLanes: 4,
     laneWidth: 3.5,
+    etcGateIntervalKm: 2,
     totalVehicles: 1200,
     carRatio: 0.60,
     truckRatio: 0.25,
@@ -93,6 +187,19 @@ export const DEFAULT_CONFIG: SimulationConfig = {
     anomalyRatio: 0.01,
     anomalyStartTime: 200,
     simulationDt: 1.0,
-    maxSimulationTime: 3600,
-    etcGateIntervalKm: 2,
+    trajectorySampleInterval: 2,
+    maxSimulationTime: 3000,
+    globalAnomalyStart: 200,
+    vehicleSafeRunTime: 200,
+    laneChangeDelay: 2.0,
+    impactThreshold: 0.90,
+    impactDiscoverDist: 200,
+    anomalyProbType1: 0.10,
+    anomalyProbType2: 0.45,
+    anomalyProbType3: 0.45,
+    anomalyDurationType1: 120,
+    enableNoise: false,
+    speedVariance: 5.0,
+    dropRate: 0.1,
+    customRamps: [],
 };
