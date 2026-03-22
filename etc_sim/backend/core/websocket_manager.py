@@ -300,13 +300,15 @@ class WebSocketManager:
         session.started_at = datetime.utcnow()
         session.workflow_snapshot = self._build_workflow_snapshot(session)
         
-        await self._send(session, {"type": "STARTED"})
         
         # 鍚姩浠跨湡浠诲姟
         session.task = asyncio.create_task(self._run_simulation(session))
     
-    async def _run_simulation(self, session: SimulationSession):
-        """Run the simulation loop."""
+    def _prepare_simulation_runtime(
+        self,
+        session: SimulationSession,
+    ) -> tuple[SimulationConfig, dict[str, Any], SimulationEngine, float, float, int, float]:
+        """Build runtime config and engine for one session."""
         config_data = session.config or {}
 
         config = SimulationConfig(
@@ -359,21 +361,28 @@ class WebSocketManager:
         num_lanes = config.num_lanes
         lane_width = config.lane_width
 
-        logger.info(
-            'Starting simulation with %s vehicles, %s lanes, %ss max time',
-            config.total_vehicles,
-            config.num_lanes,
-            max_time,
-        )
-        await self._send_log(
-            session,
-            'INFO',
-            f'????: ???? {config.road_length_km}km, ??? {config.num_lanes}',
-            'INFO',
-        )
+        return config, config_data, engine, dt, max_time, num_lanes, lane_width
 
-        step_count = 0
+    async def _run_simulation(self, session: SimulationSession):
+        """Run the simulation loop."""
         try:
+            config, config_data, engine, dt, max_time, num_lanes, lane_width = self._prepare_simulation_runtime(session)
+            await self._send(session, {"type": "STARTED"})
+
+            logger.info(
+                'Starting simulation with %s vehicles, %s lanes, %ss max time',
+                config.total_vehicles,
+                config.num_lanes,
+                max_time,
+            )
+            await self._send_log(
+                session,
+                'INFO',
+                f'????: ???? {config.road_length_km}km, ??? {config.num_lanes}',
+                'INFO',
+            )
+
+            step_count = 0
             while engine.current_time < max_time:
                 if not session.is_running:
                     await self._send_log(session, 'INFO', '?????', 'INFO')
@@ -614,6 +623,10 @@ class WebSocketManager:
         try:
             await session.websocket.send_json(message)
         except Exception as e:
+            error_text = str(e)
+            if "response already completed" in error_text or "after sending 'websocket.close'" in error_text:
+                logger.info("Skip sending to closed session %s", session.session_id)
+                return
             logger.error(f"Failed to send message to session {session.session_id}: {e}")
     
     async def _end_session(self, session_id: str):
