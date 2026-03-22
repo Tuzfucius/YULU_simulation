@@ -480,7 +480,7 @@ class WebSocketManager:
                             'total_vehicles': stats.get('total_vehicles', len(engine.finished_vehicles)),
                             'total_anomalies': stats.get('total_anomalies', len(engine.anomaly_logs)),
                             'simulation_time': session.current_time,
-                            'completed_vehicles': stats.get('total_vehicles', len(engine.finished_vehicles)),
+                            'completed_vehicles': len(engine.finished_vehicles),
                             'avg_speed': 0.0,
                             'avg_travel_time': 0.0,
                             'total_lane_changes': sum(v.total_lane_changes for v in engine.finished_vehicles) if engine.finished_vehicles else 0,
