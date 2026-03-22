@@ -32,11 +32,49 @@ from etc_sim.config.parameters import SimulationConfig
 from etc_sim.simulation.engine import SimulationEngine
 from etc_sim.backend.api.workflows import (
     DEFAULT_WORKFLOW_NAME,
-    load_rules_for_runtime,
+    build_runtime_workflow_snapshot,
     resolve_runtime_workflow_name,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_inline_workflow_rules(config_data: Dict[str, Any]) -> Optional[list[dict[str, Any]]]:
+    """Pull inline workflow rules from common config shapes."""
+    if not config_data:
+        return None
+
+    for key in ("workflow_rules", "workflowRules", "rules"):
+        value = config_data.get(key)
+        if isinstance(value, list):
+            return value
+
+    workflow_block = config_data.get("workflow")
+    if isinstance(workflow_block, dict):
+        for key in ("workflow_rules", "workflowRules", "rules"):
+            value = workflow_block.get(key)
+            if isinstance(value, list):
+                return value
+
+    return None
+
+
+def _build_segment_boundaries(config_data: Dict[str, Any]) -> list[float]:
+    road_length_km = float(config_data.get("customRoadLengthKm") or config_data.get("roadLengthKm") or 0.0)
+    custom_gantries = config_data.get("customGantryPositionsKm") or []
+    if custom_gantries:
+        return [0.0, *[float(value) for value in custom_gantries], road_length_km]
+
+    segment_length_km = float(config_data.get("segmentLengthKm") or config_data.get("etcGateIntervalKm") or 1.0)
+    if road_length_km <= 0:
+        road_length_km = segment_length_km
+    boundaries: list[float] = [0.0]
+    cursor = segment_length_km
+    while cursor < road_length_km:
+        boundaries.append(round(cursor, 6))
+        cursor += segment_length_km
+    boundaries.append(round(road_length_km, 6))
+    return boundaries
 
 
 class ConnectionManager:
@@ -95,6 +133,7 @@ class SimulationSession:
         self.session_id = session_id
         self.websocket = websocket
         self.config: Optional[Dict[str, Any]] = None
+        self.workflow_snapshot: Optional[Dict[str, Any]] = None
         self.is_running = False
         self.is_paused = False
         self.current_time = 0.0
@@ -203,16 +242,54 @@ class WebSocketManager:
     async def _handle_init(self, session: SimulationSession, data: dict):
         """Handle session initialization."""
         session.config = data.get("config", {})
-        session.total_time = session.config.get("max_simulation_time", 3600)
+        session.total_time = session.config.get("maxSimulationTime", session.config.get("max_simulation_time", 3600))
+        session.workflow_snapshot = self._build_workflow_snapshot(session)
         
         await self._send(session, {
             "type": "INIT_COMPLETE",
             "payload": {
                 "session_id": session.session_id,
-                "config": session.config
+                "config": session.config,
+                "workflow_snapshot": session.workflow_snapshot,
             }
         })
-    
+
+    def _build_workflow_snapshot(self, session: SimulationSession) -> Dict[str, Any]:
+        """Bind a frozen workflow snapshot to the session."""
+        config_data = session.config or {}
+        workflow_name = resolve_runtime_workflow_name(config_data)
+        inline_rules = _extract_inline_workflow_rules(config_data)
+        snapshot = build_runtime_workflow_snapshot(
+            workflow_name=workflow_name,
+            inline_rules=inline_rules,
+        )
+        session.workflow_snapshot = snapshot
+        return snapshot
+
+    def _build_runtime_statistics(self, session: SimulationSession, engine: SimulationEngine) -> Dict[str, Any]:
+        config_data = session.config or {}
+        completed_vehicles = len(engine.finished_vehicles)
+        affected_vehicles = len([vehicle for vehicle in engine.finished_vehicles if getattr(vehicle, "is_affected", False)])
+        lane_changes = sum(getattr(vehicle, "total_lane_changes", 0) for vehicle in engine.finished_vehicles)
+
+        return {
+            "totalVehicles": int(config_data.get("totalVehicles", completed_vehicles)),
+            "completedVehicles": completed_vehicles,
+            "avgSpeed": 0.0,
+            "avgTravelTime": 0.0,
+            "totalAnomalies": len(engine.anomaly_logs),
+            "affectedByAnomaly": affected_vehicles,
+            "totalLaneChanges": lane_changes,
+            "maxCongestionLength": 0.0,
+            "simulationTime": engine.current_time,
+            "etc_transactions_count": len(engine.etc_detector.transactions),
+            "etc_alerts_count": len(engine.etc_alerts),
+            "segmentBoundaries": _build_segment_boundaries(config_data),
+            "segmentSpeedHistory": [record.copy() for record in engine.segment_speed_history],
+            "sampledTrajectory": [record.copy() for record in engine.trajectory_data],
+            "anomalyLogs": [record.copy() for record in engine.anomaly_logs],
+        }
+
     async def _handle_start(self, session: SimulationSession):
         """Handle simulation start."""
         if session.is_running:
@@ -221,6 +298,7 @@ class WebSocketManager:
         session.is_running = True
         session.is_paused = False
         session.started_at = datetime.utcnow()
+        session.workflow_snapshot = self._build_workflow_snapshot(session)
         
         await self._send(session, {"type": "STARTED"})
         
@@ -265,16 +343,15 @@ class WebSocketManager:
             impact_discover_dist=config_data.get('impactDiscoverDist', 150.0),
         )
 
-        custom_rules = None
-        workflow_name = resolve_runtime_workflow_name(config_data)
-        try:
-            custom_rules = load_rules_for_runtime(workflow_name=workflow_name)
-            if custom_rules:
-                rule_source = f"workflow '{workflow_name}'" if workflow_name else f"default workflow '{DEFAULT_WORKFLOW_NAME}' or default rules"
-                logger.info('Loaded %s workflow rules from %s', len(custom_rules), rule_source)
-        except Exception as exc:
-            logger.warning('Failed to load workflow rules for runtime, fallback to engine defaults: %s', exc)
-            custom_rules = None
+        workflow_snapshot = session.workflow_snapshot or self._build_workflow_snapshot(session)
+        session.workflow_snapshot = workflow_snapshot
+        custom_rules = workflow_snapshot.get("rules", [])
+        logger.info(
+            "Loaded %s workflow rules from %s (%s)",
+            len(custom_rules),
+            workflow_snapshot.get("workflow_name") or DEFAULT_WORKFLOW_NAME,
+            workflow_snapshot.get("source"),
+        )
 
         engine = SimulationEngine(config, custom_rules=custom_rules)
         dt = config.simulation_dt
@@ -341,6 +418,15 @@ class WebSocketManager:
                 steps_per_snapshot = max(1, int(0.2 / dt))
                 if step_count % steps_per_snapshot == 0:
                     await self._send_snapshot_from_engine(session, active_vehicles, num_lanes, lane_width)
+                    await self._send(
+                        session,
+                        {
+                            "type": "RUNTIME_STATS",
+                            "payload": {
+                                "statistics": self._build_runtime_statistics(session, engine),
+                            },
+                        },
+                    )
 
                 if step_count % 100 == 0:
                     await self._send_log(
@@ -360,6 +446,8 @@ class WebSocketManager:
             )
 
             results = engine.export_to_dict()
+            if session.workflow_snapshot:
+                results["workflow_snapshot"] = session.workflow_snapshot
             stats = results.get('statistics', {})
 
             saved_path = None

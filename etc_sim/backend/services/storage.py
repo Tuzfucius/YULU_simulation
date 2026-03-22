@@ -88,41 +88,58 @@ class StorageService:
         return configs
     
     def save_results(self, simulation_id: str, results_data: dict) -> str:
-        """保存仿真结果（轨迹数据分离到 trajectory.msgpack）"""
+        """Persist simulation results and separate trajectory data into trajectory.msgpack."""
         sim_dir = os.path.join(self.simulations_dir, simulation_id)
         os.makedirs(sim_dir, exist_ok=True)
         filepath = os.path.join(sim_dir, "data.json")
         payload = copy.deepcopy(results_data)
-        
-        # 添加元数据
-        payload["_metadata"] = {
+        workflow_snapshot = payload.pop("workflow_snapshot", None)
+        metadata = payload.get("_metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        if workflow_snapshot is None:
+            workflow_snapshot = metadata.get("workflow_snapshot")
+
+        metadata.update({
             "saved_at": datetime.utcnow().isoformat(),
-            "simulation_id": simulation_id
-        }
-        
-        # 分离轨迹数据到独立文件
+            "simulation_id": simulation_id,
+        })
+        if workflow_snapshot is not None:
+            metadata["workflow_snapshot"] = copy.deepcopy(workflow_snapshot)
+        payload["_metadata"] = metadata
+
         trajectory_data = payload.pop('trajectory_data', None)
         if trajectory_data:
             try:
                 config = payload.get('config', {})
                 TrajectoryStorage.save(sim_dir, trajectory_data, config=config)
-                # data.json 中保留记录数标记，供快速检索
                 payload['_trajectory_info'] = {
                     'format': 'msgpack',
                     'file': TrajectoryStorage.MSGPACK_FILENAME,
                     'record_count': len(trajectory_data),
                 }
             except Exception as e:
-                logger.warning(f"轨迹分离存储失败，回退到内嵌 JSON: {e}")
+                logger.warning(f"Trajectory storage failed, falling back to embedded JSON: {e}")
                 payload['trajectory_data'] = trajectory_data
-        
+
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(payload, f, indent=2, ensure_ascii=False, cls=NumpyEncoder)
 
         persist_run_metadata(Path(sim_dir), simulation_id, payload)
-        
+
+        if workflow_snapshot is not None:
+            manifest_path = Path(sim_dir) / "manifest.json"
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as file:
+                    manifest = json.load(file)
+                manifest["workflow_snapshot"] = copy.deepcopy(workflow_snapshot)
+                with open(manifest_path, "w", encoding="utf-8") as file:
+                    json.dump(manifest, file, indent=2, ensure_ascii=False)
+            except (OSError, json.JSONDecodeError) as exc:
+                logger.warning("Failed to attach workflow snapshot to manifest: %s", exc)
+
         return filepath
-    
+
     def load_results(self, simulation_id: str) -> Optional[dict]:
         """加载仿真结果"""
         filepath = os.path.join(self.simulations_dir, simulation_id, "data.json")
@@ -141,7 +158,7 @@ class StorageService:
         return False
     
     def list_results(self) -> list:
-        """?????????"""
+        """List saved simulation runs."""
         results = []
         if not os.path.exists(self.simulations_dir):
             return results

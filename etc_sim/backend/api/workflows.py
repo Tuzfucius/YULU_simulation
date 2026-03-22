@@ -118,6 +118,86 @@ def _normalize_runtime_rules(rules: Optional[List[Dict[str, Any]]]) -> List[Dict
     return normalized
 
 
+def _runtime_file_saved_at(path: Path) -> Optional[str]:
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime).isoformat()
+    except OSError:
+        return None
+
+
+def _build_runtime_snapshot(
+    *,
+    requested_workflow_name: Optional[str],
+    resolved_workflow_name: str,
+    source: str,
+    rules: List[Dict[str, Any]],
+    workflow_path: Optional[Path] = None,
+    description: str = "",
+) -> Dict[str, Any]:
+    snapshot: Dict[str, Any] = {
+        "requested_workflow_name": requested_workflow_name,
+        "workflow_name": resolved_workflow_name,
+        "source": source,
+        "parsed_at": datetime.utcnow().isoformat(),
+        "saved_at": _runtime_file_saved_at(workflow_path) if workflow_path else None,
+        "rules": rules,
+        "rule_count": len(rules),
+    }
+    if workflow_path is not None:
+        snapshot["workflow_file_name"] = workflow_path.name
+        snapshot["workflow_path"] = str(workflow_path)
+    if description:
+        snapshot["description"] = description
+    return snapshot
+
+
+def build_runtime_workflow_snapshot(
+    workflow_name: Optional[str] = None,
+    inline_rules: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Resolve and freeze the runtime workflow snapshot used by a simulation."""
+    requested_workflow_name = workflow_name.strip() if isinstance(workflow_name, str) and workflow_name.strip() else None
+
+    if inline_rules is not None:
+        rules = _normalize_runtime_rules(inline_rules)
+        return _build_runtime_snapshot(
+            requested_workflow_name=requested_workflow_name,
+            resolved_workflow_name=requested_workflow_name or DEFAULT_WORKFLOW_NAME,
+            source="inline_rules",
+            rules=rules,
+        )
+
+    candidate_paths: List[tuple[Path, str, str]] = []
+    if requested_workflow_name:
+        candidate_paths.append((_workflow_path(requested_workflow_name), "workflow_file", requested_workflow_name))
+    candidate_paths.append((_default_workflow_path(), "default_workflow_file", DEFAULT_WORKFLOW_NAME))
+
+    for path, source, resolved_name in candidate_paths:
+        if not path.exists():
+            continue
+        try:
+            payload = _read_workflow_file(path)
+        except HTTPException:
+            continue
+        rules = _normalize_runtime_rules(payload.get("rules", []))
+        return _build_runtime_snapshot(
+            requested_workflow_name=requested_workflow_name,
+            resolved_workflow_name=payload.get("name") or resolved_name,
+            source=source,
+            rules=rules,
+            workflow_path=path,
+            description=payload.get("description", ""),
+        )
+
+    rules = [rule.to_dict() for rule in create_default_rules()]
+    return _build_runtime_snapshot(
+        requested_workflow_name=requested_workflow_name,
+        resolved_workflow_name=DEFAULT_WORKFLOW_NAME,
+        source="builtin_defaults",
+        rules=rules,
+    )
+
+
 def resolve_runtime_workflow_name(config: Optional[Dict[str, Any]]) -> Optional[str]:
     config = config or {}
     for key in ("workflow_name", "workflowName", "selected_workflow_name", "selectedWorkflowName"):
@@ -139,19 +219,8 @@ def load_rules_for_runtime(
     inline_rules: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Resolve runtime rules from explicit rules, a saved workflow, or defaults."""
-    if inline_rules:
-        return _normalize_runtime_rules(inline_rules)
-
-    if workflow_name:
-        payload = _read_workflow_file(_workflow_path(workflow_name))
-        return _normalize_runtime_rules(payload.get("rules", []))
-
-    default_path = _default_workflow_path()
-    if default_path.exists():
-        payload = _read_workflow_file(default_path)
-        return _normalize_runtime_rules(payload.get("rules", []))
-
-    return [rule.to_dict() for rule in create_default_rules()]
+    snapshot = build_runtime_workflow_snapshot(workflow_name=workflow_name, inline_rules=inline_rules)
+    return snapshot["rules"]
 
 
 def _open_folder_in_explorer(path: Path):
@@ -311,6 +380,7 @@ async def list_workflow_files():
                 "file_name": path.name,
                 "path": path.stem,
                 "description": payload.get("description", ""),
+                "saved_at": payload.get("saved_at"),
                 "rule_count": len(rules),
                 "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
             }
@@ -345,6 +415,7 @@ async def save_workflow_file(workflow: WorkflowFileSaveModel):
             "name": workflow.name,
             "file_name": path.name,
             "path": path.stem,
+            "saved_at": payload["saved_at"],
         },
     }
 
@@ -375,6 +446,7 @@ async def rename_workflow_file(request: WorkflowRenameModel):
             "name": request.new_name,
             "file_name": target_path.name,
             "path": target_path.stem,
+            "saved_at": payload["saved_at"],
         },
     }
 
@@ -401,6 +473,7 @@ async def copy_workflow_file(name: str):
             "name": target_path.stem,
             "file_name": target_path.name,
             "path": target_path.stem,
+            "saved_at": payload["saved_at"],
         },
     }
 
