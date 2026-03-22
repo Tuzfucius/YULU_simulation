@@ -15,7 +15,7 @@ import {
     BackgroundVariant,
 } from '@xyflow/react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import '@xyflow/react/dist/style.css';
 
 import { WorkflowNode } from '../workflow/WorkflowNode';
@@ -23,12 +23,10 @@ import { NodePalette } from '../workflow/NodePalette';
 import { NodePropertiesPanel } from '../workflow/NodePropertiesPanel';
 import {
     type DatasetInfo,
-    type FileCategory,
     type HistoryRunItem,
     type ModelInfo,
     type SavedWorkflowItem,
 } from '../workflow/WorkflowLibraryPanel';
-import { type RunAnalysisPayload } from '../workflow/WorkflowAnalysisView';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useI18nStore } from '../../stores/i18nStore';
 import { API } from '../../config/api';
@@ -37,30 +35,11 @@ const nodeTypes = { workflowNode: WorkflowNode };
 const API_BASE = API.WORKFLOWS;
 const RUNS_API = `${API.BASE}/runs`;
 const PREDICTION_API = `${API.BASE}/prediction`;
-type SideTab = 'nodes' | 'files';
-type ActiveView = 'canvas' | 'run' | 'model' | 'dataset';
 
 interface WorkflowFilePayload {
     name?: string;
     description?: string;
     rules?: unknown[];
-}
-
-function formatTime(value?: string | number) {
-    if (value === undefined || value === null || value === '') {
-        return '--';
-    }
-
-    if (typeof value === 'number') {
-        return new Date(value * 1000).toLocaleString('zh-CN', { hour12: false });
-    }
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-
-    return date.toLocaleString('zh-CN', { hour12: false });
 }
 
 export function WorkflowPage() {
@@ -92,27 +71,22 @@ export function WorkflowPage() {
     const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
     const [statusMsg, setStatusMsg] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const [sideTab, setSideTab] = useState<SideTab>('nodes');
-    const [fileCategory, setFileCategory] = useState<FileCategory>('runs');
-    const [activeView, setActiveView] = useState<ActiveView>('canvas');
-    const [savedWorkflows, setSavedWorkflows] = useState<SavedWorkflowItem[]>([]);
-    const [historyRuns, setHistoryRuns] = useState<HistoryRunItem[]>([]);
-    const [savedModels, setSavedModels] = useState<ModelInfo[]>([]);
-    const [datasets, setDatasets] = useState<DatasetInfo[]>([]);
+    const [, setSideTab] = useState<'nodes' | 'files'>('nodes');
+    const [, setFileCategory] = useState<'runs' | 'models' | 'datasets'>('runs');
+    const [, setActiveView] = useState<'canvas' | 'run' | 'model' | 'dataset'>('canvas');
+    const [, setSavedWorkflows] = useState<SavedWorkflowItem[]>([]);
+    const [, setHistoryRuns] = useState<HistoryRunItem[]>([]);
+    const [, setSavedModels] = useState<ModelInfo[]>([]);
+    const [, setDatasets] = useState<DatasetInfo[]>([]);
     const [selectedWorkflowName, setSelectedWorkflowName] = useState<string | null>(null);
     const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
     const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
     const [selectedDatasetName, setSelectedDatasetName] = useState<string | null>(null);
-    const [runAnalysis, setRunAnalysis] = useState<RunAnalysisPayload | null>(null);
 
     const showStatus = useCallback((message: string) => {
         setStatusMsg(message);
         window.setTimeout(() => setStatusMsg(null), 3000);
     }, []);
-
-    const selectedRun = historyRuns.find((item) => item.run_id === selectedRunId) || null;
-    const selectedModel = savedModels.find((item) => item.model_id === selectedModelId) || null;
-    const selectedDataset = datasets.find((item) => item.name === selectedDatasetName) || null;
 
     const fetchSavedWorkflows = useCallback(async (keepSelection = true) => {
         try {
@@ -788,6 +762,24 @@ export function WorkflowPage() {
         setFileCategory('datasets');
         setActiveView('dataset');
     };
+
+    void [
+        renameSavedWorkflow,
+        openWorkflowFolder,
+        openPredictionFolder,
+        renameRun,
+        copyRun,
+        deleteRun,
+        openRunFolder,
+        renamePredictionItem,
+        copyPredictionItem,
+        deletePredictionItem,
+        copyWorkflow,
+        deleteWorkflow,
+        showRunAnalysis,
+        showModelDetail,
+        showDatasetDetail,
+    ];
 
     const exportJSON = () => {
         const rules = exportToRules();
