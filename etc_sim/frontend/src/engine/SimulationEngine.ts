@@ -591,6 +591,19 @@ export class SimulationEngine {
                 anomalyState: v.anomalyState,
                 isAffected: v.isAffected,
             });
+
+            this.sampledTrajectoryData.push({
+                id: v.id,
+                time: this.currentTime,
+                pos: v.pos,
+                lane: v.lane,
+                speed: v.speed,
+                anomaly_type: v.anomalyType,
+                anomaly_state: v.anomalyState,
+                is_affected: v.isAffected,
+                vehicle_type: v.type,
+                driver_style: v.driverStyle,
+            });
         }
     }
 
@@ -695,7 +708,7 @@ export class SimulationEngine {
         });
 
         // 瀹炴椂鏇存柊缁熻
-        store.setStatistics(this.buildStatistics(avgSpeed, false, config.roadLengthKm));
+        store.setStatistics(this.buildStatistics(avgSpeed, true, config.roadLengthKm));
     }
 
     private buildStatistics(avgSpeed: number, includeDetailData: boolean, roadLengthKm: number): Record<string, unknown> {
