@@ -1,62 +1,43 @@
 # 存储专题索引
 
-本目录聚焦历史运行、回放读取、分析复用和训练数据提取。当前历史系统已经从单个大结果文件，演进到以 `run_id` 为中心的目录化存储。
+这个目录只讨论历史运行、回放和训练数据相关的存储设计。
 
 ## 阅读顺序
 
-1. [../system_working_principles.md](../system_working_principles.md)
-   先理解系统总体架构和运行链路。
-2. [api_interaction_and_history_storage.md](./api_interaction_and_history_storage.md)
-   再看历史运行目录、回放、分析和训练之间的关系。
+1. `../system_working_principles.md`
+   先看系统总览，确认历史存储在整条链路中的位置。
+2. `api_interaction_and_history_storage.md`
+   再看本专题正文，了解 `run_id`、目录结构、轨迹分离和兼容策略。
 
-## 本目录重点
+## 本目录关注的问题
 
-- 为什么历史结果要按 `run_id` 组织。
-- 为什么摘要、清单、原始结果要分层存储。
-- 为什么回放、分析和训练要复用同一份历史数据。
-- 为什么旧的文件式读取接口还要保留一段时间。
+- 一次仿真结果如何落盘
+- 为什么历史记录要以 `run_id` 为中心
+- 为什么轨迹要单独编码，而不是全部塞进一个大 JSON
+- 回放、分析和训练如何复用同一份历史数据
 
-## 当前推荐目录结构
+## 当前存储对象
 
-```text
-data/
-  simulations/
-    run_20260408_120000/
-      data.json
-      summary.json
-      manifest.json
-      trajectory.msgpack
-      images/
-```
-
-其中：
-
-- `data.json`
-  运行主结果，包含引擎导出的原始结构。
+- `data/simulations/<run_id>/`
+  历史运行主目录
 - `summary.json`
-  列表页和概览页使用的精简摘要。
+  列表与概览用摘要
 - `manifest.json`
-  回放、分析和发现文件所需的元信息。
+  运行清单、采样信息、门架和路径几何
+- `data.json`
+  完整结果载体
 - `trajectory.msgpack`
-  若启用轨迹分块，会保存更适合分段读取的轨迹数据。
-- `images/`
-  运行图像和导出图表。
+  轨迹数据的独立分块文件
 
-## 代码对应位置
+## 相关实现
 
-- `etc_sim/backend/services/run_repository.py`
-  历史运行索引、摘要、清单和目录解析。
-- `etc_sim/backend/services/storage.py`
-  仿真结果落盘。
-- `etc_sim/backend/services/trajectory_storage.py`
-  轨迹数据序列化与读取。
-- `etc_sim/backend/api/runs.py`
-  新的历史运行、回放和分析入口。
-- `etc_sim/backend/api/files.py`
-  旧式文件驱动接口和脚本工具。
-
-## 维护原则
-
-- 新增历史文件格式时，先改服务层，再改 API，最后改文档。
-- 不要在文档里混淆 `data/results` 与 `data/simulations` 的用途。
-- 历史系统若继续演进，应优先保持 `run_id` 兼容。
+- `backend/services/storage.py`
+  保存仿真结果、分离轨迹、落盘元数据
+- `backend/services/run_repository.py`
+  运行目录解析、摘要构建、路径几何和门架描述
+- `backend/services/trajectory_storage.py`
+  轨迹编码与解码
+- `backend/api/runs.py`
+  新的历史运行、回放和事件读取接口
+- `backend/api/files.py`
+  旧式文件兼容接口

@@ -1,93 +1,88 @@
 # 影响度计算说明
 
-本文档说明 `speed_profile` 图中连续影响度 `impact_score` 的计算方式。它的作用是把“某个区间比正常情况慢多少”映射到 `[0, 1]`，而不是简单使用历史布尔标志 `was_affected`。对应实现位于 [etc_sim/backend/plotter.py](../etc_sim/backend/plotter.py)。
+本文档说明 `backend/plotter.py` 中车流画像 `speed_profile` 图的影响度计算方式。
 
----
+## 1. 作用
 
-## 1. 设计目标
+影响度 `impact_score` 用来替代旧的永久布尔标志 `was_affected`。它描述的是“当前区间内的延误程度”，而不是“历史上是否曾受影响”。
 
-- 保留正常车辆的蓝色或中性色调。
-- 让轻微、中等、严重受影响的区间呈现连续渐变。
-- 避免把“曾经受过影响”误画成“当前整段都受影响”。
+这样做的原因很直接：
 
----
+- `was_affected` 是永久标志，不能表达当前区间的连续强度
+- 图表需要的是分段渐变，而不是只有两种状态
+- 不同区段、不同车型的基线通行时间本来就不同
 
-## 2. 基线时间
+## 2. 基线通行时间
 
-`backend/plotter.py` 在生成车流画像时，会先为每个区间建立通行时间基线。
+### 2.1 统计口径
 
-对同一 `seg_idx` 和 `vehicle_type`，使用历史旅行时间的 25% 分位数作为基线：
+对每个区段，先从“非异常车辆”的通行时间中计算基线。代码会分别统计：
 
-```math
-T_{base}(seg, type) = P_{25}(T_{travel})
+- `segment_times[seg_idx]`
+- `type_times[(seg_idx, vehicle_type)]`
+
+### 2.2 分位数基线
+
+基线取 25% 分位数：
+
+```text
+T_base(seg, type) = P25(T_travel)
 ```
 
-如果某个车辆类型样本不足，则回退到该区间整体基线；如果仍然缺失，则根据期望速度估算：
+如果某个“区段 + 车型”的样本不足，则回退到该区段的整体 25% 分位数。
 
-```math
-T_{base} \approx \frac{L_{seg}}{v_{desired}}
+如果区段层面也没有基线，则再回退到车辆的期望速度：
+
+```text
+T_base = 距离 / desired_speed
 ```
 
-其中 `L_seg` 为区间长度，`v_desired` 取车辆记录里的期望速度。
+## 3. 影响度公式
 
----
+先计算超额延误比：
 
-## 3. 超额时长
-
-对某辆车在某区间的实际通行时间 `T_actual`，先计算超额比例：
-
-```math
-excess\_ratio = \max\left(0, \frac{T_{actual}}{T_{base}} - 1\right)
+```text
+excess_ratio = max(0, T_actual / T_base - 1)
 ```
 
-这个值越大，说明该车辆在该区间比正常情况慢得越明显。
+再引入 10% 的死区，避免正常波动被误判为受影响：
 
----
-
-## 4. 连续影响度
-
-为了避免轻微波动被误判，代码引入 10% 的死区：
-
-```math
-impact\_score =
-\text{clip}\left(\frac{excess\_ratio - 0.10}{1.00 - 0.10}, 0, 1\right)
+```text
+deadband = 0.10
+saturation = 1.00
 ```
 
-因此：
+最终影响度为：
 
-- `impact_score = 0` 表示基本正常。
-- `0 < impact_score < 1` 表示受影响程度逐渐增强。
-- `impact_score = 1` 表示达到最强影响。
+```text
+impact_score = clip((excess_ratio - deadband) / (saturation - deadband), 0, 1)
+```
 
----
+等价地说：
 
-## 5. 图上映射
+- `impact_score = 0` 表示基本正常
+- `0 < impact_score < 1` 表示受影响程度逐渐增强
+- `impact_score = 1` 表示强影响
 
-在 `speed_profile` 图里，`impact_score` 会直接影响颜色和线宽：
+## 4. 图表映射
 
-- 分值越低，颜色越接近正常色。
-- 分值越高，颜色越接近受影响色。
-- 线宽按 `1.0 + impact_score * 0.6` 放大。
+在 `speed_profile` 图中：
 
-对于统计分类，代码还把非异常车辆按影响度分成四档：
+- 正常车辆使用低影响度颜色渐变
+- 异常车辆保持固定异常颜色，不走影响度渐变
+- 线条宽度随 `impact_score` 增大而略微加粗
 
-- `impact_score < 0.10`：normal
-- `impact_score < 0.35`：mild
-- `impact_score < 0.70`：moderate
-- 其余：severe
+颜色条的语义是：
 
-异常车则保持专门的异常颜色，不进入连续渐变。
+- 0 = 正常
+- 1 = 强影响
 
----
+## 5. 与旧逻辑的区别
 
-## 6. 为什么不用 `was_affected`
+旧逻辑的问题在于 `was_affected` 只能表示“曾经受过影响”，不能表示“受影响有多强”。现在的逻辑改成：
 
-`was_affected` 是历史标志，只要曾经受过影响就会一直为真。它适合做历史统计，不适合做区间级渐变渲染。
+- 先建立区段基线
+- 再计算相对延误
+- 最后把延误压缩到 `[0, 1]`
 
-`impact_score` 的目标是当前区间当前状态，因此必须是连续值，不能是永久布尔量。
-
----
-
-## 7. 结论
-
-`impact_score` 本质上是一个基于基线通行时间的归一化超额时长指标。它的计算方式已经在 `backend/plotter.py` 中实现，文档与代码应保持一致，不应再回退到二值状态描述。
+这样图表更适合做区间对比，也更适合做客户演示和后续统计。
