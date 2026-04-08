@@ -110,7 +110,7 @@ export function ProjectPurposePage() {
               </h2>
             </div>
             <p className="max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">
-              这里植入了你提供的原始双联动动画，上半区展示车流动态仿真，下半区展示速度画像与异常提示。
+              上半区展示车流动态仿真，下半区展示速度画像与异常提示。
             </p>
           </div>
           <div className="mt-8">
