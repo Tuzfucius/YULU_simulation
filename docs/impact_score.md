@@ -86,3 +86,14 @@ impact_score = clip((excess_ratio - deadband) / (saturation - deadband), 0, 1)
 - 最后把延误压缩到 `[0, 1]`
 
 这样图表更适合做区间对比，也更适合做客户演示和后续统计。
+
+## 6. 分档统计
+
+在 `generate_speed_profile()` 中，正常车辆还会按影响度再分成四档：
+
+- `score < 0.10`：正常
+- `0.10 <= score < 0.35`：轻度
+- `0.35 <= score < 0.70`：中度
+- `score >= 0.70`：重度
+
+异常车辆则不进入这套渐变分档，而是直接使用固定异常颜色。

@@ -281,3 +281,23 @@ q = k · v
 - 用 MOBIL 控制横向换道
 - 用门架、排队和幽灵堵车检测刻画宏观事件
 - 用离散时间步把微观行为汇聚成历史结果、图表和回放
+
+## 12. 结果导出字段
+
+`SimulationEngine.export_to_dict()` 当前导出的关键字段包括：
+
+- `statistics`
+- `etcGates`
+- `anomaly_logs`
+- `trajectory_data`
+- `segment_speed_history`
+- `queue_events`
+- `phantom_jam_events`
+- `safety_data`
+- `vehicle_records`
+- `etc_detection`
+- `environment`
+- `rule_engine`
+- `ml_dataset`
+
+其中 `etc_detection.transactions`、`rule_engine.events` 和 `safety_data` 是后续分析、告警和训练最常用的数据来源。

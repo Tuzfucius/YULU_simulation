@@ -319,3 +319,9 @@ data/
 - 分析依赖聚合后的时序和事件
 - 训练依赖从历史结果重建的数据集
 - 规则与预警依赖工作流引擎
+
+## 8. 补充说明
+
+- WebSocket 控制入口是 `/api/ws/simulation` 和 `/api/ws/simulation/{session_id}`，页面侧主要用于仿真开始、暂停、恢复和停止。
+- `SimulationEngine.export_to_dict()` 会一次性导出轨迹、异常日志、门架统计、队列事件、幽灵堵车事件、安全数据、ETC 交易和规则引擎事件。
+- CLI 入口保存到 `data/results`，Web 运行保存到 `data/simulations`，两者不是同一个历史仓库。

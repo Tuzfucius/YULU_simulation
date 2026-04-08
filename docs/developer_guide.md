@@ -143,3 +143,10 @@ npm run dev
 - 不要在文档里写未挂载页面是主流程。
 - 不要把旧环境名写成当前事实。
 - 新增内容优先保持模块边界清晰，避免把规则、图表、回放和存储逻辑混在一个文件里。
+
+## 6. 常用命令
+
+- 导出默认配置：`python main.py --json`
+- 运行离线仿真：`python main.py`
+- 以 Web 方式运行后端：`conda run -n low_numpy python -m uvicorn etc_sim.backend.main:app --host 0.0.0.0 --port 8000`
+- 前端构建：`npm run build`

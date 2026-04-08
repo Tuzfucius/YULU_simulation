@@ -41,3 +41,8 @@
   新的历史运行、回放和事件读取接口
 - `backend/api/files.py`
   旧式文件兼容接口
+
+## 额外说明
+
+- CLI 入口写入的是 `data/results`，Web 后端写入的是 `data/simulations`。
+- 讲历史系统时默认以 `run_id` 为主，不再以单个大 JSON 文件为主。
