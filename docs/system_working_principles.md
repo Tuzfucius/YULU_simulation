@@ -2,353 +2,320 @@
 
 ## 1. 文档目标
 
-本文档只描述当前代码里真实存在的系统结构与运行方式，回答四个问题：
+本文档只描述当前代码中真实存在的系统结构与运行方式，覆盖四个方面：
 
-- 系统由哪些层组成。
-- 系统如何启动、如何运行、如何结束。
-- 仿真、存储、回放、分析、训练之间如何衔接。
-- 后端 API 该如何按模块理解与使用。
+- 系统架构
+- 运行方式
+- 运行原理
+- API 总览
 
-更细的数学推导放在 [simulation_mechanics.md](./simulation_mechanics.md)，历史存储细节放在 [storage/api_interaction_and_history_storage.md](./storage/api_interaction_and_history_storage.md)。
+更细的数学说明放在 `simulation_mechanics.md`，历史存储专题放在 `storage/` 目录。
 
----
+## 2. 系统架构
 
-## 2. 总体架构
+系统分为六层：
 
-当前系统可以稳定分成六层：
-
-1. 前端展示层
-   - React + Vite 单页应用。
-   - 负责仿真控制、回放、仪表盘、场景模板、工作流、文件管理、路径编辑、预测工作台和态势大屏。
+1. 前端交互层
+   由 React + Vite 构建，核心页面由 `frontend/src/App.tsx` 挂载。
 2. 接口层
-   - FastAPI 提供 REST API 和 WebSocket。
-   - 负责配置、仿真会话、运行历史、分析、图表、环境、路网、工作流、预测和代码执行。
+   由 FastAPI 提供 REST API 和 WebSocket。
 3. 仿真引擎层
-   - `etc_sim/simulation/engine.py`
-   - 负责时间步推进、车辆生成、车辆更新、门架交易、异常检测、排队检测、幽灵堵车检测、规则引擎事件和特征数据导出。
-4. 领域模型层
-   - `etc_sim/core/`、`etc_sim/models/`、`etc_sim/road/`
-   - 负责 IDM/MOBIL、道路网络、ETC 门架、异常识别、环境影响、告警规则和训练特征。
-5. 存储与仓储层
-   - `etc_sim/backend/services/`
-   - 负责运行结果、摘要、清单、轨迹、模型、数据集和历史索引。
-6. 兼容层
-   - `etc_sim/backend/api/files.py`、`etc_sim/backend/api/runs.py`
-   - 旧文件式读取与新的 `run_id` 驱动历史系统并存，逐步迁移。
+   由 `SimulationEngine` 驱动车辆投放、跟驰、换道、异常、门架和统计。
+4. 存储层
+   由 `StorageService`、`run_repository`、`TrajectoryStorage` 组织运行结果。
+5. 分析与训练层
+   由分析、图表、评估和预测接口对历史结果做再加工。
+6. 工作流与规则层
+   由预警规则引擎和工作流接口管理告警逻辑。
 
 ```mermaid
 flowchart LR
-    UI["前端页面"] --> API["FastAPI / WebSocket"]
-    API --> ENG["SimulationEngine"]
-    ENG --> DOM["core / models / road"]
-    ENG --> STG["storage / run_repository"]
-    STG --> HIST["data/simulations / data/results"]
-    HIST --> API
-    API --> UI
+    A[前端页面] --> B[REST API / WebSocket]
+    B --> C[SimulationEngine]
+    C --> D[StorageService / run_repository]
+    D --> E[data/simulations/run_id]
+    D --> F[analysis / prediction / runs]
+    F --> G[回放 / 工作流 / 预测工作台 / 大屏]
 ```
 
----
+### 2.1 前端页面
+
+当前在 `App.tsx` 中挂载的一级页面是：
+
+- `/purpose` 项目说明
+- `/sim` 仿真控制
+- `/replay` 可视回放
+- `/dashboard` 预警仪表盘
+- `/scenarios` 场景模板
+- `/workflow` 工作流编辑
+- `/files` 文件管理器
+- `/editor` 路径编辑
+- `/predict-builder` 时序预测工作台
+- `/screen` 态势大屏
+
+说明页中的 `EvaluationPage` 代码存在，但未挂载到当前导航，不应写成主流程。
+
+### 2.2 后端入口
+
+后端主入口是 `etc_sim/backend/main.py`，启动时完成：
+
+- 创建 `StorageService`
+- 创建 `WebSocketManager`
+- 注册 CORS
+- 挂载各个 API 路由
+- 暴露 `GET /` 和 `GET /health`
+
+独立命令行入口是 `etc_sim/main.py`。它会：
+
+- 读取 JSON 配置或默认配置
+- 实例化 `SimulationEngine`
+- 执行 `engine.run()`
+- 将结果导出并保存到 `data/results`
+
+这两个入口用途不同：
+
+- Web 后端用于页面联动、历史存储、回放、分析和训练
+- CLI 入口用于离线仿真和快速验证
 
 ## 3. 运行方式
 
-### 3.1 命令行仿真
+### 3.1 Windows 推荐方式
 
-命令行入口是 [etc_sim/main.py](/E:/Project/yulu/etc_sim/main.py)。
+仓库提供的 `etc_sim/start.bat` 会使用 `low_numpy` 环境启动后端，再启动前端：
 
-实际流程是：
+```bat
+conda run --no-capture-output -n low_numpy python -m uvicorn etc_sim.backend.main:app --host 0.0.0.0 --port 8000
+```
 
-1. 读取命令行参数。
-2. 从 JSON 文件加载 `SimulationConfig`，或者使用 `DEFAULT_CONFIG`。
-3. 构建 `SimulationEngine(config)`。
-4. 调用 `engine.run()` 完成离散时间步仿真。
-5. 调用 `engine.export_to_dict()` 导出结果。
-6. 将结果写入 `data/results/` 下的 JSON 文件。
+随后在 `etc_sim/frontend` 下执行：
 
-这个入口适合单机批处理、算法调试和快速验证配置。
+```bash
+npm run dev
+```
 
-### 3.2 后端服务
+### 3.2 手动启动
 
-FastAPI 应用入口是 [etc_sim/backend/main.py](/E:/Project/yulu/etc_sim/backend/main.py)。
+后端：
 
-实际流程是：
+```bash
+cd etc_sim
+python main.py
+```
 
-1. 启动时初始化 `StorageService` 与 `WebSocketManager`。
-2. 通过 CORS 放行本地前端地址。
-3. 挂载各类 API 路由。
-4. 提供 `/health` 健康检查和 `/` 根状态接口。
-5. 在 WebSocket 会话内驱动实时仿真并推送状态。
+或者：
 
-### 3.3 前端运行
+```bash
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+```
 
-前端入口是 [etc_sim/frontend/src/App.tsx](/E:/Project/yulu/etc_sim/frontend/src/App.tsx)。
+前端：
 
-当前实际挂载的一级页面是：
+```bash
+cd etc_sim/frontend
+npm install
+npm run dev
+```
 
-- `/purpose`
-- `/sim`
-- `/replay`
-- `/dashboard`
-- `/scenarios`
-- `/workflow`
-- `/files`
-- `/editor`
-- `/predict-builder`
-- `/screen`
+### 3.3 运行数据位置
 
-`EvaluationPage` 文件存在，但未挂载到主导航，不应写入对外主流程说明。
+- Web 后端历史运行：`etc_sim/data/simulations/<run_id>/`
+- CLI 离线结果：`etc_sim/data/results/`
+- 训练数据集：`etc_sim/data/datasets/`
+- 训练模型：`etc_sim/data/models/`
+- 工作流文件：`etc_sim/data/workflows/`
 
----
-
-## 4. 核心运行链路
+## 4. 运行链路
 
 ### 4.1 实时仿真链路
 
-1. 前端选择配置、场景和路网参数。
-2. 后端 WebSocket 会话创建或接管仿真。
-3. `SimulationEngine` 按固定 `dt` 推进状态。
-4. 每个时间步内完成：
-   - 车辆投放
-   - 空间索引重建
-   - IDM 跟驰更新
-   - MOBIL 换道决策
-   - ETC 门架交易处理
-   - 异常、排队和幽灵堵车检测
-   - 轨迹、区间速度、告警和规则事件记录
-5. 仿真结束后，结果被导出为可存储、可回放、可训练的结构。
+1. 前端仿真页修改参数。
+2. 前端通过 WebSocket 控制会话。
+3. `SimulationEngine.step()` 按时间步推进。
+4. 引擎更新车辆、门架、异常、排队、幽灵堵车和规则事件。
+5. 仿真结束后结果写入存储层。
+6. 页面读取统计、图表和回放数据。
 
 ### 4.2 历史回放链路
 
-当前推荐使用 `run_id` 驱动历史数据：
+1. 前端读取 `runs` 列表。
+2. 选择某次运行后读取摘要、清单和轨迹帧。
+3. 回放页按时间窗或分页请求帧数据。
+4. 分析页可通过锚点跳转到回放页。
 
-1. 通过 `/api/runs` 获取运行列表。
-2. 选择某个 `run_id`。
-3. 读取回放元信息、帧数据和分析结果。
-4. 前端按时间窗、区间和事件锚点重建回放。
+### 4.3 训练链路
 
-旧文件式接口仍然保留在 `/api/files`，主要用于兼容历史数据和脚本工具。
+1. 前端在时序预测工作台选择历史结果。
+2. 后端从运行结果中重建特征数据集。
+3. 数据集保存到 `data/datasets`。
+4. 模型保存到 `data/models`。
+5. 训练结果可再次加载或评估。
 
-### 4.3 分析与训练链路
+## 5. 运行原理
 
-分析和训练都复用同一份历史运行结果：
+### 5.1 仿真时间推进
 
-- 分析接口从运行结果中提取摘要、统计和图表数据。
-- 训练接口从历史运行或数据集重建时序特征。
-- 模型和数据集都带有来源追踪信息，便于回溯。
+系统采用离散时间步推进。若当前状态为：
 
----
+- 位置 `x_t`
+- 速度 `v_t`
+- 加速度 `a_t`
 
-## 5. 仿真原理概览
+则更新遵循：
 
-仿真引擎是离散时间步系统。可以把它理解为：
+```text
+v_{t+Δt} = clamp(v_t + a_t Δt, 0, 1.1 v_0)
+x_{t+Δt} = x_t + v_{t+Δt} Δt
+```
 
-`state(t + dt) = F(state(t), config, environment, rules)`
+其中 `v_0` 是车辆期望速度上限，`clamp` 用于限制速度范围。
 
-其中：
+### 5.2 车辆投放
 
-- `state` 包含车辆、门架、异常、统计和环境状态。
-- `config` 决定道路长度、车道数、车辆总量、异常比例和检测阈值。
-- `environment` 提供天气和环境影响。
-- `rules` 提供告警规则和工作流联动。
+车辆不是均匀到达，而是由 `VehicleSpawner` 生成非均匀到达序列。其核心是时间变率：
 
-更具体的数学关系如下：
+```text
+λ(t) = λ_0 · f(t)
+```
 
-- 纵向运动由 IDM 描述。
-- 横向换道由 MOBIL 描述。
-- 车辆群体由异质参数随机采样得到。
-- 排队、幽灵堵车和门架异常是对状态的规则化识别。
+其中 `f(t)` 是预定义的流量倍率曲线。到达间隔按指数分布抽样：
 
-详细公式见 [simulation_mechanics.md](./simulation_mechanics.md)。
+```text
+Δt ~ Exp(λ(t))
+```
 
----
+系统还会按概率生成车队，车队内部车辆之间保持较短时间间隔。
 
-## 6. 后端 API 索引
+### 5.3 微观行为
 
-以下是当前主干 API，按模块分组列出。
+纵向行为由 IDM 控制，横向行为由 MOBIL 控制。具体公式见 `simulation_mechanics.md`。
 
-### 6.1 基础接口
+### 5.4 异常、门架和规则
 
-- `GET /`
-  - 根状态信息。
-- `GET /health`
-  - 健康检查和 WebSocket 连接数。
+引擎在每个时间步会同时处理：
 
-### 6.2 配置
+- ETC 门架交易
+- 异常车辆触发与检测
+- 噪声注入
+- 排队检测
+- 幽灵堵车检测
+- 预警规则引擎评估
 
-前缀：`/api/configs`
+这些事件最终汇总到 `export_to_dict()` 的结果中。
 
-- `GET /`
-- `POST /`
-- `GET /{config_id}`
-- `PUT /{config_id}`
-- `DELETE /{config_id}`
-- `POST /{config_id}/duplicate`
+### 5.5 历史结果组织
 
-### 6.3 仿真会话
+当前历史运行按 `run_id` 组织。典型目录结构为：
 
-前缀：`/api/simulations`
+```text
+data/
+  simulations/
+    run_xxx/
+      data.json
+      summary.json
+      manifest.json
+      trajectory.msgpack
+```
 
-- `GET /`
-- `GET /{simulation_id}`
-- `DELETE /{simulation_id}`
-- `POST /{simulation_id}/cancel`
-- `GET /{simulation_id}/results`
+`data.json` 保存完整结果，`summary.json` 用于列表和概览，`manifest.json` 描述路径几何、门架和采样信息，轨迹会被拆分为独立的消息包文件以降低读取成本。
 
-### 6.4 分析
+## 6. API 总览
 
-前缀：`/api/analysis`
+### 6.1 主入口
 
-- `GET /{simulation_id}/summary`
-- `GET /{simulation_id}/charts/{chart_type}`
-- `GET /{simulation_id}/statistics`
+| 路径 | 方法 | 作用 |
+| --- | --- | --- |
+| `/` | GET | 返回服务名称、版本和文档地址 |
+| `/health` | GET | 健康检查，返回 WebSocket 连接数 |
 
-### 6.5 WebSocket
+### 6.2 路由总类
 
-前缀：`/api/ws`
+| 模块 | 前缀 | 作用 |
+| --- | --- | --- |
+| `configs` | `/api/configs` | 仿真配置 CRUD |
+| `simulations` | `/api/simulations` | 仿真会话查询、取消、结果读取 |
+| `analysis` | `/api/analysis` | 分析摘要、图表和统计 |
+| `websocket` | `/api/ws` | 仿真实时控制 |
+| `charts` | `/api/charts` | 图表生成、收藏、下载 |
+| `environment` | `/api/environment` | 环境状态、天气类型、梯度段 |
+| `road_network` | `/api/road-network` | 路网模板、当前配置、预览 |
+| `files` | `/api/files` | 文件浏览、脚本管理、旧式回放兼容 |
+| `runs` | `/api/runs` | 运行历史、回放、事件、分析 |
+| `workflows` | `/api/workflows` | 规则与工作流管理 |
+| `evaluation` | `/api/evaluation` | 评估、敏感性分析、优化 |
+| `code_execution` | `/api/code` | 环境与脚本执行 |
+| `data_packets` | `/api/packets` | 数据包存储与评估 |
+| `custom_roads` | `/api/custom-roads` | 自定义路网文件管理 |
+| `prediction` | `/api/prediction` | 数据集、模型、训练和加载 |
 
-- `WS /simulation`
-- `WS /simulation/{session_id}`
-- `GET /test`
+### 6.3 关键接口清单
 
-### 6.6 图表
+#### 配置
 
-前缀：`/api/charts`
+- `GET /api/configs`
+- `POST /api/configs`
+- `GET /api/configs/{config_id}`
+- `PUT /api/configs/{config_id}`
+- `DELETE /api/configs/{config_id}`
+- `POST /api/configs/{config_id}/duplicate`
 
-- `POST /generate`
-- `GET /`
-- `GET /favorites`
-- `GET /{chart_id}`
-- `GET /{chart_id}/download`
-- `POST /{chart_id}/favorite`
-- `DELETE /{chart_id}/favorite`
+#### 仿真
 
-### 6.7 环境
+- `GET /api/simulations`
+- `GET /api/simulations/{simulation_id}`
+- `GET /api/simulations/{simulation_id}/results`
+- `POST /api/simulations/{simulation_id}/cancel`
+- `DELETE /api/simulations/{simulation_id}`
 
-前缀：`/api/environment`
+#### 历史运行
 
-- `GET /`
-- `PUT /`
-- `GET /weather-types`
-- `POST /gradients`
-- `DELETE /gradients`
+- `GET /api/runs`
+- `GET /api/runs/{run_id}`
+- `GET /api/runs/{run_id}/replay/meta`
+- `GET /api/runs/{run_id}/replay/frames`
+- `GET /api/runs/{run_id}/events`
+- `GET /api/runs/{run_id}/analysis`
+- `GET /api/runs/{run_id}/images`
+- `GET /api/runs/{run_id}/gates`
 
-### 6.8 路网
+#### 工作流
 
-前缀：`/api/road-network`
+- `GET /api/workflows/rules`
+- `POST /api/workflows/rules`
+- `PUT /api/workflows/rules/{rule_name}`
+- `DELETE /api/workflows/rules/{rule_name}`
+- `PATCH /api/workflows/rules/{rule_name}/toggle`
+- `POST /api/workflows/import`
+- `GET /api/workflows/export`
+- `GET /api/workflows/engine/status`
+- `GET /api/workflows/engine/events`
 
-- `GET /templates`
-- `GET /current`
-- `PUT /current`
-- `GET /preview`
+#### 预测与训练
 
-### 6.9 文件与脚本
+- `POST /api/prediction/train`
+- `POST /api/prediction/evaluate`
+- `POST /api/prediction/extract-dataset`
+- `GET /api/prediction/results`
+- `GET /api/prediction/models`
+- `GET /api/prediction/datasets`
 
-前缀：`/api/files`
+#### 其他
 
-- `GET /output-files`
-- `GET /output-file`
-- `GET /output-file-info`
-- `GET /output-file-chunk`
-- `GET /simulation-gates`
-- `GET /scripts/tree`
-- `GET /scripts/list`
-- `GET /scripts/read`
-- `POST /scripts/save`
-- `POST /scripts/run`
+- `GET /api/charts`
+- `POST /api/charts/generate`
+- `GET /api/files/output-files`
+- `GET /api/files/output-file`
+- `GET /api/files/output-file-info`
+- `GET /api/files/output-file-chunk`
+- `POST /api/code/execute`
+- `POST /api/custom-roads/`
+- `GET /api/road-network/preview`
 
-### 6.10 历史运行
+## 7. 数据流结论
 
-前缀：`/api/runs`
+当前系统的核心不是“生成一份报表”，而是“把同一份仿真结果服务给多个使用场景”：
 
-- `GET /`
-- `GET /{run_id}`
-- `GET /{run_id}/replay/meta`
-- `GET /{run_id}/replay/frames`
-- `GET /{run_id}/events`
-- `GET /{run_id}/analysis`
-- `PUT /{run_id}/rename`
-- `POST /{run_id}/copy`
-- `DELETE /{run_id}`
-- `POST /{run_id}/open-folder`
-- `GET /{run_id}/images`
-- `GET /{run_id}/images/{image_name}`
-- `GET /{run_id}/gates`
-
-### 6.11 工作流
-
-前缀：`/api/workflows`
-
-- `GET /conditions/types`
-- `GET /actions/types`
-- `GET /rules`
-- `GET /rules/{rule_name}`
-- `POST /rules`
-- `PUT /rules/{rule_name}`
-- `DELETE /rules/{rule_name}`
-- `PATCH /rules/{rule_name}/toggle`
-- `POST /workflows/import`
-- `GET /workflows/export`
-- `GET /workflows/files`
-- `GET /workflows/files/read`
-- `POST /workflows/files/save`
-- `PUT /workflows/files/rename`
-- `POST /workflows/files/copy`
-- `DELETE /workflows/files`
-- `POST /workflows/files/open-folder`
-- `POST /workflows/reset`
-- `GET /workflows/active-rules`
-- `GET /engine/status`
-- `GET /engine/events`
-
-### 6.12 评估、代码执行与预测
-
-- `/api/evaluation`
-  - `GET /metrics`
-  - `POST /evaluate`
-  - `GET /summary`
-  - `POST /run`
-  - `POST /evaluate-file`
-  - `POST /sensitivity`
-  - `POST /optimize`
-- `/api/code`
-  - `POST /execute`
-  - `GET /environments`
-  - `POST /environments`
-  - `DELETE /environments/{name}`
-  - `POST /packages/install`
-  - `GET /environments/{name}/packages`
-- `/api/prediction`
-  - `POST /train`
-  - `POST /evaluate`
-  - `GET /models`
-  - `POST /load`
-  - `GET /results`
-  - `POST /extract-dataset`
-  - `GET /datasets`
-  - `DELETE /models/{model_id}`
-  - `PUT /models/{model_id}/rename`
-  - `POST /models/{model_id}/open-folder`
-  - `POST /models/{model_id}/copy`
-  - `DELETE /datasets/{dataset_name}`
-  - `PUT /datasets/{dataset_name}/rename`
-  - `POST /datasets/{dataset_name}/open-folder`
-  - `POST /datasets/{dataset_name}/copy`
-- `/api/packets`
-  - `GET /`
-  - `GET /{packet_id}`
-  - `DELETE /{packet_id}`
-  - `POST /{packet_id}/evaluate`
-  - `POST /store`
-- `/api/custom-roads`
-  - `GET /`
-  - `GET /{filename}`
-  - `POST /`
-  - `PUT /{filename}`
-  - `DELETE /{filename}`
-
----
-
-## 7. 维护约定
-
-- 新增路由时，同时更新本文件的 API 索引。
-- 新增页面时，同时更新 `App.tsx` 里的导航并补充讲稿。
-- 新增仿真公式或阈值时，同时更新 [simulation_mechanics.md](./simulation_mechanics.md)。
+- 实时控制依赖 WebSocket
+- 历史回放依赖 `run_id`
+- 分析依赖聚合后的时序和事件
+- 训练依赖从历史结果重建的数据集
+- 规则与预警依赖工作流引擎
