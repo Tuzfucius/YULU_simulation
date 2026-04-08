@@ -215,7 +215,7 @@ export function WorkflowLibraryPanel(props: WorkflowLibraryPanelProps) {
 
                 {fileCategory === 'runs' && (
                     <div className="mt-3 grid grid-cols-1 gap-2">
-                        <button type="button" onClick={() => onAnalyzeRun(selectedRunId)} disabled={!selectedRunId || isLoading} className="px-2 py-1.5 rounded-md text-[11px] bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] disabled:opacity-40">切屏分析</button>
+                        <button type="button" onClick={() => onAnalyzeRun(selectedRunId)} disabled={!selectedRunId || isLoading} className="px-2 py-1.5 rounded-md text-[11px] bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] disabled:opacity-40">进行分析</button>
                     </div>
                 )}
 
