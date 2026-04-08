@@ -694,11 +694,15 @@ export class SimulationEngine {
             activeAnomalies: this.vehicles.filter(v => v.anomalyState === 'active').length,
         });
 
-        // 瀹炴椂鏇存柊缁熻
-        store.setStatistics(this.buildStatistics(avgSpeed, false, config.roadLengthKm));
+        // 实时同步宏观统计，供区间动态图表在仿真过程中持续刷新
+        store.setStatistics(this.buildStatistics(avgSpeed, 'macro', config.roadLengthKm));
     }
 
-    private buildStatistics(avgSpeed: number, includeDetailData: boolean, roadLengthKm: number): Record<string, unknown> {
+    private buildStatistics(
+        avgSpeed: number,
+        detailLevel: 'summary' | 'macro' | 'full',
+        roadLengthKm: number
+    ): Record<string, unknown> {
         const baseStatistics = {
             totalVehicles: this.vehicleIdCounter,
             completedVehicles: this.finishedVehicles.length,
@@ -714,15 +718,23 @@ export class SimulationEngine {
             segmentBoundaries: this.segmentBoundaries,
         };
 
-        if (!includeDetailData) {
+        if (detailLevel === 'summary') {
             return baseStatistics;
         }
 
-        return {
+        const macroStatistics = {
             ...baseStatistics,
             segmentSpeedHistory: this.segmentSpeedHistory,
-            sampledTrajectory: this.sampledTrajectoryData,
             anomalyLogs: this.anomalyLogs,
+        };
+
+        if (detailLevel === 'macro') {
+            return macroStatistics;
+        }
+
+        return {
+            ...macroStatistics,
+            sampledTrajectory: this.sampledTrajectoryData,
         };
     }
 
@@ -1059,7 +1071,7 @@ export class SimulationEngine {
 
         store.setRunning(false);
         store.setComplete(true);
-        store.setStatistics(this.buildStatistics(avgSpeed, true, store.config.roadLengthKm));
+        store.setStatistics(this.buildStatistics(avgSpeed, 'full', store.config.roadLengthKm));
         store.setChartData(this.generateChartData() as any);
 
         store.addLog({
