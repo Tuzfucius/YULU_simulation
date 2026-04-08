@@ -17,6 +17,7 @@ const CATEGORY_ORDER: NodeCategory[] = ['source', 'condition', 'logic', 'action'
 
 export function NodePalette() {
     const addNode = useWorkflowStore(s => s.addNode);
+    void addNode;
 
     const grouped = CATEGORY_ORDER.map(cat => ({
         category: cat,

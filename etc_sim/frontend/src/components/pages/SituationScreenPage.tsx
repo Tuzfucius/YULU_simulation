@@ -212,8 +212,8 @@ function buildRoadDataFromHistory(payload: RunGatePayload | null, historyData: S
             x,
             y,
             segment: getNumericValue(gate.segment, index + 1) ?? index + 1,
-            positionKm: getNumericValue(gate.position_km),
-            positionM: getNumericValue(gate.position_m, gate.position),
+            positionKm: getNumericValue(gate.position_km) ?? undefined,
+            positionM: getNumericValue(gate.position_m, gate.position) ?? undefined,
         };
     });
 

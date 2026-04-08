@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { useSimStore } from '../stores/simStore';
+import type { AnomalyLogEntry, SegmentSpeedHistoryEntry } from '../stores/simStore';
 
 export const SegmentInspector: React.FC = () => {
     const statistics = useSimStore(state => state.statistics);
@@ -8,8 +9,8 @@ export const SegmentInspector: React.FC = () => {
     const [selectedSegment, setSelectedSegment] = useState<number>(0);
 
     // --- 提前提取数据（所有 hooks 必须在任何 return 之前调用）---
-    const segmentSpeedHistory: any[] = statistics?.segmentSpeedHistory ?? [];
-    const anomalyLogs: any[] = statistics?.anomalyLogs ?? [];
+    const segmentSpeedHistory: SegmentSpeedHistoryEntry[] = statistics?.segmentSpeedHistory ?? [];
+    const anomalyLogs: AnomalyLogEntry[] = statistics?.anomalyLogs ?? [];
     const segmentBoundaries: number[] | undefined = statistics?.segmentBoundaries;
 
     // 准备区间选项列表（在 early return 前调用 useMemo）

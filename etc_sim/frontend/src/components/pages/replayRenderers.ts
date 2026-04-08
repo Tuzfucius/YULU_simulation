@@ -76,7 +76,7 @@ export function renderGlobalFrame(
   frame: TrajectoryFrame,
   opts: RenderOptions,
   anomalyLogs: AnomalyLog[] = [],
-  trackedVehicleId: string | null = null,
+  trackedVehicleId: number | null = null,
 ): void {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
@@ -135,7 +135,7 @@ export function renderGlobalFrame(
     if (x < -20 || x > w + 20) continue;
 
     // 如果存在被跟踪车辆，未被跟踪的车辆变暗
-    if (trackedVehicleId && v.id !== trackedVehicleId) {
+    if (trackedVehicleId !== null && v.id !== trackedVehicleId) {
       ctx.globalAlpha = 0.2;
     } else {
       ctx.globalAlpha = Math.max(0.4, Math.min(1, v.speed / 33));
@@ -271,7 +271,7 @@ export function renderLocalFrame(
   opts: RenderOptions,
   images: VehicleImages,
   anomalyLogs: AnomalyLog[] = [],
-  trackedVehicleId: string | null = null,
+  trackedVehicleId: number | null = null,
 ): void {
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
@@ -387,7 +387,7 @@ export function renderLocalFrame(
     if (screenX < -50 || screenX > w + 50) continue;
 
     // 渐变淡出未跟踪的车辆
-    if (trackedVehicleId && v.id !== trackedVehicleId) {
+    if (trackedVehicleId !== null && v.id !== trackedVehicleId) {
       ctx.globalAlpha = 0.2;
     }
 

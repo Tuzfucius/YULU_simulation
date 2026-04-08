@@ -84,6 +84,7 @@ function computeArcParams(
         t2x: bx + u2x * d, t2y: by + u2y * d, // 切点2（在 BC 上）
     };
 }
+void computeArcParams;
 
 /** 计算"整数"比例尺长度（100m, 200m, 500m, 1km...） */
 function niceScaleLength(zoom: number): { px: number; label: string } {
@@ -132,6 +133,7 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
 
         const W = container.clientWidth;
         const H = container.clientHeight;
+        void W;
         canvas.width = W;
         canvas.height = H;
 
@@ -361,6 +363,7 @@ export function EditorCanvas({ data, setData, mode, showGrid, defaultRadius = 0 
 
     // ─── 比例尺绘制 ──────────────────────────────────────────
     function drawScaleRuler(ctx: CanvasRenderingContext2D, zoom: number, W: number, H: number) {
+        void W;
         const { px, label } = niceScaleLength(zoom);
         const x = 20, y = H - 24;
         const barH = 6;

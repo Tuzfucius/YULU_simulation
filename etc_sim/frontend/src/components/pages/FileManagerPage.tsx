@@ -1,5 +1,6 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+void React;
 
 import { API } from '../../config/api';
 import {

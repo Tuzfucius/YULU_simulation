@@ -95,8 +95,8 @@ export const ReplayPage: React.FC = () => {
     startKm: 0, endKm: 5, startTime: 0, endTime: 300,
   });
   const [rangeCollapsed, setRangeCollapsed] = useState(false);
-  const [anomalyLogs, setAnomalyLogs] = useState<AnomalyLog[]>([]);
-  const [trackedVehicleId, setTrackedVehicleId] = useState<string | null>(null);
+  const [anomalyLogs] = useState<AnomalyLog[]>([]);
+  const [trackedVehicleId, setTrackedVehicleId] = useState<number | null>(null);
 
   // 素材
   const vehicleImagesRef = useRef<VehicleImages | null>(null);
@@ -400,7 +400,8 @@ export const ReplayPage: React.FC = () => {
     }
 
     if (request.time !== null) {
-      const localIndex = frameBuffer.findIndex(frame => frame.time >= request.time);
+      const requestedTime = request.time;
+      const localIndex = frameBuffer.findIndex(frame => frame.time >= requestedTime);
       if (localIndex >= 0) {
         setCurrentIndex(bufferOffset + localIndex);
       }
@@ -534,7 +535,7 @@ export const ReplayPage: React.FC = () => {
 
     // 自动追踪视角逻辑：如果跟踪了车辆，动态计算 viewOffset 使其居中（局部模式也受影响，因局部按 startKm 固定，可加特效跟随，但此时主要针对全局做视口移动）
     let currentViewOffset = viewOffset;
-    if (trackedVehicleId) {
+    if (trackedVehicleId !== null) {
       const v = frame.vehicles.find(v => v.id === trackedVehicleId);
       if (v) {
         if (viewMode === 'global') {
@@ -724,7 +725,7 @@ export const ReplayPage: React.FC = () => {
           totalRoadH = laneH * numLanes;
           roadTop = (c.height - totalRoadH) / 2;
 
-          let clickedVehId: string | null = null;
+          let clickedVehId: number | null = null;
           for (let i = frame.vehicles.length - 1; i >= 0; i--) {
             const v = frame.vehicles[i];
             const vLen = (v.type === 'CAR' ? 4.5 : v.type === 'TRUCK' ? 12 : 10) / mpp;

@@ -19,6 +19,7 @@ interface NetworkNode {
     node_type: string;
     x: number;
     y: number;
+    position_km?: number;
 }
 
 interface NetworkEdge {
@@ -34,6 +35,15 @@ interface NetworkGraph {
     paths: Record<string, any>;
 }
 
+interface RoadNetworkFormState {
+    main_length_km: number;
+    num_lanes: number;
+    ramp_position_km: number;
+    exit_probability: number;
+    ramp_traffic_ratio?: number;
+    custom_file_path: string;
+}
+
 const NODE_COLORS: Record<string, string> = {
     origin: '#4ade80',
     destination: '#f87171',
@@ -46,11 +56,12 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
     const [selectedTemplate, setSelectedTemplate] = useState('simple_mainline');
     const [customFiles, setCustomFiles] = useState<string[]>([]);
     const [customLength, setCustomLength] = useState<number | null>(null); // 自定义路径实际里程
-    const [config, setConfig] = useState({
+    const [config, setConfig] = useState<RoadNetworkFormState>({
         main_length_km: 20,
         num_lanes: 4,
         ramp_position_km: 8,
         exit_probability: 0.2,
+        ramp_traffic_ratio: 20,
         custom_file_path: ''
     });
     const [preview, setPreview] = useState<NetworkGraph | null>(null);
@@ -138,7 +149,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
         if (id === 'simple_mainline') return t('config.roadNetwork.simpleMainline');
         if (id === 'on_ramp') return t('config.roadNetwork.onRamp');
         if (id === 'off_ramp') return t('config.roadNetwork.offRamp');
-        if (id === 'custom') return t('config.roadNetwork.custom', 'Custom Path');
+        if (id === 'custom') return t('config.roadNetwork.custom');
         return id;
     }
 
@@ -171,7 +182,7 @@ export const RoadNetworkConfig: React.FC<{ disabled?: boolean }> = ({ disabled }
             {/* 自定义路径选择 */}
             {isCustom && (
                 <div>
-                    <label className="text-xs text-[var(--text-muted)]">{t('config.roadNetwork.selectPath', 'Select Path')}</label>
+                    <label className="text-xs text-[var(--text-muted)]">{t('config.roadNetwork.selectPath')}</label>
                     <select
                         value={config.custom_file_path}
                         onChange={e => setConfig({ ...config, custom_file_path: e.target.value })}

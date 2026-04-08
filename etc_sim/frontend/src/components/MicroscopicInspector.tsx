@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { useSimStore } from '../stores/simStore';
+import type { SampledTrajectoryEntry } from '../stores/simStore';
 
 type ColorMode = 'speed' | 'status' | 'lane' | 'type' | 'style';
 
@@ -11,7 +12,7 @@ export const MicroscopicInspector: React.FC = () => {
     const [colorMode, setColorMode] = useState<ColorMode>('speed');
 
     // --- Data Extraction (Before Return) ---
-    const sampledTrajectory: any[] = statistics?.sampledTrajectory ?? [];
+    const sampledTrajectory: SampledTrajectoryEntry[] = statistics?.sampledTrajectory ?? [];
     const segmentBoundaries: number[] | undefined = statistics?.segmentBoundaries;
 
     // --- Prepare Segment Options ---

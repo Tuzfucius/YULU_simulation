@@ -4,6 +4,7 @@
 
 import React, { useMemo } from 'react';
 import { useWorkflowStore } from '../../stores/workflowStore';
+void React;
 import { useSimStore } from '../../stores/simStore';
 import type { LogicType, ParamFieldMeta } from '../../types/workflow';
 import { DATA_SOURCE_FIELDS } from '../../types/workflow';

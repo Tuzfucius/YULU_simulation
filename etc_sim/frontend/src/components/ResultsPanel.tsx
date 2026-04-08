@@ -6,6 +6,7 @@
 import React from 'react';
 import { useSimStore } from '../stores/simStore';
 import { useI18nStore } from '../stores/i18nStore';
+import type { SimulationStatistics } from '../stores/simStore';
 
 export const ResultsPanel: React.FC = () => {
     const { statistics, isComplete, isRunning, config, progress } = useSimStore();
@@ -76,7 +77,7 @@ export const ResultsPanel: React.FC = () => {
         );
     }
 
-    const data = statistics || {
+    const data: SimulationStatistics = statistics || {
         simulationTime: progress.currentTime,
         totalVehicles: config.totalVehicles,
         completedVehicles: progress.completedVehicles,
@@ -86,6 +87,7 @@ export const ResultsPanel: React.FC = () => {
         affectedByAnomaly: 0,
         totalLaneChanges: 0,
         maxCongestionLength: 0,
+        segmentBoundaries: [],
     };
 
     const statItems = [

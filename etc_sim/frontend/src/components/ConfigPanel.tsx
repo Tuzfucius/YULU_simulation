@@ -99,7 +99,7 @@ interface ConfigPanelProps {
 }
 
 export const ConfigPanel: React.FC<ConfigPanelProps> = ({ disabled = false }) => {
-    const { config, setConfig, resetConfig } = useSimStore();
+    const { config, setConfig } = useSimStore();
     const { t, lang } = useI18nStore();
 
     // 自定义路径激活时，禁用相关参数

@@ -2,7 +2,7 @@
  * 错误边界组件
  * 捕获 React render 阶段的未处理错误，防止整个应用崩溃
  */
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 interface Props {
     children: ReactNode;

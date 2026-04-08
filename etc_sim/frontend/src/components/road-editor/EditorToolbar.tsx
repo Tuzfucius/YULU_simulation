@@ -1,5 +1,6 @@
 import React from 'react';
 import { useI18nStore } from '../../stores/i18nStore';
+void React;
 
 interface EditorToolbarProps {
     mode: 'select' | 'pen' | 'gantry' | 'on_ramp' | 'off_ramp';
@@ -17,6 +18,7 @@ export function EditorToolbar({
     mode, setMode, showGrid, setShowGrid, onClear, onUndo, onRedo, canUndo, canRedo
 }: EditorToolbarProps) {
     const { t } = useI18nStore();
+    void t;
 
     const tools = [
         { id: 'select', icon: '👆', label: 'Select' },

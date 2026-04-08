@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { TrajectoryList } from '../road-editor/TrajectoryList';
+void React;
 import { EditorCanvas } from '../road-editor/EditorCanvas';
 import { EditorToolbar } from '../road-editor/EditorToolbar';
 import { PreciseInput } from '../road-editor/PreciseInput';

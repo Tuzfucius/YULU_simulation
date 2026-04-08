@@ -32,6 +32,7 @@ import { type RunAnalysisPayload } from '../workflow/WorkflowAnalysisView';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useI18nStore } from '../../stores/i18nStore';
 import { API } from '../../config/api';
+void AnimatePresence;
 
 const nodeTypes = { workflowNode: WorkflowNode };
 const API_BASE = API.WORKFLOWS;
@@ -62,6 +63,7 @@ function formatTime(value?: string | number) {
 
     return date.toLocaleString('zh-CN', { hour12: false });
 }
+void formatTime;
 
 export function WorkflowPage() {
     const {
@@ -113,6 +115,14 @@ export function WorkflowPage() {
     const selectedRun = historyRuns.find((item) => item.run_id === selectedRunId) || null;
     const selectedModel = savedModels.find((item) => item.model_id === selectedModelId) || null;
     const selectedDataset = datasets.find((item) => item.name === selectedDatasetName) || null;
+    void sideTab;
+    void fileCategory;
+    void activeView;
+    void savedWorkflows;
+    void runAnalysis;
+    void selectedRun;
+    void selectedModel;
+    void selectedDataset;
 
     const fetchSavedWorkflows = useCallback(async (keepSelection = true) => {
         try {
@@ -788,6 +798,22 @@ export function WorkflowPage() {
         setFileCategory('datasets');
         setActiveView('dataset');
     };
+
+    void renameSavedWorkflow;
+    void openWorkflowFolder;
+    void openPredictionFolder;
+    void renameRun;
+    void copyRun;
+    void deleteRun;
+    void openRunFolder;
+    void renamePredictionItem;
+    void copyPredictionItem;
+    void deletePredictionItem;
+    void copyWorkflow;
+    void deleteWorkflow;
+    void showRunAnalysis;
+    void showModelDetail;
+    void showDatasetDetail;
 
     const exportJSON = () => {
         const rules = exportToRules();

@@ -7,7 +7,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 // 仿真配置（用于 UI 显示，实际使用引擎配置）
-interface SimulationConfig {
+export interface SimulationConfig {
     roadLengthKm: number;
     numLanes: number;
     laneWidth: number;
@@ -66,7 +66,7 @@ interface SimulationConfig {
 }
 
 
-interface SimulationProgress {
+export interface SimulationProgress {
     currentTime: number;
     totalTime: number;
     progress: number;
@@ -82,7 +82,7 @@ interface ChartDataPoint {
     label?: string;
 }
 
-interface ChartData {
+export interface ChartData {
     speedHistory: ChartDataPoint[];
     flowHistory: ChartDataPoint[];
     densityHistory: ChartDataPoint[];
@@ -90,12 +90,87 @@ interface ChartData {
 }
 
 // 日志条目
-interface LogEntry {
+export interface LogEntry {
     id: string;
     level: string;
     message: string;
     timestamp: number;
     category?: string;
+}
+
+export interface SegmentSpeedHistoryEntry {
+    time: number;
+    segment: number;
+    avgSpeed: number;
+    density: number;
+    vehicleCount: number;
+    flow: number;
+}
+
+export interface AnomalyLogEntry {
+    id?: number | string;
+    type: number;
+    time: number;
+    posKm?: number;
+    segment: number;
+}
+
+export interface SampledTrajectoryEntry {
+    id: number;
+    time: number;
+    pos: number;
+    lane: number;
+    speed: number;
+    anomaly_type: number;
+    anomaly_state: string;
+    is_affected: boolean;
+    vehicle_type: string;
+    driver_style: string;
+}
+
+export interface SimulationStatistics {
+    totalVehicles: number;
+    completedVehicles: number;
+    avgSpeed: number;
+    avgTravelTime: number;
+    totalAnomalies: number;
+    affectedByAnomaly: number;
+    totalLaneChanges: number;
+    maxCongestionLength: number;
+    simulationTime: number;
+    segmentBoundaries: number[];
+    segmentSpeedHistory?: SegmentSpeedHistoryEntry[];
+    sampledTrajectory?: SampledTrajectoryEntry[];
+    anomalyLogs?: AnomalyLogEntry[];
+    etc_transactions_count?: number;
+    etc_alerts_count?: number;
+}
+
+export interface SimulationData {
+    statistics?: {
+        etc_transactions_count?: number;
+        etc_alerts_count?: number;
+    };
+    etc_detection?: {
+        noise_statistics?: {
+            missed_read_count?: number;
+            duplicate_read_count?: number;
+            delayed_upload_count?: number;
+            clock_drift_count?: number;
+            missed_read_rate_actual?: number;
+        };
+        gate_stats?: Record<string, {
+            total_transactions: number;
+            avg_speed: number;
+        }>;
+        alerts?: Array<{
+            type: string;
+            gate_id: string;
+            timestamp: number;
+            severity: string;
+            description?: string;
+        }>;
+    };
 }
 
 
@@ -146,7 +221,7 @@ const defaultProgress: SimulationProgress = {
     activeAnomalies: 0,
 };
 
-interface SimState {
+export interface SimState {
     config: SimulationConfig;
     setConfig: (partial: Partial<SimulationConfig>) => void;
     resetConfig: () => void;
@@ -160,8 +235,9 @@ interface SimState {
     setTurboMode: (v: boolean) => void;
     progress: SimulationProgress;
     setProgress: (p: SimulationProgress) => void;
-    statistics: Record<string, unknown> | null;
-    setStatistics: (s: Record<string, unknown> | null) => void;
+    statistics: SimulationStatistics | null;
+    setStatistics: (s: SimulationStatistics | null) => void;
+    simulationData: SimulationData | null;
     chartData: ChartData | null;
     setChartData: (d: ChartData | null) => void;
     logs: LogEntry[];
@@ -191,7 +267,9 @@ export const useSimStore = create<SimState>()(
             setProgress: (p: SimulationProgress) => set({ progress: p }),
 
             statistics: null,
-            setStatistics: (s: Record<string, unknown> | null) => set({ statistics: s }),
+            setStatistics: (s: SimulationStatistics | null) => set({ statistics: s }),
+
+            simulationData: null,
 
             chartData: null,
             setChartData: (d: ChartData | null) => set({ chartData: d }),
@@ -210,6 +288,7 @@ export const useSimStore = create<SimState>()(
                     isComplete: false,
                     progress: defaultProgress,
                     statistics: null,
+                    simulationData: null,
                     chartData: null,
                     logs: [],
                 }),

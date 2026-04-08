@@ -17,6 +17,7 @@ import {
     type AnomalyType,
 } from './config';
 import { useSimStore } from '../stores/simStore';
+import type { SimulationStatistics } from '../stores/simStore';
 import {
     buildCurveProfile,
     getCurveRadius,
@@ -702,7 +703,7 @@ export class SimulationEngine {
         avgSpeed: number,
         detailLevel: 'summary' | 'macro' | 'full',
         roadLengthKm: number
-    ): Record<string, unknown> {
+    ): SimulationStatistics {
         const baseStatistics = {
             totalVehicles: this.vehicleIdCounter,
             completedVehicles: this.finishedVehicles.length,

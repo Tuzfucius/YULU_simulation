@@ -47,7 +47,13 @@ export const ETCMonitorPanel: React.FC = () => {
                 setStats({
                     transactions_count: simulationData.statistics?.etc_transactions_count || 0,
                     alerts_count: simulationData.statistics?.etc_alerts_count || 0,
-                    noise_stats: etcData.noise_statistics || {},
+                    noise_stats: {
+                        missed_read_count: etcData.noise_statistics?.missed_read_count || 0,
+                        duplicate_read_count: etcData.noise_statistics?.duplicate_read_count || 0,
+                        delayed_upload_count: etcData.noise_statistics?.delayed_upload_count || 0,
+                        clock_drift_count: etcData.noise_statistics?.clock_drift_count || 0,
+                        missed_read_rate_actual: etcData.noise_statistics?.missed_read_rate_actual || 0,
+                    },
                     gate_stats: etcData.gate_stats || {}
                 });
                 setAlerts(etcData.alerts || []);
