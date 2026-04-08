@@ -1,69 +1,54 @@
-# 历史运行、接口与存储结构
+# API 交互与历史存储设计
 
-本文档说明历史运行如何落盘、如何被 API 读取、如何服务回放和训练。这里描述的是当前代码真实采用的结构，不再保留旧版单文件驱动的叙述。
+## 1. 文档目标
 
----
+本文档只讨论历史运行相关的存储和读取机制，重点是：
 
-## 1. 历史系统的主标识
+- 一次仿真结果如何从内存落到磁盘
+- `run_id` 如何作为历史系统主键
+- 回放、分析、训练如何复用同一份结果
+- 旧文件接口如何向新 `run_id` 结构过渡
 
-当前历史系统以 `run_id` 为中心。`run_id` 同时承担以下职责：
+## 2. 当前历史系统的核心链路
 
-- 历史列表主键。
-- 回放查询键。
-- 分析查询键。
-- 训练数据来源追踪键。
-- 数据集和模型的来源引用键。
-
-运行目录通常位于 `data/simulations/<run_id>/`。
-
----
-
-## 2. 运行目录结构
-
-一个完整历史运行通常包含以下文件：
+一次仿真完成后，系统会把结果组织成一个运行目录：
 
 ```text
-data/simulations/run_xxx/
-  data.json
-  summary.json
-  manifest.json
-  trajectory.msgpack   # 若启用轨迹分块
-  images/
+data/
+  simulations/
+    run_xxx/
+      data.json
+      summary.json
+      manifest.json
+      trajectory.msgpack
 ```
 
-### 2.1 `data.json`
+其中：
 
-`data.json` 保存仿真引擎导出的主结果。`SimulationEngine.export_to_dict()` 会输出：
+- `data.json` 保存完整结果
+- `summary.json` 保存列表和概览需要的摘要
+- `manifest.json` 保存采样策略、门架和路径几何信息
+- `trajectory.msgpack` 保存轨迹帧，避免大 JSON 反复读取
 
-- `config`
-- `statistics`
-- `etcGates`
-- `anomaly_logs`
-- `trajectory_data`
-- `segment_speed_history`
-- `queue_events`
-- `phantom_jam_events`
-- `safety_data`
-- `vehicle_records`
-- `etc_detection`
-- `environment`
-- `rule_engine`
-- `ml_dataset`
+当前仓库中的运行 schema 版本是 `run_v2_path`。
 
-这份数据是后续摘要、清单、回放、分析和训练的基础。
+## 3. 存储写入流程
 
-### 2.2 `summary.json`
+写入逻辑主要在 `backend/services/storage.py` 和 `backend/services/run_repository.py` 中。
 
-`summary.json` 用于列表页和概览页。`run_repository.py` 当前会写入：
+### 3.1 仿真结果写入
 
-- `run_id`
-- `schema_version`
-- `created_at`
-- `status`
-- `config_digest`
-- `summary`
+`StorageService.save_results()` 会：
 
-其中 `summary` 至少包含：
+1. 创建 `data/simulations/<simulation_id>/`
+2. 给结果附加 `_metadata`
+3. 将 `trajectory_data` 拆分保存到 `trajectory.msgpack`
+4. 在 `data.json` 中保留轨迹文件信息和记录数
+5. 调用 `persist_run_metadata()` 写入运行摘要和清单
+
+### 3.2 摘要构建
+
+`run_repository.py` 会从结果中归纳出：
 
 - `total_vehicles`
 - `total_anomalies`
@@ -71,124 +56,167 @@ data/simulations/run_xxx/
 - `etc_alerts_count`
 - `etc_transactions_count`
 - `ml_samples`
-- `queue_event_count`
-- `phantom_jam_event_count`
 
-### 2.3 `manifest.json`
+这部分数据用于历史列表和概览卡片，不需要把完整结果全部读回前端。
 
-`manifest.json` 用于发现和回放。它比 `summary.json` 更完整，通常包含：
+### 3.3 路径几何与门架
 
-- `run_id`
-- `schema_version`
-- `created_at`
-- `artifacts`
-- `config`
-- `summary`
-- `road_geometry`
-- `sampling`
-- `chunks`
+同一份运行结果还会附带：
 
-其中 `artifacts` 会说明数据文件、摘要文件、清单文件和轨迹文件的位置。
+- 门架描述 `build_gate_descriptors()`
+- 路径几何 `build_path_geometry()`
 
----
+如果配置里有 `custom_road_path`，系统会优先读取自定义路网文件；否则按直线路网生成默认路径。
 
-## 3. 写入流程
+## 4. 读取链路
 
-### 3.1 CLI 仿真写入
+### 4.1 新式运行接口
 
-`etc_sim/main.py` 的命令行模式会把结果写入 `data/results/`。
+`backend/api/runs.py` 是新历史系统的主入口。它面向 `run_id`，提供：
 
-这条路径适合单机调试和快速实验，不是当前后端历史系统的主索引路径。
+- 历史列表
+- 运行详情
+- 回放元数据
+- 回放帧分块
+- 事件列表
+- 分析结果
+- 门架列表
 
-### 3.2 后端历史写入
+这套接口的优点是：
 
-后端服务通过 `StorageService` 和 `run_repository` 维护 `data/simulations/`。
+- 不依赖文件路径
+- 更容易做分层存储
+- 更适合后续扩展到多种几何和多种采样策略
 
-典型顺序是：
+### 4.2 旧式文件接口
 
-1. 仿真引擎完成运行并导出字典。
-2. 存储服务把主结果写入运行目录。
-3. `run_repository` 生成 `summary.json` 和 `manifest.json`。
-4. 前端通过 `/api/runs` 读取列表与详情。
+`backend/api/files.py` 仍保留了文件路径驱动的兼容接口，主要用于旧页面和旧数据结构：
 
----
+- `GET /api/files/output-files`
+- `GET /api/files/output-file`
+- `GET /api/files/output-file-info`
+- `GET /api/files/output-file-chunk`
+- `GET /api/files/simulation-gates`
 
-## 4. 读取流程
+这部分接口的定位是兼容，不是新的主路径。
 
-### 4.1 运行列表
+## 5. 历史数据模型
 
-`GET /api/runs`
+### 5.1 摘要层
 
-返回运行列表时，后端优先读取 `summary.json`。若摘要缺失，会尝试从 `manifest.json` 或 `data.json` 回填。
+摘要层用于列表和快速概览：
 
-### 4.2 运行详情
+```json
+{
+  "run_id": "run_20260314_101500",
+  "schema_version": "run_v2_path",
+  "summary": {
+    "total_vehicles": 1280,
+    "total_anomalies": 36,
+    "simulation_time": 3600,
+    "etc_alerts_count": 12,
+    "etc_transactions_count": 1180,
+    "ml_samples": 420
+  }
+}
+```
 
-`GET /api/runs/{run_id}`
+### 5.2 清单层
 
-会把摘要、清单和辅助统计合并成统一视图，供详情页、回放页和分析页使用。
+清单层描述一次运行的组织方式：
 
-### 4.3 回放元信息
+```json
+{
+  "run_id": "run_xxx",
+  "schema_version": "run_v2_path",
+  "sampling": {
+    "trajectory_interval_s": 2
+  },
+  "gates": [
+    { "id": "G01", "position_km": 2.0 }
+  ],
+  "path_geometry": {
+    "version": "path_geometry_v1"
+  }
+}
+```
 
-`GET /api/runs/{run_id}/replay/meta`
+### 5.3 轨迹层
 
-主要用于告诉前端：
+轨迹建议采用路径表达，而不是每帧重复保存完整笛卡尔坐标：
 
-- 有哪些轨迹数据。
-- 轨迹如何分块。
-- 门架和路径几何如何映射。
+```json
+{
+  "time": 120.0,
+  "vehicles": [
+    {
+      "id": 57,
+      "path_id": "main_lane_1",
+      "s": 812.4,
+      "offset": 0.0,
+      "speed": 21.5,
+      "flags": 0
+    }
+  ]
+}
+```
 
-### 4.4 回放帧
+其中：
 
-`GET /api/runs/{run_id}/replay/frames`
+- `path_id` 标识当前轨迹所属路径
+- `s` 是路径纵向里程
+- `offset` 是横向偏移
 
-按时间窗或偏移量返回帧数据，前端据此逐帧重建轨迹。
+对于直线道路，`path_id + s` 可以退化回旧坐标体系。
 
-### 4.5 分析数据
+## 6. 回放与分析
 
-`GET /api/runs/{run_id}/analysis`
+### 6.1 回放
 
-为图表、摘要卡片和事件定位提供聚合结果。
+回放页只需要读取：
 
----
+- 运行摘要
+- 门架和路径几何
+- 轨迹帧分块
 
-## 5. 与旧接口的关系
+这样前端不必一次性加载全部历史数据。
 
-### 5.1 旧文件式接口
+### 6.2 分析
 
-`/api/files` 仍然保留，主要用于：
+`GET /api/runs/{run_id}/analysis` 返回的是聚合后的图表数据，而不是原始轨迹：
 
-- 历史脚本兼容。
-- 旧结果文件读取。
-- 输出文件浏览和脚本编辑。
+- 全局速度时序
+- 区段热力图
+- 异常时间分布
+- 事件构成
+- 区段切换时序
+- 异常类型分布
+- 回放锚点
 
-### 5.2 新历史接口
+这让分析页和回放页可以共享同一个 `run_id`，但按不同粒度读取。
 
-`/api/runs` 是当前推荐入口，原因是：
+## 7. 目录级兼容策略
 
-- 明确以 `run_id` 为主键。
-- 支持摘要、清单、分析和回放联动。
-- 更适合分块读取和后续扩展。
+当前系统同时保留两种读取方式：
 
----
+- 新方式：`run_id` 驱动
+- 旧方式：文件路径驱动
 
-## 6. 训练与回放的复用关系
+兼容策略是：
 
-预测工作台会从历史运行中提取训练数据：
+1. 新功能优先接 `runs` 接口
+2. 旧页面继续使用 `files` 接口
+3. 新存储尽量向 `run_id` 聚合
+4. 只有兼容场景才继续读旧路径
 
-- `segment_speed_history` 提供时序特征。
-- `anomaly_logs` 提供标签和事件信息。
-- `etc_detection` 提供门架交易与异常检测结果。
-- `ml_dataset` 可以直接作为训练样本输入。
+## 8. 实际落盘对象
 
-因此，历史运行不是一次性产物，而是后续分析、训练和评估的共享数据源。
+除历史运行外，项目还会写入这些目录：
 
----
+- `data/datasets`
+- `data/models`
+- `data/workflows`
+- `data/charts`
+- `data/layouts`
 
-## 7. 迁移建议
-
-如果继续演进历史系统，优先顺序应是：
-
-1. 继续保留 `data.json` 作为主结果文件。
-2. 让 `summary.json` 和 `manifest.json` 维持向后兼容。
-3. 让新回放和分析接口优先读 `run_id`。
-4. 最后再逐步减少旧文件式接口的使用范围。
+这些目录分别服务于训练、模型、规则、图表收藏和界面布局，不属于单次仿真的原始轨迹。
