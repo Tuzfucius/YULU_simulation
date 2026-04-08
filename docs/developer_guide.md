@@ -30,7 +30,7 @@ npm install
 
 ### 2.1 一键启动
 
-Windows 下优先使用 [etc_sim/start.bat](/E:/Project/yulu/etc_sim/start.bat)。
+Windows 下优先使用 [etc_sim/start.bat](../etc_sim/start.bat)。
 
 它会：
 

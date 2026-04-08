@@ -1,6 +1,6 @@
 # 影响度计算说明
 
-本文档说明 `speed_profile` 图中连续影响度 `impact_score` 的计算方式。它的作用是把“某个区间比正常情况慢多少”映射到 `[0, 1]`，而不是简单使用历史布尔标志 `was_affected`。
+本文档说明 `speed_profile` 图中连续影响度 `impact_score` 的计算方式。它的作用是把“某个区间比正常情况慢多少”映射到 `[0, 1]`，而不是简单使用历史布尔标志 `was_affected`。对应实现位于 [etc_sim/backend/plotter.py](../etc_sim/backend/plotter.py)。
 
 ---
 
