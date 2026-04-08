@@ -1,165 +1,135 @@
-# ETC 交通仿真系统 - 开发者指南
+# 开发者指南
 
-本文档包含了项目在二次开发、组件扩展以及代码交互规范上的核心指导原则。无论您是开发新的预警规则、增加前端图表还是进行算法上的改进，都可以参考本指南。
+本文档只保留当前仓库里真正可用的开发、扩展和调试方式。
 
-## 1. 快速开发环境搭建
+---
 
-### 后端依赖
+## 1. 环境准备
+
+当前推荐使用 Conda。
+
+### 后端与仿真
+
 ```bash
-conda create -n etc_sim python=3.13
-conda activate etc_sim
-pip install -r etc_sim/requirements.txt
+conda env create -f etc_sim/environment.yml
+conda activate low_numpy
 ```
 
+`environment.yml` 里已经包含 Python 3.11 和 Node.js 20。若环境已存在，可直接激活。
+
 ### 前端依赖
+
 ```bash
 cd etc_sim/frontend
 npm install
+```
+
+---
+
+## 2. 启动方式
+
+### 2.1 一键启动
+
+Windows 下优先使用 [etc_sim/start.bat](/E:/Project/yulu/etc_sim/start.bat)。
+
+它会：
+
+1. 检查 Node.js。
+2. 使用 `low_numpy` 环境启动后端。
+3. 安装前端依赖。
+4. 启动 Vite 开发服务器。
+
+### 2.2 手动启动
+
+后端：
+
+```bash
+cd etc_sim
+python main.py
+```
+
+或者：
+
+```bash
+uvicorn etc_sim.backend.main:app --host 0.0.0.0 --port 8000
+```
+
+前端：
+
+```bash
+cd etc_sim/frontend
 npm run dev
 ```
 
-### IDE 推荐配置
-- **VS Code 扩展**：Python, ESLint, Tailwind CSS IntelliSense
+---
+
+## 3. 目录职责
+
+- `etc_sim/simulation/`
+  - 仿真主循环、车辆投放和引擎入口。
+- `etc_sim/core/`
+  - IDM、MOBIL、车辆对象等底层机制。
+- `etc_sim/models/`
+  - 告警规则、异常检测、环境模型、特征提取和预测相关模型。
+- `etc_sim/road/`
+  - 路网、路段、门架和拓扑结构。
+- `etc_sim/backend/`
+  - FastAPI 路由、历史运行、文件服务、图表、工作流和预测接口。
+- `etc_sim/frontend/`
+  - 页面、图表、状态管理和可视化引擎。
 
 ---
 
-## 2. 代码风格与规范
+## 4. 常见扩展点
 
-### 2.1 命名约定
-- **类名**: `PascalCase` (如 `TrafficSimulation`)
-- **函数/变量**: `snake_case` (如 `calc_shockwave_speed`)
-- **常量**: `UPPER_SNAKE_CASE` (如 `MAX_DELAY`)
-- **私有成员**: 前缀 `_` (如 `_init_vehicle_type`)
+### 4.1 新增后端接口
 
-### 2.2 错误与类型处理
-对公共函数使用 Type Hint 类型注解。关键 I/O 操作务必使用 `try-except` 包裹。
+1. 在 `etc_sim/backend/api/` 下新增路由文件。
+2. 在 `etc_sim/backend/main.py` 中挂载 `include_router`。
+3. 如果返回结构会被前端使用，补充对应的 TypeScript 类型。
+4. 更新 [docs/system_working_principles.md](./system_working_principles.md) 的 API 索引。
 
-```python
-from typing import List, Dict
+### 4.2 新增仿真参数
 
-def process_vehicles(vehicles: List[Vehicle]) -> int:
-    try:
-        # processing
-        pass
-    except Exception as e:
-        logger.error(f"处理失败: {e}")
-```
+1. 在 `etc_sim/config/parameters.py` 中添加字段。
+2. 在 `to_dict()` 和 `from_dict()` 路径里同步。
+3. 若参数影响结果文件或历史摘要，更新存储文档。
+4. 若参数影响前端展示，补充页面说明或控件说明。
 
-### 2.3 目录结构与模块说明
-```
-etc_sim/
-├── frontend/          # React + Vite 前端
-│   └── src/
-│       ├── components/pages/  # 页面组件
-│       ├── engine/            # 仿真核心前端支持
-│       └── stores/            # Zustand
-├── backend/           # FastAPI 后端
-│   ├── api/           # 路由端点
-│   └── main.py        # FastAPI 主程序
-├── config/            # 仿真参数
-├── models/            # 预警引擎、分析模型
-├── simulation/        # Python 仿真引擎主程序
-├── main.py            # CLI 入口
-└── start.bat          # 启动脚本
-```
+### 4.3 新增告警规则或工作流节点
+
+1. 后端规则逻辑放在 `etc_sim/models/`。
+2. 工作流路由和规则文件逻辑放在 `etc_sim/backend/api/workflows.py`。
+3. 前端节点定义放在 `etc_sim/frontend/src/stores/workflowStore.ts` 和对应组件里。
+4. 如规则影响仿真结果导出，需要同步 `SimulationEngine.export_to_dict()`。
+
+### 4.4 新增图表
+
+1. 在 `etc_sim/backend/api/charts.py` 注册图表元数据。
+2. 在 `etc_sim/backend/plotter.py` 增加生成函数。
+3. 在前端新增或复用图表组件。
+4. 确保图表名称、说明和前端入口一致。
+
+### 4.5 新增页面
+
+1. 在 `etc_sim/frontend/src/components/pages/` 创建页面组件。
+2. 在 `etc_sim/frontend/src/App.tsx` 注册路由。
+3. 若页面面向客户展示，也要补充 [docs/presentation_script.md](./presentation_script.md)。
 
 ---
 
-## 3. 预警系统功能扩展
+## 5. 调试建议
 
-### 3.1 添加新的条件原子 (Condition)
-在 `models/alert_conditions.py` 中注册新条件：
-```python
-from etc_sim.models.alert_conditions import Condition, register_condition
-
-@register_condition('my_new_condition')
-class MyNewCondition(Condition):
-    def __init__(self, params: dict, gate_id: str = '*'):
-        super().__init__(params, gate_id)
-        self.threshold = params.get('threshold', 100)
-    
-    def evaluate(self, context: AlertContext) -> bool:
-        # 具体评估逻辑
-        return True
-```
-
-**同步修改前端：**
-在 `frontend/src/stores/workflowStore.ts` 中 `NODE_TYPE_CONFIGS` 追加：
-```typescript
-{
-  type: 'my_new_condition',
-  label: '我的新条件',
-  subType: 'my_new_condition',
-  category: 'condition',
-  icon: '🔥',
-  color: '#f97316',
-  description: '当满足某条件时触发',
-  defaultParams: { threshold: 100 }
-}
-```
-
-### 3.2 添加新的动作 (Action)
-在 `models/alert_rules.py` 中注册：
-```python
-from etc_sim.models.alert_rules import Action, register_action
-
-@register_action('my_action')
-class MyAction(Action):
-    def execute(self, context: AlertContext, event: AlertEvent):
-        logger.info(f"执行动作: {event.description}")
-        # 功能逻辑
-```
-
-前端节点配置方法与 Condition 相同。
+- 后端优先看 `etc_sim/backend/main.py` 的路由挂载和异常处理。
+- 仿真逻辑优先看 `etc_sim/simulation/engine.py` 的 `step()` 和 `export_to_dict()`。
+- 跟驰和换道问题优先看 `etc_sim/core/car_following.py` 与 `etc_sim/core/lane_change.py`。
+- 历史存储问题优先看 `etc_sim/backend/services/run_repository.py`、`storage.py` 和 `trajectory_storage.py`。
+- 前端页面问题优先看 `etc_sim/frontend/src/App.tsx` 和对应页面组件。
 
 ---
 
-## 4. 前端开发与分析数据流
+## 6. 约束
 
-### 4.1 新增前端页面
-1. 在 `frontend/src/components/pages/` 创建 `MyPage.tsx`
-2. 在 `App.tsx` 的 `navItems` 中注册路由组件
-
-### 4.2 交互式分析数据流机制
-当仿真结束后，前端 `SimulationEngine` 会将原始数据对象存入 `simStore.statistics`：
-- `segmentBoundaries`: 路段边界
-- `segmentSpeedHistory`: 时、流、速、密矩阵序列
-- `sampledTrajectory`: 采样的车辆单车运行数据（供微观展示）
-
-如果新增分析图表，应从 Zustand store 中通过 Selector 获取所需切片，避免订阅整个 Store 以保障性能：
-```typescript
-// ✅ 最佳实践：只订阅关心的切片
-const nodes = useWorkflowStore(state => state.nodes);
-```
-
-### 4.3 样式系统
-使用项目标准的玻璃态组件和全局 CSS 变量体系：
-```css
---bg-base: #0a0e1a
---text-primary: #e5e7eb
---accent-blue: #60a5fa
-```
-HTML JSX 中请使用如 `className="glass-card"` 获取基础磨砂半透明质感容器。
-
----
-
-## 5. 测试与调试指南
-
-### 5.1 后端调试
-可以在重要路径打印 Logger 信息。通过终端直接调用测试入口：
-```bash
-# 测试特定模型模块
-python -c "from etc_sim.models import create_default_rules; print(create_default_rules())"
-```
-
-### 5.2 前端 WebSocket 调试
-如果需要监听后端实时推送的快照，直接在浏览器 Console 捕获：
-```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/simulation/test');
-ws.addEventListener('message', e => console.log(JSON.parse(e.data)));
-```
-
----
-
-**开源许可**
-MIT License
+- 代码和文档必须同步更新。
+- 不要把未实现的模型写进文档。
+- 新接口优先复用现有目录和数据结构，避免再引入一套并行概念。
