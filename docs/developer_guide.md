@@ -1,43 +1,37 @@
 # 开发者指南
 
-本文档只保留当前仓库里真正可用的开发、扩展和调试方式。
+本文档用于说明这个仓库当前的开发入口、目录分工和扩展落点。内容只保留与源码直接相关的部分。
 
----
+## 1. 开发环境
 
-## 1. 环境准备
-
-当前推荐使用 Conda。
-
-### 后端与仿真
+仓库的推荐环境是 Conda，Windows 侧优先使用 `low_numpy`：
 
 ```bash
 conda env create -f etc_sim/environment.yml
 conda activate low_numpy
 ```
 
-`environment.yml` 里已经包含 Python 3.11 和 Node.js 20。若环境已存在，可直接激活。
+`environment.yml` 中当前的关键版本是：
 
-### 前端依赖
+- Python 3.11
+- Node.js 20
+- `pip install -r requirements.txt`
+
+前端依赖：
 
 ```bash
 cd etc_sim/frontend
 npm install
 ```
 
----
-
 ## 2. 启动方式
 
 ### 2.1 一键启动
 
-Windows 下优先使用 [etc_sim/start.bat](../etc_sim/start.bat)。
+- Windows：`etc_sim/start.bat`
+- Linux / macOS：`etc_sim/start.sh`
 
-它会：
-
-1. 检查 Node.js。
-2. 使用 `low_numpy` 环境启动后端。
-3. 安装前端依赖。
-4. 启动 Vite 开发服务器。
+脚本会先启动后端，再启动前端开发服务器。
 
 ### 2.2 手动启动
 
@@ -48,10 +42,10 @@ cd etc_sim
 python main.py
 ```
 
-或者：
+或者直接运行 Web 服务：
 
 ```bash
-uvicorn etc_sim.backend.main:app --host 0.0.0.0 --port 8000
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 前端：
@@ -61,75 +55,91 @@ cd etc_sim/frontend
 npm run dev
 ```
 
----
+## 3. 目录分工
 
-## 3. 目录职责
+### 3.1 后端
 
-- `etc_sim/simulation/`
-  - 仿真主循环、车辆投放和引擎入口。
-- `etc_sim/core/`
-  - IDM、MOBIL、车辆对象等底层机制。
-- `etc_sim/models/`
-  - 告警规则、异常检测、环境模型、特征提取和预测相关模型。
-- `etc_sim/road/`
-  - 路网、路段、门架和拓扑结构。
-- `etc_sim/backend/`
-  - FastAPI 路由、历史运行、文件服务、图表、工作流和预测接口。
-- `etc_sim/frontend/`
-  - 页面、图表、状态管理和可视化引擎。
+- `backend/main.py`
+  FastAPI 主入口，负责挂载路由、初始化 WebSocket 和存储服务。
+- `backend/api/`
+  所有 REST 和 WebSocket 路由。
+- `backend/core/`
+  WebSocket 管理器等核心运行组件。
+- `backend/services/`
+  存储、运行仓储、轨迹编码等基础服务。
+- `backend/models/`
+  接口 schema、数据库和请求响应模型。
+- `backend/plotter.py`
+  图表生成逻辑，和 `charts`、`speed_profile` 等可视化功能相关。
 
----
+### 3.2 仿真核心
 
-## 4. 常见扩展点
+- `simulation/`
+  仿真主循环与车辆投放。
+- `core/`
+  车辆、跟驰、换道等微观模型。
+- `road/`
+  路网、路段和门架结构。
+- `models/`
+  异常检测、环境、告警规则、特征提取等分析模型。
+- `config/`
+  仿真参数与默认配置。
+- `utils/`
+  空间索引、日志和工具函数。
 
-### 4.1 新增后端接口
+### 3.3 前端
 
-1. 在 `etc_sim/backend/api/` 下新增路由文件。
-2. 在 `etc_sim/backend/main.py` 中挂载 `include_router`。
-3. 如果返回结构会被前端使用，补充对应的 TypeScript 类型。
-4. 更新 [docs/system_working_principles.md](./system_working_principles.md) 的 API 索引。
+- `frontend/src/App.tsx`
+  一级页面路由和导航。
+- `frontend/src/components/pages/`
+  页面级组件。
+- `frontend/src/components/`
+  复用面板、图表、编辑器和屏幕组件。
+- `frontend/src/stores/`
+  Zustand 状态管理。
+- `frontend/src/engine/`
+  前端侧仿真或回放辅助逻辑。
 
-### 4.2 新增仿真参数
+## 4. 新增功能的落点
 
-1. 在 `etc_sim/config/parameters.py` 中添加字段。
-2. 在 `to_dict()` 和 `from_dict()` 路径里同步。
-3. 若参数影响结果文件或历史摘要，更新存储文档。
-4. 若参数影响前端展示，补充页面说明或控件说明。
+### 4.1 新增后端 API
 
-### 4.3 新增告警规则或工作流节点
+1. 在 `backend/api/` 新建模块。
+2. 在 `backend/main.py` 中注册路由前缀。
+3. 如果接口会被前端复用，再同步更新 `frontend/src/config/api.ts` 或相关调用点。
 
-1. 后端规则逻辑放在 `etc_sim/models/`。
-2. 工作流路由和规则文件逻辑放在 `etc_sim/backend/api/workflows.py`。
-3. 前端节点定义放在 `etc_sim/frontend/src/stores/workflowStore.ts` 和对应组件里。
-4. 如规则影响仿真结果导出，需要同步 `SimulationEngine.export_to_dict()`。
+### 4.2 新增页面
 
-### 4.4 新增图表
+1. 在 `frontend/src/components/pages/` 新建页面组件。
+2. 在 `frontend/src/App.tsx` 的导航配置中注册路由。
+3. 如果页面依赖全局状态，再在 `stores/` 中增加最小必要切片。
 
-1. 在 `etc_sim/backend/api/charts.py` 注册图表元数据。
-2. 在 `etc_sim/backend/plotter.py` 增加生成函数。
-3. 在前端新增或复用图表组件。
-4. 确保图表名称、说明和前端入口一致。
+### 4.3 新增模型
 
-### 4.5 新增页面
+1. 如果是交通机理，优先放在 `core/`、`simulation/` 或 `models/`。
+2. 如果是规则和告警，优先放在 `models/alert_*` 或 `models/alert_conditions*`。
+3. 如果是图表派生逻辑，优先放在 `backend/plotter.py` 或 `backend/api/charts.py`。
 
-1. 在 `etc_sim/frontend/src/components/pages/` 创建页面组件。
-2. 在 `etc_sim/frontend/src/App.tsx` 注册路由。
-3. 若页面面向客户展示，也要补充 [docs/presentation_script.md](./presentation_script.md)。
+## 5. 测试与验证
 
----
+### 5.1 后端
 
-## 5. 调试建议
+- `python main.py`
+- `python -m pytest` 或仓库已有的单测文件
 
-- 后端优先看 `etc_sim/backend/main.py` 的路由挂载和异常处理。
-- 仿真逻辑优先看 `etc_sim/simulation/engine.py` 的 `step()` 和 `export_to_dict()`。
-- 跟驰和换道问题优先看 `etc_sim/core/car_following.py` 与 `etc_sim/core/lane_change.py`。
-- 历史存储问题优先看 `etc_sim/backend/services/run_repository.py`、`storage.py` 和 `trajectory_storage.py`。
-- 前端页面问题优先看 `etc_sim/frontend/src/App.tsx` 和对应页面组件。
+当前仓库里已经存在的测试包括：
 
----
+- `backend/test_plotter_speed_profile.py`
+- `backend/test_plotter_exclusivity.py`
+- `backend/services/test_trajectory_storage.py`
 
-## 6. 约束
+### 5.2 前端
 
-- 代码和文档必须同步更新。
-- 不要把未实现的模型写进文档。
-- 新接口优先复用现有目录和数据结构，避免再引入一套并行概念。
+- `npm run build`
+- 关键页面手工检查
+
+### 5.3 变更原则
+
+- 不要在文档里写未挂载页面是主流程。
+- 不要把旧环境名写成当前事实。
+- 新增内容优先保持模块边界清晰，避免把规则、图表、回放和存储逻辑混在一个文件里。
