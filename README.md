@@ -21,6 +21,20 @@
 
 ---
 
+## 界面展示
+
+| **实时仿真可视化** | **仿真统计与分析** |
+| :---: | :---: |
+| ![实时仿真可视化](./docs/assets/screenshots/visual_playback.png) | ![仿真统计与分析](./docs/assets/screenshots/simulation_statistics.png) |
+| **可视化工作流编辑器** | **场景参数构建器** |
+| ![可视化工作流编辑器](./docs/assets/screenshots/workflow_editor.png) | ![场景参数构建器](./docs/assets/screenshots/scenario_builder.png) |
+| **时序预测智能工作台** | **路网与路径编辑** |
+| ![时序预测智能工作台](./docs/assets/screenshots/time_series_workbench.png) | ![路网与路径编辑](./docs/assets/screenshots/route_editor.png) |
+| **文件与历史记录管理** | **仿真控制与脚本编辑** |
+| ![文件管理](./docs/assets/screenshots/file_management.png) | ![脚本编辑](./docs/assets/screenshots/script_editor.png) |
+
+---
+
 ## 快速开始
 
 本项目包含了大量科学计算和分析包（如 numpy、scipy、matplotlib、pandas 等）。推荐使用 **Conda** 进行环境隔离：

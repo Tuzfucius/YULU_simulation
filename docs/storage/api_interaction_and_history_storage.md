@@ -192,3 +192,9 @@ data/simulations/run_xxx/
 2. 让 `summary.json` 和 `manifest.json` 维持向后兼容。
 3. 让新回放和分析接口优先读 `run_id`。
 4. 最后再逐步减少旧文件式接口的使用范围。
+## 8. 读取建议
+
+- 列表页优先读 `summary.json`
+- 回放页优先读 `manifest.json` 和轨迹分块
+- 分析页优先读 `runs` 接口的聚合结果
+- 老页面才继续走 `files` 路径接口
