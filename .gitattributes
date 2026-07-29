@@ -1,13 +1,14 @@
-# 文本文件使用 CRLF 换行符
-*.py text eol=crlf
-*.md text eol=crlf
-*.ipynb text eol=crlf
-*.txt text eol=crlf
-*.csv text eol=crlf
+# Normalize source files to LF. Windows command scripts retain CRLF.
+* text=auto eol=lf
 
-# 二进制文件不转换
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets must never be line-ending converted.
 *.png binary
 *.gif binary
 *.jpg binary
+*.jpeg binary
 *.ico binary
 *.pdf binary
