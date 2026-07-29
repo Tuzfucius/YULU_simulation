@@ -5,6 +5,8 @@ be imported by API modules and regression tests without initializing the full
 application.
 """
 
+from __future__ import annotations
+
 from pathlib import PurePosixPath
 import re
 
