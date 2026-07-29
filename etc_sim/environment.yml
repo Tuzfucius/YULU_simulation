@@ -1,4 +1,4 @@
-name: low_numpy
+name: yulu-sim
 channels:
   - conda-forge
   - defaults
