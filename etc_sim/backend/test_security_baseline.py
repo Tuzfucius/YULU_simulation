@@ -20,7 +20,7 @@ class PathValidationTests(unittest.TestCase):
     def test_rejects_absolute_and_invalid_paths(self):
         self.assertTrue(is_unsafe_relative_path("/etc/passwd"))
         self.assertTrue(is_unsafe_relative_path(r"C:\Windows\system.ini"))
-        self.assertTrue(is_unsafe_relative_path("safe\x00unsafe".replace("\\x00", "\x00")))
+        self.assertTrue(is_unsafe_relative_path("safe" + chr(0) + "unsafe"))
 
 
 class RouteRegistrationTests(unittest.TestCase):
