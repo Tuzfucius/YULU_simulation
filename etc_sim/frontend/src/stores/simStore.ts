@@ -6,7 +6,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-// 仿真配置（用于 UI 显示，实际使用引擎配置）
+// 仿真配置（用于 UI 显示，正式后端配置由 Python SimulationConfig 校验）
 export interface SimulationConfig {
     roadLengthKm: number;
     numLanes: number;
@@ -21,6 +21,7 @@ export interface SimulationConfig {
     simulationDt: number;
     trajectorySampleInterval: number;
     maxSimulationTime: number;
+    randomSeed: number;
 
     // Advanced Traffic Params
     aggressiveRatio: number;
@@ -54,17 +55,16 @@ export interface SimulationConfig {
     gradualStop?: boolean;
 
     // 自定义路径（路网配置组件写入）
-    customRoadPath?: string;           // 已选择的自定义路径文件名
-    customRoadLengthKm?: number;       // 实际计算的路径总里程
-    customGantryPositionsKm?: number[]; // 门架里程位置列表
-    customRamps?: any[];               // 自定义路网匝道配置
+    customRoadPath?: string;
+    customRoadLengthKm?: number;
+    customGantryPositionsKm?: number[];
+    customRamps?: any[];
 
     // Data Quality & Noise
     enableNoise: boolean;
     speedVariance: number;
     dropRate: number;
 }
-
 
 export interface SimulationProgress {
     currentTime: number;
@@ -75,7 +75,6 @@ export interface SimulationProgress {
     activeAnomalies: number;
 }
 
-// 图表数据结构
 interface ChartDataPoint {
     time: number;
     value: number;
@@ -86,10 +85,9 @@ export interface ChartData {
     speedHistory: ChartDataPoint[];
     flowHistory: ChartDataPoint[];
     densityHistory: ChartDataPoint[];
-    [key: string]: ChartDataPoint[];  // 允许扩展
+    [key: string]: ChartDataPoint[];
 }
 
-// 日志条目
 export interface LogEntry {
     id: string;
     level: string;
@@ -173,9 +171,8 @@ export interface SimulationData {
     };
 }
 
-
 const defaultConfig: SimulationConfig = {
-    roadLengthKm: 10,
+    roadLengthKm: 20,
     numLanes: 4,
     laneWidth: 3.5,
     etcGateIntervalKm: 2,
@@ -183,11 +180,12 @@ const defaultConfig: SimulationConfig = {
     carRatio: 0.60,
     truckRatio: 0.25,
     busRatio: 0.15,
-    anomalyRatio: 0.01, // Default lowered to 1% as requested
+    anomalyRatio: 0.01,
     anomalyStartTime: 200,
     simulationDt: 1.0,
     trajectorySampleInterval: 2,
-    maxSimulationTime: 3000,
+    maxSimulationTime: 3900,
+    randomSeed: 42,
 
     // Advanced defaults
     aggressiveRatio: 0.20,
@@ -196,13 +194,13 @@ const defaultConfig: SimulationConfig = {
     vehicleSafeRunTime: 200,
     laneChangeDelay: 2.0,
     impactThreshold: 0.90,
-    impactDiscoverDist: 200,
+    impactDiscoverDist: 150,
 
     // Anomaly Ratios & Durations
     anomalyProbType1: 0.10,
     anomalyProbType2: 0.45,
     anomalyProbType3: 0.45,
-    anomalyDurationType1: 120, // 2 mins default
+    anomalyDurationType1: 120,
 
     // Data Quality & Noise Default
     enableNoise: false,
@@ -214,7 +212,7 @@ const defaultConfig: SimulationConfig = {
 
 const defaultProgress: SimulationProgress = {
     currentTime: 0,
-    totalTime: 3000,
+    totalTime: 3900,
     progress: 0,
     activeVehicles: 0,
     completedVehicles: 0,
@@ -296,10 +294,9 @@ export const useSimStore = create<SimState>()(
         {
             name: 'sim-config',
             partialize: (state) => ({ config: state.config }),
-            version: 1,
+            version: 2,
             merge: (persistedState: unknown, currentState) => {
                 const persisted = persistedState as Partial<SimState> | null;
-                // Deep merge persisted config with default config to ensure new fields are present
                 if (!persisted || !persisted.config) {
                     return currentState;
                 }
