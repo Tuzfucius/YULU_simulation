@@ -25,8 +25,14 @@ function Resolve-CondaExecutable {
     $candidates = @(
         "$env:USERPROFILE\anaconda3\Scripts\conda.exe",
         "$env:USERPROFILE\miniconda3\Scripts\conda.exe",
+        "$env:LOCALAPPDATA\anaconda3\Scripts\conda.exe",
+        "$env:LOCALAPPDATA\miniconda3\Scripts\conda.exe",
         "$env:ProgramData\anaconda3\Scripts\conda.exe",
-        "$env:ProgramData\miniconda3\Scripts\conda.exe"
+        "$env:ProgramData\miniconda3\Scripts\conda.exe",
+        'D:\Anaconda3\Scripts\conda.exe',
+        'D:\Miniconda3\Scripts\conda.exe',
+        'E:\Anaconda3\Scripts\conda.exe',
+        'E:\Miniconda3\Scripts\conda.exe'
     )
 
     foreach ($candidate in $candidates) {
@@ -36,6 +42,37 @@ function Resolve-CondaExecutable {
     }
 
     throw 'Conda executable was not found. Set CONDA_EXE or run from Anaconda Prompt.'
+}
+
+function Test-YuluEnvironment {
+    param(
+        [string]$CondaExecutable,
+        [string]$EnvironmentName,
+        [bool]$CheckFrontend
+    )
+
+    & $CondaExecutable run -n $EnvironmentName python -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 11) else 1)" *> $null
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+
+    & $CondaExecutable run -n $EnvironmentName python -c "import fastapi, pydantic, numpy, uvicorn; import etc_sim.backend.main; import etc_sim.simulation.engine" *> $null
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+
+    if ($CheckFrontend) {
+        & $CondaExecutable run -n $EnvironmentName node --version *> $null
+        if ($LASTEXITCODE -ne 0) {
+            return $false
+        }
+        & $CondaExecutable run -n $EnvironmentName npm --version *> $null
+        if ($LASTEXITCODE -ne 0) {
+            return $false
+        }
+    }
+
+    return $true
 }
 
 $Conda = Resolve-CondaExecutable
@@ -53,12 +90,25 @@ if (-not $environmentExists) {
     }
 }
 
-& $Conda run -n $EnvName python -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 11) else 1)"
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[SETUP] Updating $EnvName to Python 3.11 and repository dependencies"
+$environmentReady = Test-YuluEnvironment `
+    -CondaExecutable $Conda `
+    -EnvironmentName $EnvName `
+    -CheckFrontend (-not $NoFrontend)
+
+if (-not $environmentReady) {
+    Write-Host "[SETUP] Repairing $EnvName from the repository environment definition"
     & $Conda env update -n $EnvName -f $EnvironmentFile --prune
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to update Conda environment $EnvName"
+    }
+
+    $environmentReady = Test-YuluEnvironment `
+        -CondaExecutable $Conda `
+        -EnvironmentName $EnvName `
+        -CheckFrontend (-not $NoFrontend)
+
+    if (-not $environmentReady) {
+        throw "Environment $EnvName still fails version or dependency checks after repair"
     }
 }
 
