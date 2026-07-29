@@ -1,23 +1,25 @@
-# ETC 交通仿真系统 (ETC Traffic Simulation)
+# ETC 交通仿真系统（ETC Traffic Simulation）
 
-高速公路 ETC 车流仿真、预警规则引擎与微观异常分析平台
+高速公路 ETC 车流仿真、预警规则引擎与微观异常分析平台。
+
+> 维护状态：项目正在进行恢复性维护。当前阶段优先修复安全边界、启动流程和仿真正确性，暂不继续扩展新功能。
 
 ## 项目简介
 
-本项目是一个基于 IDM（智能驾驶员模型）和 MOBIL 换道模型的高速公路交通仿真系统。不仅支持多种车辆模型、气候与坡度影响，还囊括了可视化的事件预警规则引擎及基于 FastAPI + React 的现代化响应式界面。它能够精准模拟车辆在交通突发事件中的激波反应、延误与拥堵恢复表现。
+本项目基于 IDM（智能驾驶员模型）和 MOBIL 换道模型构建高速公路交通仿真系统，支持车辆类型、驾驶风格、天气、坡度、异常事件和 ETC 门架等场景配置，并提供 FastAPI + React 的可视化界面、规则引擎、历史回放与分析能力。
 
 ---
 
 ## 功能特性
 
-| 特点核心 | 详情描述 |
-| ------ | ------ |
+| 核心能力 | 说明 |
+| --- | --- |
 | 🚗 **实时仿真可视化** | Canvas 渲染道路、车辆和 ETC 门架，支持动态极速模式与自适应时间控制 |
-| 🔔 **智能预警规则引擎** | 可配置条件-动作规则，支持 9 种评估条件与 4 种输出动作 |
-| 🎨 **可视化工作流编辑器** | React Flow 拖拽式规则设计，并支持模型参数阈值优化网格搜索 |
-| 📊 **16种专业分析图表** | 时空图、基本图、拥堵恢复恢复过程图、车流微观画像等 |
-| ⚙️ **微观场景自定义** | 支持自定义车流构成、驾驶风格（普通/激进/保守），天气与长上坡效应 |
-| 交互式区间分析 | 交互式展示特定区间的速度、流量、密度趋势以及车辆轨迹散点图 |
+| 🔔 **预警规则引擎** | 可配置条件—动作规则，支持多种评估条件和输出动作 |
+| 🎨 **可视化工作流编辑器** | 使用 React Flow 构建和调整预警链路 |
+| 📊 **专业分析图表** | 提供时空图、基本图、拥堵恢复过程和车流微观画像等分析视图 |
+| ⚙️ **微观场景配置** | 支持车流构成、驾驶风格、天气、坡度和自定义路网 |
+| 🔍 **交互式区间分析** | 展示指定区间的速度、流量、密度趋势及车辆轨迹 |
 
 ---
 
@@ -28,89 +30,144 @@
 | ![实时仿真可视化](./docs/assets/screenshots/visual_playback.png) | ![仿真统计与分析](./docs/assets/screenshots/simulation_statistics.png) |
 | **可视化工作流编辑器** | **场景参数构建器** |
 | ![可视化工作流编辑器](./docs/assets/screenshots/workflow_editor.png) | ![场景参数构建器](./docs/assets/screenshots/scenario_builder.png) |
-| **时序预测智能工作台** | **路网与路径编辑** |
-| ![时序预测智能工作台](./docs/assets/screenshots/time_series_workbench.png) | ![路网与路径编辑](./docs/assets/screenshots/route_editor.png) |
-| **文件与历史记录管理** | **仿真控制与脚本编辑** |
-| ![文件管理](./docs/assets/screenshots/file_management.png) | ![脚本编辑](./docs/assets/screenshots/script_editor.png) |
+| **时序预测工作台** | **路网与路径编辑** |
+| ![时序预测工作台](./docs/assets/screenshots/time_series_workbench.png) | ![路网与路径编辑](./docs/assets/screenshots/route_editor.png) |
+| **文件与历史记录管理** |  |
+| ![文件管理](./docs/assets/screenshots/file_management.png) |  |
 
 ---
 
+## 环境要求
+
+项目统一使用以下开发环境：
+
+- Conda：Miniconda 或 Anaconda
+- Python 3.11
+- Node.js 20（由 Conda 环境安装）
+- Conda 环境名：`yulu-sim`
+
 ## 快速开始
 
-本项目包含了大量科学计算和分析包（如 numpy、scipy、matplotlib、pandas 等）。推荐使用 **Conda** 进行环境隔离：
+### 1. 一键启动（推荐）
 
-### 1. 自动启动（推荐）
+#### Windows
 
-#### Windows 用户
-只需在 etc_sim 文件夹下双击执行 `start.bat`。（或者在命令行运行 `cd etc_sim && start.bat`）。
-它会自动创建 `etc_sim` Conda 虚拟环境、拉取后端运行包、初始化前端模块依赖，并同步启动首尾服务。
+```bat
+cd etc_sim
+start.bat
+```
 
-#### Linux / MacOS 用户
+也可以直接双击 `etc_sim/start.bat`。脚本会在缺少环境时根据 `environment.yml` 创建 `yulu-sim`，安装前端依赖，并依次启动 FastAPI 后端和 Vite 前端。
+
+#### Linux / macOS
+
 ```bash
 cd etc_sim
 chmod +x start.sh
 ./start.sh
 ```
 
-### 2. 手动独立启动
+脚本会启动后端、等待 `/health` 健康检查通过，然后启动前端；退出脚本时会同步关闭后端进程。
 
-**2.1 环境配置：**
+### 2. 手动启动
+
+#### 创建环境
+
+在仓库根目录执行：
+
 ```bash
-conda create -n etc_sim python=3.13 -y
-conda activate etc_sim
-pip install -r etc_sim/requirements.txt
+conda env create -f etc_sim/environment.yml
+conda activate yulu-sim
 ```
 
-**2.2 启动 FastAPI 后端：**
+环境已经存在时，无需重复创建。
+
+#### 启动 FastAPI 后端
+
+在仓库根目录执行：
+
 ```bash
-cd etc_sim
-python main.py
-# 或以 uvicorn 方式：uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+conda activate yulu-sim
+python -m uvicorn etc_sim.backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**2.3 启动 Vite React 前端：**
+API 文档地址：`http://127.0.0.1:8000/api/docs`。
+
+#### 启动 Vite React 前端
+
+在另一个终端执行：
+
 ```bash
+conda activate yulu-sim
 cd etc_sim/frontend
-npm install
+npm ci
 npm run dev
 ```
-之后在浏览器中打开: `http://localhost:3000`
+
+浏览器访问：`http://localhost:3000`。
+
+### 3. 运行离线 CLI 仿真
+
+`etc_sim/main.py` 是离线仿真入口，不是 Web 后端入口：
+
+```bash
+conda activate yulu-sim
+python -m etc_sim.main
+```
+
+导出默认配置：
+
+```bash
+python -m etc_sim.main --json
+```
+
+---
+
+## 安全说明
+
+恢复维护期间，后端已经停用以下旧功能：
+
+- 通过 API 执行任意 Python 代码；
+- 通过 API 创建、删除 Conda 环境；
+- 通过 API 安装任意 pip 包；
+- 文件管理模块中的脚本读取、修改和执行接口。
+
+这些功能原先直接使用宿主机权限运行，缺少鉴权与隔离，不应在局域网或公网服务中开放。后续如重新引入脚本分析，必须使用独立低权限容器或进程沙箱。
 
 ---
 
 ## 预警规则引擎
 
-引擎采用三层架构：`条件原子 → 规则组合 → 动作输出`。在前端的 `/workflow` 可视化工作流界面，您可以自由构建和拖拽您的告警链路。
+引擎采用 `条件原子 → 规则组合 → 动作输出` 的三层结构。前端 `/workflow` 页面用于构建和调整告警链路。
 
-预置规则包含例如：**拥堵检测、疑似事故预警、严重排队、ETC漏读异常、恶劣天气限速**。利用 `/evaluation` 页面，评估器将使用 F1 Score、Precision、Recall 等数据去匹配历史时空真值并优化最佳检视阈值。
+预置规则包括拥堵检测、疑似事故预警、严重排队、ETC 漏读异常和恶劣天气限速等。评估模块可以使用 Precision、Recall 和 F1 Score 等指标对规则阈值进行分析。
 
 ---
 
-## 文档指引与系统架构
+## 文档与目录
 
-详细系统内建指南与物理模型文档，已分类存放在 `docs/` 目录下。
+- [开发者指南](./docs/developer_guide.md)
+- [仿真物理机制](./docs/simulation_mechanics.md)
+- [系统工作原理](./docs/system_workflow.md)
 
-- 📖 **[API 及开发者指南 (Developer Guide)](./docs/developer_guide.md)**
-  涵盖项目配置约定、图表扩展、条件原子的编码修改方案以及系统各依赖组件结构与通信流。
-- ⚙️ **[仿真物理机制 (Simulation Mechanics)](./docs/simulation_mechanics.md)**
-  详细阐述 IDM 和 MOBIL 模型的底层运动学公式、动态边界检测算法原理，以及幽灵堵车（Phantom Traffic Jam）和天气干预系统的影响链路。
-
-| 目录结构概览 | |
+| 目录 | 作用 |
 | --- | --- |
-| `docs/` | 详细底层算法解释与开发者开发约定 |
-| `etc_sim/backend/` | Python FastAPI 图表 API 与数据服务层 |
-| `etc_sim/frontend/` | React 界面、可视化图表集与 Zustand 管理 |
-| `etc_sim/models/` | 预警引擎、特征评估器、时空窗检测器 |
-| `etc_sim/simulation/` | IDM 跟驰模拟物理引擎 |
+| `docs/` | 系统架构、物理模型和开发约定 |
+| `etc_sim/backend/` | FastAPI 接口、WebSocket 和数据服务 |
+| `etc_sim/frontend/` | React 页面、图表和 Zustand 状态管理 |
+| `etc_sim/models/` | 预警、环境、特征与异常分析模型 |
+| `etc_sim/simulation/` | Python 仿真主循环 |
+| `etc_sim/core/` | 车辆、IDM 跟驰和 MOBIL 换道模型 |
 
 ---
 
-## 结果导出形式
-- **UI 可视化**：分析面板提供 16 种图层预览
-- **JSON 支持**：`data/results/run_YYYYMMDD_HHMM.json` 保存每次参数运行的细节。
-- **CSV 输出**：可用于后续导入任何离线建模训练库进行分析。
+## 结果导出
+
+- UI 可视化：分析面板展示仿真和历史运行结果；
+- JSON：Web 运行记录保存在 `etc_sim/data/simulations/<run_id>/`；
+- CLI JSON：离线结果保存在 `etc_sim/data/results/`；
+- CSV：部分结果可导出用于离线分析。
 
 ---
 
-**License**
-MIT
+**License：MIT**
