@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import math
-import sys
 import traceback
 from typing import Any, Dict, List
 
@@ -54,8 +53,15 @@ def main() -> int:
         f"current_time={engine.current_time}, max={config.max_simulation_time}",
     )
 
+    _record(
+        checks,
+        "trajectory-not-empty",
+        bool(engine.trajectory_data),
+        f"records={len(engine.trajectory_data)}",
+    )
+
     sampled_times = sorted({float(item["time"]) for item in engine.trajectory_data})
-    sampling_aligned = all(
+    sampling_aligned = bool(sampled_times) and all(
         math.isclose(
             sample_time / config.trajectory_sample_interval,
             round(sample_time / config.trajectory_sample_interval),
@@ -82,12 +88,14 @@ def main() -> int:
         "driver_style",
         "is_affected",
     }
-    trajectory_shape_ok = all(trajectory_keys.issubset(item) for item in engine.trajectory_data)
+    trajectory_shape_ok = bool(engine.trajectory_data) and all(
+        trajectory_keys.issubset(item) for item in engine.trajectory_data
+    )
     _record(
         checks,
         "trajectory-schema",
         trajectory_shape_ok,
-        f"frames={len(engine.trajectory_data)}",
+        f"records={len(engine.trajectory_data)}",
     )
 
     try:
