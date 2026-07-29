@@ -15,8 +15,14 @@ if not exist "%CONDA_EXE_PATH%" (
 
 if not exist "%CONDA_EXE_PATH%" if exist "%USERPROFILE%\anaconda3\Scripts\conda.exe" set "CONDA_EXE_PATH=%USERPROFILE%\anaconda3\Scripts\conda.exe"
 if not exist "%CONDA_EXE_PATH%" if exist "%USERPROFILE%\miniconda3\Scripts\conda.exe" set "CONDA_EXE_PATH=%USERPROFILE%\miniconda3\Scripts\conda.exe"
+if not exist "%CONDA_EXE_PATH%" if exist "%LOCALAPPDATA%\anaconda3\Scripts\conda.exe" set "CONDA_EXE_PATH=%LOCALAPPDATA%\anaconda3\Scripts\conda.exe"
+if not exist "%CONDA_EXE_PATH%" if exist "%LOCALAPPDATA%\miniconda3\Scripts\conda.exe" set "CONDA_EXE_PATH=%LOCALAPPDATA%\miniconda3\Scripts\conda.exe"
 if not exist "%CONDA_EXE_PATH%" if exist "%ProgramData%\anaconda3\Scripts\conda.exe" set "CONDA_EXE_PATH=%ProgramData%\anaconda3\Scripts\conda.exe"
 if not exist "%CONDA_EXE_PATH%" if exist "%ProgramData%\miniconda3\Scripts\conda.exe" set "CONDA_EXE_PATH=%ProgramData%\miniconda3\Scripts\conda.exe"
+if not exist "%CONDA_EXE_PATH%" if exist "D:\Anaconda3\Scripts\conda.exe" set "CONDA_EXE_PATH=D:\Anaconda3\Scripts\conda.exe"
+if not exist "%CONDA_EXE_PATH%" if exist "D:\Miniconda3\Scripts\conda.exe" set "CONDA_EXE_PATH=D:\Miniconda3\Scripts\conda.exe"
+if not exist "%CONDA_EXE_PATH%" if exist "E:\Anaconda3\Scripts\conda.exe" set "CONDA_EXE_PATH=E:\Anaconda3\Scripts\conda.exe"
+if not exist "%CONDA_EXE_PATH%" if exist "E:\Miniconda3\Scripts\conda.exe" set "CONDA_EXE_PATH=E:\Miniconda3\Scripts\conda.exe"
 
 cls
 echo ========================================
