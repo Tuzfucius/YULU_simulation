@@ -28,6 +28,7 @@ build/
 # Project specific data and output
 output/
 data/
+reports/
 模拟车流.ipynb
 **/output/
 **/data/
