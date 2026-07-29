@@ -9,6 +9,7 @@ import { persist } from 'zustand/middleware';
 // 仿真配置（用于 UI 显示，正式后端配置由 Python SimulationConfig 校验）
 export interface SimulationConfig {
     roadLengthKm: number;
+    segmentLengthKm: number;
     numLanes: number;
     laneWidth: number;
     etcGateIntervalKm: number;
@@ -173,6 +174,7 @@ export interface SimulationData {
 
 const defaultConfig: SimulationConfig = {
     roadLengthKm: 20,
+    segmentLengthKm: 2,
     numLanes: 4,
     laneWidth: 3.5,
     etcGateIntervalKm: 2,
@@ -249,7 +251,16 @@ export const useSimStore = create<SimState>()(
         (set) => ({
             config: defaultConfig,
             setConfig: (partial: Partial<SimulationConfig>) =>
-                set((state: SimState) => ({ config: { ...state.config, ...partial } })),
+                set((state: SimState) => {
+                    const normalizedPartial: Partial<SimulationConfig> = { ...partial };
+                    if (partial.etcGateIntervalKm !== undefined && partial.segmentLengthKm === undefined) {
+                        normalizedPartial.segmentLengthKm = partial.etcGateIntervalKm;
+                    }
+                    if (partial.segmentLengthKm !== undefined && partial.etcGateIntervalKm === undefined) {
+                        normalizedPartial.etcGateIntervalKm = partial.segmentLengthKm;
+                    }
+                    return { config: { ...state.config, ...normalizedPartial } };
+                }),
             resetConfig: () => set({ config: defaultConfig }),
 
             isRunning: false,
