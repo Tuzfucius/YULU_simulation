@@ -101,6 +101,17 @@ def _read_workflow_file(path: Path) -> dict:
         raise HTTPException(status_code=500, detail="工作流文件格式错误") from exc
 
 
+def load_rule_snapshot(workflow_id: str | None) -> tuple[str | None, list[dict]]:
+    """Return an isolated, validated rule snapshot for one simulation session."""
+    if workflow_id is None:
+        return None, [rule.to_dict() for rule in create_default_rules()]
+
+    payload = _read_workflow_file(_workflow_path(workflow_id))
+    rules = [RuleModel.model_validate(rule).model_dump() for rule in payload.get("rules", [])]
+    validated = [AlertRule.from_dict(rule).to_dict() for rule in rules]
+    return _sanitize_workflow_name(workflow_id), validated
+
+
 def _open_folder_in_explorer(path: Path):
     folder = path if path.is_dir() else path.parent
     if os.name == "nt":

@@ -31,7 +31,7 @@ from etc_sim.backend.services.storage import StorageService
 from etc_sim.config.parameters import SimulationConfig
 from etc_sim.simulation.engine import SimulationEngine, SimulationStepStatus
 # ?????????????????????????
-from etc_sim.backend.api.workflows import _standalone_engine as workflow_engine
+from etc_sim.backend.api.workflows import load_rule_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,9 @@ class SimulationSession:
         self.session_id = session_id
         self.websocket = websocket
         self.config: Optional[SimulationConfig] = None
+        self.workflow_id: Optional[str] = None
+        self.rule_snapshot: list[dict] = []
+        self.status = "initialized"
         self.is_running = False
         self.is_paused = False
         self.current_time = 0.0
@@ -128,25 +131,12 @@ class WebSocketManager:
     """Coordinate simulation sessions over WebSocket."""
     
     def __init__(self, storage_service: Optional[StorageService] = None):
-        self.connection_manager = ConnectionManager(storage_service)
         self.sessions: Dict[str, SimulationSession] = {}
         self.storage_service = storage_service
     
     @property
     def connection_count(self) -> int:
-        return self.connection_manager.connection_count
-    
-    async def handle_connection(self, websocket: WebSocket):
-        """Handle a generic WebSocket connection."""
-        client_id = f"client_{len(self.connection_manager.active_connections) + 1}"
-        await self.connection_manager.connect(websocket, client_id)
-        
-        try:
-            while True:
-                data = await websocket.receive_json()
-                await self._handle_message(client_id, data)
-        except WebSocketDisconnect:
-            await self.connection_manager.disconnect(client_id)
+        return len(self.sessions)
     
     async def handle_session(self, websocket: WebSocket, session_id: str):
         """Handle a session-bound WebSocket connection."""
@@ -163,21 +153,6 @@ class WebSocketManager:
                 await self._handle_session_message(session, data)
         except WebSocketDisconnect:
             await self._end_session(session_id)
-    
-    async def _handle_message(self, client_id: str, data: dict):
-        """Process a generic connection message."""
-        msg_type = data.get("type")
-        
-        if msg_type == "ping":
-            await self.connection_manager.send_message(client_id, {"type": "pong"})
-        elif msg_type == "status":
-            await self.connection_manager.send_message(client_id, {
-                "type": "status",
-                "payload": {
-                    "connections": self.connection_count,
-                    "sessions": len(self.sessions)
-                }
-            })
     
     async def _handle_session_message(self, session: SimulationSession, data: dict):
         """Process a session message."""
@@ -197,37 +172,42 @@ class WebSocketManager:
             await self._handle_reset(session)
         elif msg_type == "ping":
             await self._send(session, {"type": "pong"})
+        else:
+            await self._send_error(session, "unknown_message", f"Unsupported message type: {msg_type}")
     
     async def _handle_init(self, session: SimulationSession, data: dict):
         """Handle session initialization."""
         try:
             session.config = SimulationConfig.from_wire(data.get("config", {}))
+            session.workflow_id, session.rule_snapshot = load_rule_snapshot(data.get("workflowId"))
         except Exception as exc:
-            await self._send(session, {
-                "type": "ERROR",
-                "payload": {"status": "failed", "message": str(exc)},
-            })
+            await self._send_error(session, "invalid_initialization", str(exc))
             return
         session.total_time = session.config.max_simulation_time
+        session.status = "initialized"
         
         await self._send(session, {
             "type": "INIT_COMPLETE",
             "payload": {
                 "session_id": session.session_id,
-                "config": session.config.to_wire_dict()
+                "config": session.config.to_wire_dict(),
+                "workflowId": session.workflow_id,
             }
         })
+        await self._send_state(session)
     
     async def _handle_start(self, session: SimulationSession):
         """Handle simulation start."""
-        if session.is_running:
+        if session.status not in {"initialized", "stopped"}:
+            await self._send_error(session, "invalid_transition", f"Cannot start from {session.status}")
             return
         
         session.is_running = True
         session.is_paused = False
         session.started_at = datetime.utcnow()
+        session.status = "running"
         
-        await self._send(session, {"type": "STARTED"})
+        await self._send_state(session)
         
         # 鍚姩浠跨湡浠诲姟
         session.task = asyncio.create_task(self._run_simulation(session))
@@ -243,16 +223,7 @@ class WebSocketManager:
             return
         config = session.config
 
-        custom_rules = None
-        try:
-            rules = workflow_engine.rules
-            if rules:
-                custom_rules = [rule.to_dict() for rule in rules]
-                logger.info('Loaded %s workflow rules from editor', len(custom_rules))
-        except Exception as exc:
-            logger.warning('Failed to load workflow rules, fallback to default rules: %s', exc)
-
-        engine = SimulationEngine(config, custom_rules=custom_rules)
+        engine = SimulationEngine(config, custom_rules=session.rule_snapshot)
         session.engine = engine
         dt = config.simulation_dt
         max_time = config.max_simulation_time
@@ -361,12 +332,16 @@ class WebSocketManager:
                     await self._send_log(session, 'WARN', f'????????: {save_err}', 'WARN')
 
             session.is_running = False
+            session.status = step_status.value
+            await self._send_state(session)
             await self._send(
                 session,
                 {
                     'type': 'COMPLETE',
                     'payload': {
                         'status': step_status.value,
+                        'workflowId': session.workflow_id,
+                        'ruleCount': len(session.rule_snapshot),
                         'run_id': sim_id,
                         'saved_path': saved_path,
                         'statistics': {
@@ -389,8 +364,10 @@ class WebSocketManager:
             )
         except Exception as exc:
             logger.error('Simulation error: %s', exc, exc_info=True)
-            await self._send(session, {'type': 'ERROR', 'payload': {'status': 'failed', 'message': str(exc)}})
             session.is_running = False
+            session.status = "failed"
+            await self._send_state(session)
+            await self._send_error(session, "simulation_failed", str(exc))
         finally:
             session.engine = None
 
@@ -470,18 +447,27 @@ class WebSocketManager:
     
     async def _handle_pause(self, session: SimulationSession):
         """Handle pause."""
-        if session.is_running and not session.is_paused:
+        if session.status == "running":
             session.is_paused = True
-            await self._send(session, {"type": "PAUSED"})
+            session.status = "paused"
+            await self._send_state(session)
+        else:
+            await self._send_error(session, "invalid_transition", f"Cannot pause from {session.status}")
     
     async def _handle_resume(self, session: SimulationSession):
         """Handle resume."""
-        if session.is_running and session.is_paused:
+        if session.status == "paused":
             session.is_paused = False
-            await self._send(session, {"type": "RESUMED"})
+            session.status = "running"
+            await self._send_state(session)
+        else:
+            await self._send_error(session, "invalid_transition", f"Cannot resume from {session.status}")
     
     async def _handle_stop(self, session: SimulationSession):
         """Handle stop."""
+        if session.status not in {"running", "paused", "initialized"}:
+            await self._send_error(session, "invalid_transition", f"Cannot stop from {session.status}")
+            return
         session.is_running = False
         session.is_paused = False
         if session.engine:
@@ -490,7 +476,8 @@ class WebSocketManager:
         if session.task:
             session.task.cancel()
         
-        await self._send(session, {"type": "STOPPED"})
+        session.status = "stopped"
+        await self._send_state(session)
     
     async def _handle_reset(self, session: SimulationSession):
         """Handle reset."""
@@ -504,7 +491,14 @@ class WebSocketManager:
             "total_lane_changes": 0
         }
         
-        await self._send(session, {"type": "RESET_COMPLETE"})
+        session.status = "initialized"
+        await self._send_state(session)
+
+    async def _send_state(self, session: SimulationSession):
+        await self._send(session, {"type": "STATE", "payload": {"status": session.status}})
+
+    async def _send_error(self, session: SimulationSession, code: str, message: str):
+        await self._send(session, {"type": "ERROR", "payload": {"code": code, "message": message, "status": session.status}})
     
     async def _send(self, session: SimulationSession, message: dict):
         """Send a session message."""

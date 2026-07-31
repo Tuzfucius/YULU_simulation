@@ -19,8 +19,9 @@ class WebSocketProtocolTests(unittest.IsolatedAsyncioTestCase):
 
         await manager._handle_init(session, {"config": {"totalVehicles": 10}})
 
-        self.assertEqual(websocket.messages[-1]["type"], "INIT_COMPLETE")
-        self.assertEqual(websocket.messages[-1]["payload"]["config"]["totalVehicles"], 10)
+        self.assertEqual(websocket.messages[-2]["type"], "INIT_COMPLETE")
+        self.assertEqual(websocket.messages[-2]["payload"]["config"]["totalVehicles"], 10)
+        self.assertEqual(websocket.messages[-1]["payload"]["status"], "initialized")
 
     async def test_init_rejects_legacy_config_shape(self):
         websocket = _WebSocket()
@@ -30,7 +31,7 @@ class WebSocketProtocolTests(unittest.IsolatedAsyncioTestCase):
         await manager._handle_init(session, {"config": {"total_vehicles": 10}})
 
         self.assertEqual(websocket.messages[-1]["type"], "ERROR")
-        self.assertEqual(websocket.messages[-1]["payload"]["status"], "failed")
+        self.assertEqual(websocket.messages[-1]["payload"]["code"], "invalid_initialization")
 
 
 if __name__ == "__main__":
