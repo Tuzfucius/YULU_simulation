@@ -294,24 +294,9 @@ export const useSimStore = create<SimState>()(
                 }),
         }),
         {
-            name: 'sim-config',
+            name: 'sim-config-v2',
             partialize: (state) => ({ config: state.config }),
-            version: 1,
-            merge: (persistedState: unknown, currentState) => {
-                const persisted = persistedState as Partial<SimState> | null;
-                // Deep merge persisted config with default config to ensure new fields are present
-                if (!persisted || !persisted.config) {
-                    return currentState;
-                }
-                return {
-                    ...currentState,
-                    ...persisted,
-                    config: {
-                        ...currentState.config,
-                        ...persisted.config,
-                    },
-                };
-            },
+            version: 2,
         }
     )
 );
