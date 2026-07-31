@@ -105,7 +105,6 @@ export const NODE_TYPE_CONFIGS: NodeTypeConfig[] = [
     { type: 'headway_anomaly', label: '车头时距异常', category: 'condition', icon: '↔️', color: '#f97316', description: '车头时距过短（追尾风险）', defaultParams: { min_headway_s: 1.5 } },
     { type: 'density_exceeds', label: '密度超限', category: 'condition', icon: '🔥', color: '#f97316', description: '交通密度超过阈值', defaultParams: { threshold_veh_km: 80 } },
     { type: 'custom_expression', label: '自定义表达式', category: 'condition', icon: '🧮', color: '#f97316', description: '用户简单单行表达式判断', defaultParams: { expression: 'avg_speed < 30' } },
-    { type: 'custom_script', label: '自定义算法 (Python)', category: 'condition', icon: '💻', color: '#10b981', description: '支持复杂 Python 代码执行的类 CanvasMind 节点', defaultParams: { script: "def predict(context):\n    # Return pre-warning prob\n    return 0.8\n" } },
 
     // ────────── 逻辑组合 ──────────
     { type: 'logic_and', label: 'AND', category: 'logic', icon: '&', color: '#a78bfa', description: '两个条件都满足', defaultParams: {} },

@@ -101,12 +101,12 @@ function WorkflowNodeComponent({ id, data, selected }: NodeProps) {
     const style = CATEGORY_STYLES[nodeData.category] || CATEGORY_STYLES.condition;
     const isLogic = nodeData.category === 'logic';
     const isDualInput = isLogic && nodeData.logic !== 'NOT' && nodeData.logic !== 'THRESHOLD';
-    const isCustomScript = nodeData.subType === 'custom_script';
+    const isCustomScript = false;
 
     // 节点尺寸
-    const nodeWidth = isLogic ? (isDualInput ? 90 : 70) : (isCustomScript ? 320 : 200);
+    const nodeWidth = isLogic ? (isDualInput ? 90 : 70) : 200;
     const nodeHeight = isLogic ? (isDualInput ? 80 : 60) : 'auto';
-    const minNodeHeight = isLogic ? (isDualInput ? 80 : 60) : (isCustomScript ? 250 : 70);
+    const minNodeHeight = isLogic ? (isDualInput ? 80 : 60) : 70;
 
     // 简化参数显示
     const paramEntries = Object.entries(nodeData.params || {}).slice(0, 3);
