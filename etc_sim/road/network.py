@@ -42,6 +42,7 @@ class Merge:
 @dataclass
 class ETCGate:
     """ETC门架"""
+    gate_id: str
     segment: str
     position_km: float
 
@@ -95,9 +96,12 @@ class RoadNetwork:
         """
         self.merges.append(Merge(from_segment, to_segment, position_km))
     
-    def add_etc_gate(self, segment: str, position_km: float):
+    def add_etc_gate(self, segment: str, position_km: float, gate_id: Optional[str] = None):
         """添加ETC门架"""
-        self.etc_gates.append(ETCGate(segment, position_km))
+        resolved_gate_id = gate_id or f"G{len(self.etc_gates) + 1:02d}"
+        if any(gate.gate_id == resolved_gate_id for gate in self.etc_gates):
+            raise ValueError(f"Duplicate ETC gate id: {resolved_gate_id}")
+        self.etc_gates.append(ETCGate(resolved_gate_id, segment, position_km))
     
     def get_segment_at(self, position_km: float) -> Optional[Segment]:
         """获取指定位置所在的路段"""
@@ -171,6 +175,6 @@ class RoadNetwork:
                       for f in self.forks],
             'merges': [{'from': m.from_segment, 'to': m.to_segment, 'position_km': m.position_km}
                       for m in self.merges],
-            'etc_gates': [{'segment': g.segment, 'position_km': g.position_km}
+            'etc_gates': [{'gate_id': g.gate_id, 'segment': g.segment, 'position_km': g.position_km}
                          for g in self.etc_gates]
         }

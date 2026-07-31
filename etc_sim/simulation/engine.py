@@ -7,6 +7,7 @@ import random
 from collections import defaultdict
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
+from enum import Enum
 
 from ..config.parameters import SimulationConfig
 from ..core.vehicle import Vehicle
@@ -35,6 +36,14 @@ class SimulationResult:
     queue_events: List[Dict]
     phantom_jam_events: List[Dict]
     safety_data: List[Dict]
+
+
+class SimulationStepStatus(str, Enum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    TIME_LIMIT_REACHED = "time_limit_reached"
+    FAILED = "failed"
+    STOPPED = "stopped"
 
 
 class SimulationEngine:
@@ -105,6 +114,8 @@ class SimulationEngine:
         
         self.current_time = 0.0
         self.vehicle_id_counter = 0
+        self._stop_requested = False
+        self._next_sample_time = 0.0
         self.etc_gates: List[Dict[str, Any]] = []
         
         # 车辆生成调度（step() 和 run() 共用）
@@ -246,13 +257,18 @@ class SimulationEngine:
         """添加输出处理器"""
         pass  # 可扩展
     
-    def step(self):
+    def stop(self) -> None:
+        self._stop_requested = True
+
+    def step(self) -> SimulationStepStatus:
         """执行一步仿真"""
         dt = self.config.simulation_dt if self.config else 1.0
         max_time = self.config.max_simulation_time if self.config else 3900
         
+        if self._stop_requested:
+            return SimulationStepStatus.STOPPED
         if self.current_time >= max_time:
-            return
+            return SimulationStepStatus.TIME_LIMIT_REACHED
         
         # 使用类成员变量维护生成进度
         while self.spawn_idx < len(self.spawn_schedule) and self.spawn_schedule[self.spawn_idx] <= self.current_time:
@@ -320,7 +336,8 @@ class SimulationEngine:
         
         # 轨迹采样（按配置的间隔记录）
         sample_interval = self.config.trajectory_sample_interval if self.config else 2
-        if int(self.current_time) % sample_interval == 0:
+        should_sample = self.current_time + 1e-9 >= self._next_sample_time
+        if should_sample:
             for v in active_vehicles:
                 self.trajectory_data.append({
                     'id': v.id, 'pos': v.pos, 'time': self.current_time,
@@ -367,7 +384,7 @@ class SimulationEngine:
         self.phantom_jam_events.extend(jams)
         
         # 安全数据采样（与轨迹数据使用相同的采样间隔，避免每步都记录）
-        if int(self.current_time) % sample_interval == 0:
+        if should_sample:
             for v in active_vehicles:
                 self.safety_data.append({
                     'time': self.current_time, 'vehicle_id': v.id,
@@ -414,6 +431,15 @@ class SimulationEngine:
         self.vehicles = [v for v in self.vehicles if not v.finished]
         
         self.current_time += dt
+        if should_sample:
+            while self._next_sample_time <= self.current_time:
+                self._next_sample_time += sample_interval
+
+        if self.current_time >= max_time:
+            return SimulationStepStatus.TIME_LIMIT_REACHED
+        if not self.vehicles and self.spawn_idx >= len(self.spawn_schedule):
+            return SimulationStepStatus.COMPLETED
+        return SimulationStepStatus.RUNNING
     
     def run(self):
         """运行仿真主循环
@@ -424,9 +450,9 @@ class SimulationEngine:
         max_time = self.config.max_simulation_time if self.config else 3900
         
         while len(self.vehicles) > 0 or self.spawn_idx < len(self.spawn_schedule):
-            self.step()
+            status = self.step()
             
-            if self.current_time > max_time:
+            if status in {SimulationStepStatus.COMPLETED, SimulationStepStatus.TIME_LIMIT_REACHED, SimulationStepStatus.STOPPED}:
                 print(f"达到最大模拟时间 {max_time}秒，仿真结束")
                 break
         
