@@ -29,7 +29,7 @@ from etc_sim.backend.services.storage import StorageService
 
 # Import actual simulation engine
 from etc_sim.config.parameters import SimulationConfig
-from etc_sim.simulation.engine import SimulationEngine
+from etc_sim.simulation.engine import SimulationEngine, SimulationStepStatus
 # ?????????????????????????
 from etc_sim.backend.api.workflows import _standalone_engine as workflow_engine
 
@@ -98,6 +98,7 @@ class SimulationSession:
         self.total_time = 0.0
         self.started_at: Optional[datetime] = None
         self.task: Optional[asyncio.Task] = None
+        self.engine: Optional[SimulationEngine] = None
         
         # 缁熻鏁版嵁
         self.stats = {
@@ -272,6 +273,7 @@ class WebSocketManager:
             logger.warning('Failed to load workflow rules, fallback to default rules: %s', exc)
 
         engine = SimulationEngine(config, custom_rules=custom_rules)
+        session.engine = engine
         dt = config.simulation_dt
         max_time = config.max_simulation_time
         num_lanes = config.num_lanes
@@ -302,7 +304,7 @@ class WebSocketManager:
                     if not session.is_running:
                         return
 
-                engine.step()
+                step_status = engine.step()
                 session.current_time = engine.current_time
 
                 active_vehicles = [vehicle for vehicle in engine.vehicles if not vehicle.finished]
@@ -345,6 +347,9 @@ class WebSocketManager:
                         'INFO',
                     )
 
+                if step_status != SimulationStepStatus.RUNNING:
+                    break
+
                 await asyncio.sleep(0.001)
 
             await self._send_log(
@@ -381,6 +386,7 @@ class WebSocketManager:
                 {
                     'type': 'COMPLETE',
                     'payload': {
+                        'status': step_status.value,
                         'run_id': sim_id,
                         'saved_path': saved_path,
                         'statistics': {
@@ -403,8 +409,10 @@ class WebSocketManager:
             )
         except Exception as exc:
             logger.error('Simulation error: %s', exc, exc_info=True)
-            await self._send(session, {'type': 'ERROR', 'payload': {'message': str(exc)}})
+            await self._send(session, {'type': 'ERROR', 'payload': {'status': 'failed', 'message': str(exc)}})
             session.is_running = False
+        finally:
+            session.engine = None
 
     async def _send_snapshot_from_engine(self, session: SimulationSession, vehicles, num_lanes=4, lane_width=3.5):
         """Send a snapshot built from the engine state."""
@@ -496,6 +504,8 @@ class WebSocketManager:
         """Handle stop."""
         session.is_running = False
         session.is_paused = False
+        if session.engine:
+            session.engine.stop()
         
         if session.task:
             session.task.cancel()
