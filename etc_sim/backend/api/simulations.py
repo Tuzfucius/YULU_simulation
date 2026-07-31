@@ -17,7 +17,7 @@ _simulations_db: dict = {}
 async def list_simulations(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    status_filter: Optional[str] = Query(None, regex="^(pending|running|completed|failed)$")
+    status_filter: Optional[str] = Query(None, pattern="^(pending|running|completed|failed)$")
 ) -> List[dict]:
     """获取仿真历史列表"""
     simulations = []

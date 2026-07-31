@@ -47,7 +47,7 @@ async def get_analysis_summary(simulation_id: str) -> dict:
 async def get_chart_data(
     simulation_id: str,
     chart_type: str,
-    time_range: Optional[str] = Query(None, regex="^\\d+-\\d+$"),
+  time_range: Optional[str] = Query(None, pattern="^\\d+-\\d+$"),
     segments: Optional[List[int]] = Query(None)
 ) -> Dict[str, Any]:
     """获取图表数据"""
