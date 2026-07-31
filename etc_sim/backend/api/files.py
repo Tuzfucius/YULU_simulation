@@ -603,7 +603,6 @@ async def get_simulation_gates(path: str):
 # 鑴氭湰绠＄悊
 # ============================================
 
-@router.get("/scripts/tree")
 async def get_scripts_tree():
     """Get the scripts directory tree."""
     SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -611,7 +610,6 @@ async def get_scripts_tree():
     return {"dir": str(SCRIPTS_DIR), "tree": tree}
 
 
-@router.get("/scripts/list")
 async def list_scripts():
     """List Python scripts."""
     SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -619,7 +617,6 @@ async def list_scripts():
     return {"dir": str(SCRIPTS_DIR), "files": files}
 
 
-@router.get("/scripts/read")
 async def read_script(path: str):
     """Read a script file."""
     target = (SCRIPTS_DIR / path).resolve()
@@ -635,7 +632,6 @@ class SaveScriptRequest(BaseModel):
     content: str
 
 
-@router.post("/scripts/save")
 async def save_script(req: SaveScriptRequest):
     """Save a script file."""
     target = (SCRIPTS_DIR / req.path).resolve()
@@ -654,7 +650,6 @@ class RunScriptRequest(BaseModel):
     sim_run_dir: Optional[str] = None  # 缁戝畾鐨勪豢鐪熻褰曠洰褰曪紙鐩稿璺緞锛?
 
 
-@router.post("/scripts/run")
 async def run_script(req: RunScriptRequest):
     """Run a sandboxed Python script."""
 

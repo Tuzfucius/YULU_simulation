@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .api import analysis, charts, configs, environment, evaluation, files, road_network, runs, simulations, websocket, workflows
-from .api import code_execution, custom_roads, data_packets, prediction
+from .api import custom_roads, data_packets, prediction
 from .core.websocket_manager import WebSocketManager
 from .services.storage import StorageService
 
@@ -109,7 +109,6 @@ app.include_router(files.router, prefix="/api/files", tags=["????"])
 app.include_router(runs.router, prefix="/api/runs", tags=["????"])
 app.include_router(workflows.router, prefix="/api/workflows", tags=["????"])
 app.include_router(evaluation.router, prefix="/api/evaluation", tags=["????"])
-app.include_router(code_execution.router, prefix="/api/code", tags=["????"])
 app.include_router(data_packets.router, prefix="/api/packets", tags=["?????"])
 app.include_router(custom_roads.router, prefix="/api/custom-roads", tags=["?????"])
 app.include_router(prediction.router, prefix="/api", tags=["??????"])

@@ -103,7 +103,6 @@ async def delete_packet(packet_id: str):
     return {"success": True, "message": f"数据包 {packet_id} 已删除"}
 
 
-@router.post("/{packet_id}/evaluate")
 async def evaluate_packet_with_code(packet_id: str, request: EvaluateWithCodeRequest):
     """使用用户代码对数据包进行评估
     
