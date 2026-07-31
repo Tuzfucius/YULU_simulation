@@ -7,6 +7,8 @@ Desktop.ini
 # IDE and Project related
 .vscode/
 .idea/
+.cursor/
+.codegraph/
 .claude/
 .spec-workflow
 .sisyphus
