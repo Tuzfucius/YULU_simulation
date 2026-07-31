@@ -3,10 +3,9 @@
 基于 IDM 和 MOBIL 的交通流仿真系统。
 """
 
-from .config.defaults import DEFAULT_CONFIG
 from .config.parameters import SimulationConfig, load_config
 
-__all__ = ["SimulationConfig", "load_config", "DEFAULT_CONFIG", "SimulationEngine"]
+__all__ = ["SimulationConfig", "load_config", "SimulationEngine"]
 
 
 def __getattr__(name: str):

@@ -91,7 +91,7 @@ class SimulationSession:
     def __init__(self, session_id: str, websocket: WebSocket):
         self.session_id = session_id
         self.websocket = websocket
-        self.config: Optional[Dict[str, Any]] = None
+        self.config: Optional[SimulationConfig] = None
         self.is_running = False
         self.is_paused = False
         self.current_time = 0.0
@@ -200,14 +200,21 @@ class WebSocketManager:
     
     async def _handle_init(self, session: SimulationSession, data: dict):
         """Handle session initialization."""
-        session.config = data.get("config", {})
-        session.total_time = session.config.get("max_simulation_time", 3600)
+        try:
+            session.config = SimulationConfig.from_wire(data.get("config", {}))
+        except Exception as exc:
+            await self._send(session, {
+                "type": "ERROR",
+                "payload": {"status": "failed", "message": str(exc)},
+            })
+            return
+        session.total_time = session.config.max_simulation_time
         
         await self._send(session, {
             "type": "INIT_COMPLETE",
             "payload": {
                 "session_id": session.session_id,
-                "config": session.config
+                "config": session.config.to_wire_dict()
             }
         })
     
@@ -227,41 +234,14 @@ class WebSocketManager:
     
     async def _run_simulation(self, session: SimulationSession):
         """Run the simulation loop."""
-        config_data = session.config or {}
-
-        config = SimulationConfig(
-            road_length_km=config_data.get('roadLengthKm', 10),
-            segment_length_km=config_data.get('segmentLengthKm', 1),
-            num_lanes=config_data.get('numLanes', 4),
-            lane_width=config_data.get('laneWidth', 3.5),
-            custom_road_length_km=config_data.get('customRoadLengthKm'),
-            custom_gantry_positions=config_data.get('customGantryPositionsKm', []),
-            custom_road_path=config_data.get('customRoadPath'),
-            custom_ramps=config_data.get('customRamps', []),
-            total_vehicles=config_data.get('totalVehicles', 1200),
-            simulation_dt=config_data.get('simulationDt', 1.0),
-            max_simulation_time=config_data.get('maxSimulationTime', 3600),
-            anomaly_ratio=config_data.get('anomalyRatio', 0.01),
-            global_anomaly_start=config_data.get('globalAnomalyStart', 200),
-            vehicle_safe_run_time=config_data.get('vehicleSafeRunTime', 200),
-            forced_change_dist=config_data.get('forcedChangeDist', 400),
-            lane_change_gap=config_data.get('laneChangeGap', 25),
-            lane_change_max_retries=config_data.get('laneChangeMaxRetries', 5),
-            lane_change_retry_interval=config_data.get('laneChangeRetryInterval', 2.0),
-            impact_threshold=config_data.get('impactThreshold', 0.90),
-            impact_speed_ratio=config_data.get('impactSpeedRatio', 0.70),
-            trajectory_sample_interval=config_data.get('trajectorySampleInterval', 2),
-            lane_coupling_dist=50.0,
-            lane_coupling_factor=0.01,
-            queue_speed_threshold=15.0,
-            queue_min_vehicles=3,
-            queue_dissipation_rate=0.8,
-            phantom_jam_speed=30.0,
-            phantom_jam_dist=200.0,
-            phase_critical_density=35.0,
-            phase_transition_threshold=5.0,
-            impact_discover_dist=config_data.get('impactDiscoverDist', 150.0),
-        )
+        if session.config is None:
+            await self._send(session, {
+                "type": "ERROR",
+                "payload": {"status": "failed", "message": "Session is not initialized"},
+            })
+            session.is_running = False
+            return
+        config = session.config
 
         custom_rules = None
         try:

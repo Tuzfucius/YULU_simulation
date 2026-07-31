@@ -7,11 +7,8 @@ from typing import List, Optional
 from datetime import datetime
 import uuid
 
-from etc_sim.backend.models.schemas import (
-    SimulationConfig,
-    ConfigCreateRequest,
-    ConfigResponse
-)
+from etc_sim.backend.models.schemas import ConfigCreateRequest, ConfigResponse
+from etc_sim.config.parameters import SimulationConfig
 
 router = APIRouter()
 
@@ -44,7 +41,7 @@ async def create_config(request: ConfigCreateRequest) -> ConfigResponse:
     _configs_db[config_id] = {
         "name": request.name,
         "description": request.description,
-        "config": request.config.to_dict(),
+        "config": request.config.to_wire_dict(),
         "created_at": now,
         "updated_at": now
     }
@@ -53,7 +50,7 @@ async def create_config(request: ConfigCreateRequest) -> ConfigResponse:
         id=config_id,
         name=request.name,
         description=request.description,
-        config=request.config.to_dict(),
+        config=request.config.to_wire_dict(),
         created_at=now,
         updated_at=now
     )
@@ -94,7 +91,7 @@ async def update_config(
     _configs_db[config_id].update({
         "name": request.name,
         "description": request.description,
-        "config": request.config.to_dict(),
+        "config": request.config.to_wire_dict(),
         "updated_at": datetime.utcnow()
     })
     

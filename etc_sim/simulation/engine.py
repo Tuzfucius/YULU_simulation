@@ -62,7 +62,7 @@ class SimulationEngine:
                  custom_rules: Optional[List[Dict]] = None):
         self.config = config
         self.road_network = RoadNetwork(
-            road_length_km=config.road_length_km if config else 20.0,
+            road_length_km=config.effective_road_length_km if config else 20.0,
             num_lanes=config.num_lanes if config else 4
         )
         self.spawner = VehicleSpawner(
@@ -72,7 +72,7 @@ class SimulationEngine:
         
         # 初始化空间索引 (O(N) 车辆检索)
         self.spatial_index = SpatialIndex(
-            road_length_km=config.road_length_km if config else 20.0,
+            road_length_km=config.effective_road_length_km if config else 20.0,
             num_lanes=config.num_lanes if config else 4,
             cell_size=100.0  # 每 100 米一个网格
         )
@@ -160,7 +160,7 @@ class SimulationEngine:
                 _register_gate(gate_km, segment_idx)
         else:
             # 回退：如果没有，按照 config 里面的 segment_length_km 去平均划分
-            road_length = self.config.road_length_km if self.config else 20.0
+            road_length = self.config.effective_road_length_km if self.config else 20.0
             segment_length = self.config.segment_length_km if self.config else 2.0
             pos = segment_length
             segment_idx = 1
@@ -485,7 +485,7 @@ class SimulationEngine:
         
         return {
             'trajectory_version': 1,  # 标记轨迹数据格式版本，storage.py 保存时会升级为 v2
-            'config': self.config.to_dict() if self.config else {},
+            'config': self.config.to_wire_dict() if self.config else {},
             'statistics': {
                 'total_vehicles': len(results.finished_vehicles),
                 'total_anomalies': len(results.anomaly_logs),

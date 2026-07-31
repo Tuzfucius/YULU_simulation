@@ -20,7 +20,6 @@ if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
 
 from etc_sim.config.parameters import SimulationConfig, load_config
-from etc_sim.config.defaults import DEFAULT_CONFIG
 from etc_sim.simulation.engine import SimulationEngine
 
 
@@ -60,7 +59,7 @@ def main():
         config = load_config(config_path)
     else:
         print("Using default config")
-        config = DEFAULT_CONFIG
+        config = SimulationConfig.from_wire({})
     
     if export_json:
         config_path = 'etc_sim_config.json'
